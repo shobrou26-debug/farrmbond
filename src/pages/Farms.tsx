@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { SatelliteViewer } from "@/components/SatelliteViewer";
 import {
   Map,
   Plus,
@@ -44,6 +45,8 @@ const mockFarms = [
     id: "1",
     name: "Green Valley Farm",
     location: "Nairobi, Kenya",
+    latitude: -1.2921,
+    longitude: 36.8219,
     size: 45,
     sizeUnit: "acres",
     status: "active",
@@ -57,6 +60,8 @@ const mockFarms = [
     id: "2",
     name: "Sunrise Ranch",
     location: "Nakuru, Kenya",
+    latitude: -0.3031,
+    longitude: 36.0800,
     size: 120,
     sizeUnit: "acres",
     status: "active",
@@ -70,6 +75,8 @@ const mockFarms = [
     id: "3",
     name: "Riverside Fields",
     location: "Kisumu, Kenya",
+    latitude: -0.1022,
+    longitude: 34.7617,
     size: 30,
     sizeUnit: "acres",
     status: "planting",
@@ -90,10 +97,17 @@ const statusColors: Record<string, string> = {
 
 export default function Farms() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [satelliteOpen, setSatelliteOpen] = useState(false);
+  const [selectedFarm, setSelectedFarm] = useState<(typeof mockFarms)[0] | null>(null);
 
   const filteredFarms = mockFarms.filter((farm) =>
     farm.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const handleSatelliteClick = (farm: (typeof mockFarms)[0]) => {
+    setSelectedFarm(farm);
+    setSatelliteOpen(true);
+  };
 
   return (
     <AppLayout>
@@ -154,7 +168,9 @@ export default function Farms() {
                       <DropdownMenuContent align="start">
                         <DropdownMenuItem><Eye className="w-4 h-4 mr-2" />View Details</DropdownMenuItem>
                         <DropdownMenuItem><Edit className="w-4 h-4 mr-2" />Edit Farm</DropdownMenuItem>
-                        <DropdownMenuItem><Satellite className="w-4 h-4 mr-2" />Satellite View</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleSatelliteClick(farm)}>
+                          <Satellite className="w-4 h-4 mr-2" />Satellite View
+                        </DropdownMenuItem>
                         <DropdownMenuItem className="text-destructive"><Trash2 className="w-4 h-4 mr-2" />Delete</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -206,7 +222,11 @@ export default function Farms() {
                       <Eye className="w-4 h-4 mr-2" />
                       View
                     </Button>
-                    <Button className="flex-1 gradient-primary" size="sm">
+                    <Button
+                      className="flex-1 gradient-primary"
+                      size="sm"
+                      onClick={() => handleSatelliteClick(farm)}
+                    >
                       <Satellite className="w-4 h-4 mr-2" />
                       Satellite
                     </Button>
@@ -217,6 +237,18 @@ export default function Farms() {
           ))}
         </motion.div>
       </div>
+
+      {/* Satellite Viewer Modal */}
+      {selectedFarm && (
+        <SatelliteViewer
+          open={satelliteOpen}
+          onOpenChange={setSatelliteOpen}
+          farmName={selectedFarm.name}
+          latitude={selectedFarm.latitude}
+          longitude={selectedFarm.longitude}
+          ndviScore={selectedFarm.ndvi}
+        />
+      )}
     </AppLayout>
   );
 }
