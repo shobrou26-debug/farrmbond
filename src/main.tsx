@@ -34,6 +34,7 @@ const YieldPrediction = lazy(() => import("./pages/YieldPrediction.tsx"));
 const KnowledgeBase = lazy(() => import("./pages/KnowledgeBase.tsx"));
 const FarmComparison = lazy(() => import("./pages/FarmComparison.tsx"));
 const WeatherAlerts = lazy(() => import("./pages/WeatherAlerts.tsx"));
+const AuditLog = lazy(() => import("./pages/AuditLog.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 // ============================================================
@@ -140,6 +141,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/knowledge" element={<RequireAuth><KnowledgeBase /></RequireAuth>} />
               <Route path="/farm-comparison" element={<RequireAuth><FarmComparison /></RequireAuth>} />
               <Route path="/weather-alerts" element={<RequireAuth><WeatherAlerts /></RequireAuth>} />
+              <Route path="/audit-log" element={<RequireAuth><AuditLog /></RequireAuth>} />
 
               {/* Agronomist Routes */}
               <Route path="/marketplace" element={<RequireAuth><AgronomistMarketplace /></RequireAuth>} />
