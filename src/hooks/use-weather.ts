@@ -61,7 +61,7 @@ export interface WeatherLocation {
 
 export interface WeatherAlert {
   type: string;
-  severity: "low" | "medium" | "high";
+  severity: "low" | "medium" | "high" | "critical";
   title: string;
   message: string;
 }
