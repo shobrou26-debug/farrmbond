@@ -2,6 +2,7 @@ import "@vly-ai/integrations";
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { PWAInstallPrompt, OfflineBanner } from "@/components/PWAInstallPrompt";
+import { LanguageProvider } from "@/hooks/use-language";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
@@ -107,6 +108,7 @@ createRoot(document.getElementById("root")!).render(
         <VlyToolbar />
       </ToolbarErrorBoundary>
       <ConvexAuthProvider client={convex}>
+        <LanguageProvider>
         <BrowserRouter>
           <PWAInstallPrompt />
           <OfflineBanner />
@@ -151,6 +153,7 @@ createRoot(document.getElementById("root")!).render(
           </Suspense>
         </BrowserRouter>
         <Toaster />
+        </LanguageProvider>
       </ConvexAuthProvider>
     </RootErrorBoundary>
   </StrictMode>,

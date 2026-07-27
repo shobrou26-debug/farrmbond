@@ -50,6 +50,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { NotificationCenter } from "@/components/NotificationCenter";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { useTranslation } from "@/hooks/use-language";
 
 // ============================================================
 // Navigation Configuration
@@ -239,6 +241,7 @@ function Sidebar({ className }: { className?: string }) {
 
 function Header({ onMenuClick }: { onMenuClick: () => void }) {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
   useEffect(() => {
@@ -295,6 +298,9 @@ function Header({ onMenuClick }: { onMenuClick: () => void }) {
         <Button variant="ghost" size="icon" className="hidden sm:flex">
           <Globe className="w-5 h-5" />
         </Button>
+
+        {/* Language */}
+        <LanguageSwitcher />
 
         {/* Notifications */}
         <NotificationCenter />
