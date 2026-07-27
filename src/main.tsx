@@ -27,6 +27,7 @@ const Community = lazy(() => import("./pages/Community.tsx"));
 const AgronomistMarketplace = lazy(() => import("./pages/AgronomistMarketplace.tsx"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard.tsx"));
 const DiseaseDetection = lazy(() => import("./pages/DiseaseDetection.tsx"));
+const FarmCalendar = lazy(() => import("./pages/Calendar.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 // ============================================================
@@ -125,7 +126,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/finances" element={<RequireAuth><Finances /></RequireAuth>} />
               <Route path="/analytics" element={<RequireAuth><Analytics /></RequireAuth>} />
               <Route path="/community" element={<RequireAuth><Community /></RequireAuth>} />
-              <Route path="/calendar" element={<RequireAuth><Dashboard /></RequireAuth>} />
+              <Route path="/calendar" element={<RequireAuth><FarmCalendar /></RequireAuth>} />
               <Route path="/disease-detection" element={<RequireAuth><DiseaseDetection /></RequireAuth>} />
 
               {/* Agronomist Routes */}
