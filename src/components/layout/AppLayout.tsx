@@ -49,6 +49,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { NotificationCenter } from "@/components/NotificationCenter";
 
 // ============================================================
 // Navigation Configuration
@@ -296,10 +297,7 @@ function Header({ onMenuClick }: { onMenuClick: () => void }) {
         </Button>
 
         {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="w-5 h-5" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-destructive rounded-full" />
-        </Button>
+        <NotificationCenter />
 
         {/* User menu */}
         <DropdownMenu>
