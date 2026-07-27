@@ -1,77 +1,86 @@
-import '@vly-ai/integrations';
+import "@vly-ai/integrations";
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
-import React, { StrictMode, useEffect, lazy, Suspense } from "react";
+import React, { StrictMode, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Route, Routes, useLocation } from "react-router";
+import { BrowserRouter, Route, Routes } from "react-router";
 import "./index.css";
 
-// Lazy load route components for better code splitting
+// ============================================================
+// Lazy loaded route components for code splitting
+// ============================================================
 const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
+const Farms = lazy(() => import("./pages/Farms.tsx"));
+const Crops = lazy(() => import("./pages/Crops.tsx"));
+const Livestock = lazy(() => import("./pages/Livestock.tsx"));
+const Weather = lazy(() => import("./pages/Weather.tsx"));
+const AIAssistant = lazy(() => import("./pages/AIAssistant.tsx"));
+const Finances = lazy(() => import("./pages/Finances.tsx"));
+const Analytics = lazy(() => import("./pages/Analytics.tsx"));
+const Community = lazy(() => import("./pages/Community.tsx"));
+const AgronomistMarketplace = lazy(() => import("./pages/AgronomistMarketplace.tsx"));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
-// Simple loading fallback for route transitions
+// ============================================================
+// Loading fallback
+// ============================================================
 function RouteLoading() {
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="animate-pulse text-muted-foreground">Loading...</div>
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-10 h-10 rounded-xl gradient-primary animate-pulse" />
+        <p className="text-sm text-muted-foreground animate-pulse">Loading...</p>
+      </div>
     </div>
   );
 }
 
-/** Silent error boundary — if VlyToolbar crashes it renders nothing instead of
- *  crashing the whole app (e.g. hook errors in WebContainer environment). */
+// ============================================================
+// Error Boundaries
+// ============================================================
 class ToolbarErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean }
 > {
   state = { hasError: false };
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-  componentDidCatch(err: Error) {
-    console.warn("[VlyToolbar] Caught error, toolbar disabled:", err.message);
-  }
-  render() {
-    return this.state.hasError ? null : this.props.children;
-  }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(err: Error) { console.warn("[VlyToolbar] Caught error:", err.message); }
+  render() { return this.state.hasError ? null : this.props.children; }
 }
 
-/** Hard guard so runtime errors never leave the preview as a blank page. */
 class RootErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; message: string; stack: string }
 > {
   state = { hasError: false, message: "", stack: "" };
   static getDerivedStateFromError(error: Error) {
-    return {
-      hasError: true,
-      message: error.message || "Unknown runtime error",
-      stack: error.stack || "",
-    };
+    return { hasError: true, message: error.message || "Unknown error", stack: error.stack || "" };
   }
-  componentDidCatch(err: Error) {
-    console.error("[WebContainer preview] Root crash:", err);
-  }
+  componentDidCatch(err: Error) { console.error("[FarmBond] Root crash:", err); }
   render() {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-background text-foreground p-6">
           <div className="max-w-lg text-center">
-            <p className="text-sm font-semibold">Preview runtime error</p>
-            <p className="mt-2 text-xs text-muted-foreground break-words">
-              {this.state.message}
-            </p>
+            <p className="text-sm font-semibold">Something went wrong</p>
+            <p className="mt-2 text-xs text-muted-foreground break-words">{this.state.message}</p>
             {this.state.stack && (
               <pre className="mt-3 text-left text-[10px] leading-4 text-muted-foreground/80 max-h-40 overflow-auto rounded border border-border/60 p-2">
                 {this.state.stack}
               </pre>
             )}
+            <button
+              className="mt-4 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm"
+              onClick={() => window.location.reload()}
+            >
+              Reload
+            </button>
           </div>
         </div>
       );
@@ -80,34 +89,14 @@ class RootErrorBoundary extends React.Component<
   }
 }
 
+// ============================================================
+// Convex Client
+// ============================================================
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
 
-
-
-function RouteSyncer() {
-  const location = useLocation();
-  useEffect(() => {
-    window.parent.postMessage(
-      { type: "iframe-route-change", path: location.pathname },
-      "*",
-    );
-  }, [location.pathname]);
-
-  useEffect(() => {
-    function handleMessage(event: MessageEvent) {
-      if (event.data?.type === "navigate") {
-        if (event.data.direction === "back") window.history.back();
-        if (event.data.direction === "forward") window.history.forward();
-      }
-    }
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, []);
-
-  return null;
-}
-
-
+// ============================================================
+// App Render
+// ============================================================
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <RootErrorBoundary>
@@ -116,22 +105,41 @@ createRoot(document.getElementById("root")!).render(
       </ToolbarErrorBoundary>
       <ConvexAuthProvider client={convex}>
         <BrowserRouter>
-          <RouteSyncer />
           <Suspense fallback={<RouteLoading />}>
             <Routes>
+              {/* Public Routes */}
               <Route path="/" element={<Landing />} />
-              <Route
-                path="/auth"
-                element={<AuthPage redirectAfterAuth="/dashboard" />}
-              />
-              <Route
-                path="/dashboard"
-                element={
-                  <RequireAuth>
-                    <Dashboard />
-                  </RequireAuth>
-                }
-              />
+              <Route path="/auth" element={<AuthPage redirectAfterAuth="/dashboard" />} />
+
+              {/* Protected Farmer Routes */}
+              <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
+              <Route path="/farms" element={<RequireAuth><Farms /></RequireAuth>} />
+              <Route path="/crops" element={<RequireAuth><Crops /></RequireAuth>} />
+              <Route path="/livestock" element={<RequireAuth><Livestock /></RequireAuth>} />
+              <Route path="/weather" element={<RequireAuth><Weather /></RequireAuth>} />
+              <Route path="/ai-assistant" element={<RequireAuth><AIAssistant /></RequireAuth>} />
+              <Route path="/finances" element={<RequireAuth><Finances /></RequireAuth>} />
+              <Route path="/analytics" element={<RequireAuth><Analytics /></RequireAuth>} />
+              <Route path="/community" element={<RequireAuth><Community /></RequireAuth>} />
+              <Route path="/calendar" element={<RequireAuth><Dashboard /></RequireAuth>} />
+
+              {/* Agronomist Routes */}
+              <Route path="/marketplace" element={<RequireAuth><AgronomistMarketplace /></RequireAuth>} />
+              <Route path="/profile" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
+              <Route path="/consultations" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
+              <Route path="/messages" element={<RequireAuth><Community /></RequireAuth>} />
+              <Route path="/knowledge" element={<RequireAuth><Community /></RequireAuth>} />
+
+              {/* Admin Routes */}
+              <Route path="/admin" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
+              <Route path="/admin/users" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
+              <Route path="/admin/subscriptions" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
+              <Route path="/admin/support" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
+              <Route path="/admin/content" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
+              <Route path="/admin/audit" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
+              <Route path="/admin/settings" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
+
+              {/* Catch-all */}
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

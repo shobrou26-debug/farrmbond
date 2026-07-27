@@ -1,9 +1,14 @@
-/* DO NOT CHANGE */
+/* FarmBond - AI-Powered Smart Farming Platform */
+/* Premium Agriculture Theme with Green/Earth Tones */
 @import "tailwindcss";
 @import "tw-animate-css";
 @custom-variant dark (&:is(.dark *));
 
-/* DO NOT CHANGE */
+/* ============================================================
+   FARMBOND THEME TOKENS
+   Premium green/earth agriculture design system
+   ============================================================ */
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -40,87 +45,323 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  
+  /* FarmBond custom colors */
+  --color-success: oklch(0.65 0.19 155);
+  --color-success-foreground: oklch(0.98 0 0);
+  --color-warning: oklch(0.75 0.18 75);
+  --color-warning-foreground: oklch(0.2 0 0);
+  --color-info: oklch(0.65 0.15 240);
+  --color-info-foreground: oklch(0.98 0 0);
 }
 
-/* CHANGE VALUES FOR THEME */
+/* ============================================================
+   LIGHT THEME - Premium Agriculture
+   Clean, fresh, modern farming aesthetic
+   ============================================================ */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --radius: 0.75rem;
+  
+  /* Core palette */
+  --background: oklch(0.99 0.005 145);
+  --foreground: oklch(0.15 0.02 145);
+  
+  /* Card surfaces */
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.15 0.02 145);
+  
+  /* Popover */
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.15 0.02 145);
+  
+  /* Primary - Deep forest green */
+  --primary: oklch(0.42 0.14 155);
+  --primary-foreground: oklch(0.98 0 0);
+  
+  /* Secondary - Soft sage */
+  --secondary: oklch(0.95 0.02 145);
+  --secondary-foreground: oklch(0.30 0.08 155);
+  
+  /* Muted */
+  --muted: oklch(0.96 0.01 145);
+  --muted-foreground: oklch(0.50 0.03 145);
+  
+  /* Accent - Warm earth */
+  --accent: oklch(0.92 0.03 85);
+  --accent-foreground: oklch(0.30 0.06 85);
+  
+  /* Destructive */
+  --destructive: oklch(0.58 0.22 25);
+  
+  /* Borders & inputs */
+  --border: oklch(0.90 0.02 145);
+  --input: oklch(0.90 0.02 145);
+  --ring: oklch(0.42 0.14 155);
+  
+  /* Charts */
+  --chart-1: oklch(0.42 0.14 155); /* Forest green */
+  --chart-2: oklch(0.70 0.15 145); /* Fresh green */
+  --chart-3: oklch(0.65 0.12 85);  /* Golden harvest */
+  --chart-4: oklch(0.55 0.15 200); /* Sky blue */
+  --chart-5: oklch(0.60 0.18 30);  /* Terra cotta */
+  
+  /* Sidebar */
+  --sidebar: oklch(0.18 0.04 155);
+  --sidebar-foreground: oklch(0.95 0 0);
+  --sidebar-primary: oklch(0.70 0.15 145);
+  --sidebar-primary-foreground: oklch(0.15 0.04 155);
+  --sidebar-accent: oklch(0.22 0.05 155);
+  --sidebar-accent-foreground: oklch(0.95 0 0);
+  --sidebar-border: oklch(0.25 0.05 155);
+  --sidebar-ring: oklch(0.70 0.15 145);
 }
 
+/* ============================================================
+   DARK THEME - Night Farm
+   Rich dark mode with subtle green accents
+   ============================================================ */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* Core palette */
+  --background: oklch(0.13 0.02 155);
+  --foreground: oklch(0.95 0.01 145);
+  
+  /* Card surfaces */
+  --card: oklch(0.17 0.025 155);
+  --card-foreground: oklch(0.95 0.01 145);
+  
+  /* Popover */
+  --popover: oklch(0.17 0.025 155);
+  --popover-foreground: oklch(0.95 0.01 145);
+  
+  /* Primary - Vibrant green */
+  --primary: oklch(0.72 0.16 145);
+  --primary-foreground: oklch(0.15 0.04 155);
+  
+  /* Secondary */
+  --secondary: oklch(0.22 0.03 155);
+  --secondary-foreground: oklch(0.85 0.02 145);
+  
+  /* Muted */
+  --muted: oklch(0.22 0.025 155);
+  --muted-foreground: oklch(0.65 0.03 145);
+  
+  /* Accent - Warm earth */
+  --accent: oklch(0.25 0.04 85);
+  --accent-foreground: oklch(0.85 0.04 85);
+  
+  /* Destructive */
+  --destructive: oklch(0.65 0.22 25);
+  
+  /* Borders & inputs */
+  --border: oklch(0.25 0.03 155);
+  --input: oklch(0.25 0.03 155);
+  --ring: oklch(0.72 0.16 145);
+  
+  /* Charts */
+  --chart-1: oklch(0.72 0.16 145);
+  --chart-2: oklch(0.65 0.14 155);
+  --chart-3: oklch(0.70 0.12 85);
+  --chart-4: oklch(0.60 0.15 200);
+  --chart-5: oklch(0.65 0.18 30);
+  
+  /* Sidebar */
+  --sidebar: oklch(0.12 0.03 155);
+  --sidebar-foreground: oklch(0.95 0 0);
+  --sidebar-primary: oklch(0.72 0.16 145);
+  --sidebar-primary-foreground: oklch(0.12 0.03 155);
+  --sidebar-accent: oklch(0.18 0.04 155);
+  --sidebar-accent-foreground: oklch(0.95 0 0);
+  --sidebar-border: oklch(0.20 0.04 155);
+  --sidebar-ring: oklch(0.72 0.16 145);
 }
 
+/* ============================================================
+   BASE STYLES
+   ============================================================ */
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01", "ss03";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   button:not([disabled]),
   [role="button"]:not([disabled]) {
     cursor: pointer;
+  }
+  
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: oklch(0.70 0.03 145);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.55 0.04 145);
+  }
+}
+
+/* ============================================================
+   UTILITY CLASSES
+   ============================================================ */
+@layer utilities {
+  /* Glassmorphism */
+  .glass {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+  }
+  .dark .glass {
+    background: rgba(20, 30, 20, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  /* Gradient backgrounds */
+  .gradient-primary {
+    background: linear-gradient(135deg, oklch(0.42 0.14 155) 0%, oklch(0.50 0.16 145) 100%);
+  }
+  .gradient-warm {
+    background: linear-gradient(135deg, oklch(0.65 0.12 85) 0%, oklch(0.60 0.15 30) 100%);
+  }
+  .gradient-nature {
+    background: linear-gradient(135deg, oklch(0.42 0.14 155) 0%, oklch(0.65 0.12 85) 100%);
+  }
+  .gradient-sky {
+    background: linear-gradient(135deg, oklch(0.55 0.15 200) 0%, oklch(0.42 0.14 155) 100%);
+  }
+  
+  /* Text gradients */
+  .text-gradient-primary {
+    background: linear-gradient(135deg, oklch(0.42 0.14 155) 0%, oklch(0.55 0.16 145) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  /* Card hover effects */
+  .card-hover {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.12);
+  }
+  
+  /* Subtle shadow */
+  .shadow-soft {
+    box-shadow: 0 4px 16px -4px rgba(0, 0, 0, 0.08);
+  }
+  
+  /* Animation utilities */
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-out forwards;
+  }
+  .animate-slide-up {
+    animation: slideUp 0.5s ease-out forwards;
+  }
+  .animate-scale-in {
+    animation: scaleIn 0.3s ease-out forwards;
+  }
+}
+
+/* ============================================================
+   KEYFRAMES
+   ============================================================ */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* ============================================================
+   COMPONENT STYLES
+   ============================================================ */
+@layer components {
+  /* Premium card style */
+  .card-premium {
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.7) 100%);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.06);
+  }
+  .dark .card-premium {
+    background: linear-gradient(145deg, rgba(30, 40, 30, 0.9) 0%, rgba(25, 35, 25, 0.7) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  
+  /* Status badges */
+  .badge-success {
+    background: oklch(0.90 0.08 145);
+    color: oklch(0.30 0.12 155);
+  }
+  .badge-warning {
+    background: oklch(0.90 0.08 85);
+    color: oklch(0.35 0.12 75);
+  }
+  .badge-danger {
+    background: oklch(0.90 0.08 25);
+    color: oklch(0.45 0.18 25);
+  }
+  .badge-info {
+    background: oklch(0.90 0.06 200);
+    color: oklch(0.40 0.12 200);
+  }
+  
+  /* Input focus ring */
+  .input-focus {
+    transition: all 0.2s ease;
+  }
+  .input-focus:focus {
+    ring: 2px;
+    ring-color: oklch(0.42 0.14 155 / 0.3);
+    border-color: oklch(0.42 0.14 155);
   }
 }
