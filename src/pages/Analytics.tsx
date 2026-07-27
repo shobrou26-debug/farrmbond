@@ -3,6 +3,8 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ExportDropdown } from "@/components/ExportDropdown";
+import { exportAnalyticsData } from "@/lib/exports";
 import {
   BarChart3,
   TrendingUp,
@@ -27,18 +29,42 @@ const itemVariants = {
 
 // Mock chart data
 const monthlyData = [
-  { month: "Jan", income: 18000, expenses: 12000 },
-  { month: "Feb", income: 22000, expenses: 14000 },
-  { month: "Mar", income: 28000, expenses: 16000 },
-  { month: "Apr", income: 35000, expenses: 18000 },
-  { month: "May", income: 32000, expenses: 15000 },
-  { month: "Jun", income: 42000, expenses: 20000 },
-  { month: "Jul", income: 38000, expenses: 17000 },
+  { month: "Jan", income: 18000, expenses: 12000, profit: 6000, yield: 12, farms: 3 },
+  { month: "Feb", income: 22000, expenses: 14000, profit: 8000, yield: 14, farms: 3 },
+  { month: "Mar", income: 28000, expenses: 16000, profit: 12000, yield: 18, farms: 4 },
+  { month: "Apr", income: 35000, expenses: 18000, profit: 17000, yield: 22, farms: 4 },
+  { month: "May", income: 32000, expenses: 15000, profit: 17000, yield: 20, farms: 4 },
+  { month: "Jun", income: 42000, expenses: 20000, profit: 22000, yield: 28, farms: 5 },
+  { month: "Jul", income: 38000, expenses: 17000, profit: 21000, yield: 25, farms: 5 },
 ];
 
 const maxVal = Math.max(...monthlyData.map((d) => Math.max(d.income, d.expenses)));
 
 export default function Analytics() {
+  const handleExportPDF = () => {
+    const exportData = monthlyData.map((d) => ({
+      period: d.month,
+      revenue: d.income,
+      expenses: d.expenses,
+      profit: d.profit,
+      yield: d.yield,
+      farms: d.farms,
+    }));
+    exportAnalyticsData(exportData, "Analytics Report", "pdf");
+  };
+
+  const handleExportExcel = () => {
+    const exportData = monthlyData.map((d) => ({
+      period: d.month,
+      revenue: d.income,
+      expenses: d.expenses,
+      profit: d.profit,
+      yield: d.yield,
+      farms: d.farms,
+    }));
+    exportAnalyticsData(exportData, "Analytics Report", "excel");
+  };
+
   return (
     <AppLayout>
       <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
@@ -50,7 +76,7 @@ export default function Analytics() {
             </div>
             <div className="flex gap-2">
               <Button variant="outline"><Calendar className="w-4 h-4 mr-2" />Last 30 Days</Button>
-              <Button variant="outline"><Download className="w-4 h-4 mr-2" />Export Report</Button>
+              <ExportDropdown onExportPDF={handleExportPDF} onExportExcel={handleExportExcel} />
             </div>
           </div>
         </motion.div>

@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { ExportDropdown } from "@/components/ExportDropdown";
+import { exportTransactionHistory } from "@/lib/exports";
 import { useMarketPrices } from "@/hooks/use-market-prices";
 import {
   DollarSign,
@@ -181,6 +183,14 @@ export default function Finances() {
     return matchesSearch && matchesType;
   });
 
+  const handleExportPDF = () => {
+    exportTransactionHistory(mockTransactions, "pdf");
+  };
+
+  const handleExportExcel = () => {
+    exportTransactionHistory(mockTransactions, "excel");
+  };
+
   return (
     <AppLayout>
       <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
@@ -191,7 +201,7 @@ export default function Finances() {
               <p className="text-muted-foreground mt-1">Track income, expenses, and market prices</p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline"><Download className="w-4 h-4 mr-2" />Export</Button>
+              <ExportDropdown onExportPDF={handleExportPDF} onExportExcel={handleExportExcel} />
               <Button className="gradient-primary"><Plus className="w-4 h-4 mr-2" />Add Transaction</Button>
             </div>
           </div>
