@@ -1,5 +1,7 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAction } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -50,175 +52,7 @@ const suggestions = [
   { icon: Beef, label: "Livestock Care", prompt: "How do I maintain healthy cattle during dry season?" },
 ];
 
-// ============================================================
-// AI Response Generation (simulated)
-// ============================================================
 
-function generateAIResponse(query: string): string {
-  const lowerQuery = query.toLowerCase();
-  
-  if (lowerQuery.includes("tomato") || lowerQuery.includes("crop health")) {
-    return `Great question about tomato crop health! Here are my recommendations:
-
-**Nutrition Management:**
-• Apply balanced NPK fertilizer (10-10-10) during vegetative stage
-• Switch to high-potassium fertilizer during fruiting
-• Ensure adequate calcium to prevent blossom end rot
-
-**Water Management:**
-• Maintain consistent soil moisture (60-70% field capacity)
-• Use drip irrigation to reduce leaf wetness
-• Water deeply but less frequently to encourage deep root growth
-
-**Disease Prevention:**
-• Practice crop rotation (3-year minimum)
-• Remove plant debris after harvest
-• Apply organic mulch to prevent soil-borne diseases
-• Monitor for early blight and late blight signs
-
-**Best Practices:**
-• Prune lower leaves to improve air circulation
-• Stake or cage plants for support
-• Monitor pH levels (6.0-6.8 ideal for tomatoes)
-
-Would you like me to elaborate on any of these points?`;
-  }
-  
-  if (lowerQuery.includes("pest") || lowerQuery.includes("aphid")) {
-    return `Here are effective natural pest control methods for aphids and other common pests:
-
-**Biological Control:**
-• Release ladybugs - they consume up to 50 aphids daily
-• Attract lacewings with dill, fennel, or yarrow
-• Encourage predatory wasps with flowering plants
-
-**Organic Sprays:**
-• Neem oil solution (2 tbsp per liter of water)
-• Garlic spray (blend 2 garlic bulbs, strain, dilute)
-• Chili pepper spray for repelling soft-bodied insects
-
-**Companion Planting:**
-• Plant marigolds to deter aphids
-• Use nasturtiums as trap crops
-• Interplant with strong-scented herbs (basil, mint)
-
-**Cultural Practices:**
-• Inspect plants regularly for early detection
-• Remove heavily infested leaves
-• Use reflective mulch to disorient flying pests
-• Ensure proper plant spacing for air circulation
-
-Prevention is always better than cure - maintain healthy soil and plants to naturally resist pest attacks!`;
-  }
-  
-  if (lowerQuery.includes("rain") || lowerQuery.includes("weather")) {
-    return `Here's how to prepare your farm for heavy rainfall:
-
-**Before the Rain:**
-• Ensure proper drainage channels are clear
-• Harvest any mature crops immediately
-• Stake young plants that might be damaged by wind
-• Cover sensitive crops with protective sheets
-
-**Soil Management:**
-• Create raised beds if your soil is prone to waterlogging
-• Add organic matter to improve soil structure and drainage
-• Avoid working wet soil to prevent compaction
-• Consider cover crops to prevent soil erosion
-
-**Post-Rain Care:**
-• Check for crop damage and disease signs
-• Allow soil to dry before any field work
-• Apply preventive fungicide if needed
-• Replant any damaged crops promptly
-
-**Infrastructure:**
-• Check and repair farm roads and paths
-• Ensure water harvesting systems are ready
-• Verify storage facilities are waterproof
-
-Would you like specific advice for your farm's soil type?`;
-  }
-  
-  if (lowerQuery.includes("maize") || lowerQuery.includes("price")) {
-    return `Current maize market information for East Africa:
-
-**Kenya (NAFARM):**
-• Grade 1 Maize: KES 3,800-4,200 per 90kg bag
-• Grade 2 Maize: KES 3,200-3,600 per 90kg bag
-• Trend: Stable with slight upward pressure
-
-**Market Factors:**
-• Current demand is moderate
-• Import volumes affecting local prices
-• Quality premium for well-dried maize (13.5% moisture)
-
-**Tips to Maximize Returns:**
-• Store properly in hermetic bags to maintain quality
-• Sell when prices peak (usually July-September)
-• Consider value addition (maize flour processing)
-• Join cooperative societies for better bargaining power
-
-**Price Forecast:**
-• Expect moderate price increases as stocks deplete
-• Plant now for harvest during peak demand season
-• Monitor NCPB and county market prices weekly
-
-For real-time prices, check your local agricultural market or the e-NAM platform.`;
-  }
-  
-  if (lowerQuery.includes("bean") || lowerQuery.includes("planting")) {
-    return `Optimal planting guide for beans in East Africa:
-
-**Best Planting Times:**
-• Long rains: March-April (main season)
-• Short rains: October-November
-• Avoid planting during peak dry season
-
-**Soil Requirements:**
-• Well-drained loamy soil (pH 6.0-7.0)
-• Temperature: 18-27°C optimal
-• Add compost or manure before planting
-
-**Planting Method:**
-• Row spacing: 45-60 cm apart
-• Plant spacing: 10-15 cm between plants
-• Seed depth: 3-5 cm
-• Inoculate seeds with Rhizobium bacteria
-
-**Varieties for East Africa:**
-• Rose Coco (GLP-2): High yielding, early maturing
-• Mwezi Moja: Drought tolerant
-• Pinto: Disease resistant
-• Calico: Good for intercropping
-
-**Key Management Tips:**
-• Weed within 3 weeks of planting
-• Apply phosphorus fertilizer at planting
-• Scout for bean fly and pod borers
-• Harvest when pods are dry and brown
-
-Beans fix nitrogen, making them excellent for rotation!`;
-  }
-  
-  return `Thank you for your question! As your AI Farming Assistant, I can help you with:
-
-🌾 **Crop Management** - Planting guides, disease control, nutrient management
-🐛 **Pest Control** - Identification, organic solutions, prevention strategies
-🌤️ **Weather Advice** - Farm preparation, seasonal planning
-💰 **Market Intelligence** - Price trends, selling strategies
-🐄 **Livestock Care** - Health management, feeding, breeding
-📊 **Farm Planning** - Budgeting, record keeping, optimization
-
-Please ask me anything specific about farming, and I'll provide detailed, actionable advice tailored to your needs!
-
-**Quick Tips:**
-• Be specific about your crop type and location
-• Mention any problems you're currently facing
-• Ask about timing for seasonal activities
-
-What would you like to know about today?`;
-}
 
 // ============================================================
 // Chat Message Component
@@ -333,7 +167,9 @@ export default function AIAssistant() {
     scrollToBottom();
   }, [messages]);
 
-  const handleSend = async (content?: string) => {
+  const chatWithAI = useAction(api.aiAssistant.chatWithAI);
+
+  const handleSend = useCallback(async (content?: string) => {
     const messageContent = content || input.trim();
     if (!messageContent || isLoading) return;
 
@@ -348,19 +184,38 @@ export default function AIAssistant() {
     setInput("");
     setIsLoading(true);
 
-    // Simulate AI response delay
-    setTimeout(() => {
-      const response = generateAIResponse(messageContent);
+    try {
+      // Build conversation history for context
+      const history = messages.slice(-6).map((m) => ({
+        role: m.role === "user" ? ("user" as const) : ("model" as const),
+        parts: [{ text: m.content }],
+      }));
+
+      const result = await chatWithAI({
+        message: messageContent,
+        history: history,
+      });
+
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: response,
+        content: result.response,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
+    } catch (error) {
+      console.error("AI chat error:", error);
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "I'm sorry, I encountered an error processing your request. Please make sure the GOOGLE_GEMINI_API_KEY is configured in your environment, or try again later.",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
       setIsLoading(false);
-    }, 1500);
-  };
+    }
+  }, [input, isLoading, messages, chatWithAI]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
