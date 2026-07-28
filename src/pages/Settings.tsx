@@ -54,6 +54,9 @@ import {
   UserX,
   ShieldCheck,
   ShieldAlert,
+  Clock,
+  MailCheck,
+  Timer,
 } from "lucide-react";
 
 // ============================================================
@@ -401,6 +404,12 @@ function SubscriptionTab() {
   const trialEndDate = trialStatus?.trialEndDate;
   const hasUsedTrial = trialStatus?.hasUsedTrial ?? false;
 
+  // Calculate trial progress (7 day trial)
+  const trialDuration = 7;
+  const trialProgress = isTrialActive ? ((trialDuration - trialDaysRemaining) / trialDuration) * 100 : 0;
+  const isExpiringSoon = isTrialActive && trialDaysRemaining <= 2;
+  const isUrgent = isTrialActive && trialDaysRemaining <= 1;
+
   const handleStartTrial = async () => {
     setIsStartingTrial(true);
     try {
@@ -447,17 +456,88 @@ function SubscriptionTab() {
           </div>
 
           {isTrialActive && trialEndDate && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-              <div className="text-sm">
-                <p className="font-medium text-amber-800 dark:text-amber-200">
-                  Free trial active — {trialDaysRemaining} day{trialDaysRemaining !== 1 ? "s" : ""} remaining
-                </p>
-                <p className="text-amber-700 dark:text-amber-300 text-xs">
-                  After the trial, you'll be downgraded to Free. Subscribe to keep Pro features.
-                </p>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className={`rounded-xl border p-4 space-y-3 ${
+                isUrgent
+                  ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800"
+                  : isExpiringSoon
+                    ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800"
+                    : "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800"
+              }`}
+            >
+              {/* Warning Header */}
+              <div className="flex items-center gap-2">
+                <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                  isUrgent ? "bg-red-100 dark:bg-red-900/50" : isExpiringSoon ? "bg-amber-100 dark:bg-amber-900/50" : "bg-blue-100 dark:bg-blue-900/50"
+                }`}>
+                  {isUrgent ? (
+                    <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                  ) : isExpiringSoon ? (
+                    <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  ) : (
+                    <Timer className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <p className={`text-sm font-semibold ${
+                    isUrgent ? "text-red-800 dark:text-red-200" : isExpiringSoon ? "text-amber-800 dark:text-amber-200" : "text-blue-800 dark:text-blue-200"
+                  }`}>
+                    {isUrgent
+                      ? "Trial expires tomorrow!"
+                      : isExpiringSoon
+                        ? `Trial expires in ${trialDaysRemaining} day${trialDaysRemaining !== 1 ? "s" : ""}`
+                        : `${trialDaysRemaining} day${trialDaysRemaining !== 1 ? "s" : ""} remaining`
+                    }
+                  </p>
+                  <p className={`text-xs ${
+                    isUrgent ? "text-red-600 dark:text-red-400" : isExpiringSoon ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"
+                  }`}>
+                    Ends {trialEndDate ? new Date(trialEndDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : ""}
+                  </p>
+                </div>
+                <Badge className={`${
+                  isUrgent ? "bg-red-500/10 text-red-600 border-red-500/20" : isExpiringSoon ? "bg-amber-500/10 text-amber-600 border-amber-500/20" : "bg-blue-500/10 text-blue-600 border-blue-500/20"
+                } border text-[10px]`}>{isUrgent ? "URGENT" : isExpiringSoon ? "EXPIRING" : "ACTIVE"}</Badge>
               </div>
-            </div>
+
+              {/* Progress Bar */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Trial Progress</span>
+                  <span className={isUrgent ? "text-red-600" : isExpiringSoon ? "text-amber-600" : "text-blue-600"}>{Math.round(trialProgress)}%</span>
+                </div>
+                <div className="h-2 bg-white dark:bg-gray-800 rounded-full overflow-hidden">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${trialProgress}%` }}
+                    transition={{ duration: 1, ease: "easeOut" }}
+                    className={`h-full rounded-full ${
+                      isUrgent ? "bg-red-500" : isExpiringSoon ? "bg-amber-500" : "bg-blue-500"
+                    }`}
+                  />
+                </div>
+              </div>
+
+              {/* Email Notification Status */}
+              <div className="flex items-center gap-2 text-xs">
+                <MailCheck className={`w-3.5 h-3.5 ${isExpiringSoon ? "text-green-600" : "text-muted-foreground"}`} />
+                <span className={isExpiringSoon ? "text-green-700 dark:text-green-400" : "text-muted-foreground"}>
+                  {isExpiringSoon
+                    ? "Expiry warning email sent — check your inbox"
+                    : "You'll receive an email 2 days before expiry"
+                  }
+                </span>
+              </div>
+
+              {/* Action Message */}
+              <p className={`text-xs ${
+                isUrgent ? "text-red-600 dark:text-red-400" : isExpiringSoon ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"
+              }`}>
+                Subscribe now to keep all Pro features uninterrupted.
+              </p>
+            </motion.div>
           )}
 
           <div className="space-y-3">
