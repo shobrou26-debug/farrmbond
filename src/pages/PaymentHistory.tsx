@@ -37,6 +37,7 @@ import {
   Edit,
 } from "lucide-react";
 import { generateInvoicePDF, generateAllInvoicesPDF, generateReceiptPDF } from "@/lib/pdf-invoice";
+import { toast } from "sonner";
 
 // ============================================================
 // Animation Variants
@@ -56,7 +57,7 @@ const itemVariants = {
 // Invoice Card Component
 // ============================================================
 
-function InvoiceCard({ invoice, onDownload, onReceipt }: { invoice: any; onDownload: (id: string) => void; onReceipt: (id: string) => void }) {
+function InvoiceCard({ invoice, onDownload, onReceipt, onEmail, isEmailing }: { invoice: any; onDownload: (id: string) => void; onReceipt: (id: string) => void; onEmail: (id: string) => void; isEmailing: boolean }) {
   const [isExpanded, setIsExpanded] = useState(false);
   
   const statusConfig: Record<string, { color: string; icon: any; label: string }> = {
@@ -188,7 +189,7 @@ function InvoiceCard({ invoice, onDownload, onReceipt }: { invoice: any; onDownl
               </div>
 
               {/* Actions */}
-              <div className="flex gap-2 mt-4">
+              <div className="flex flex-wrap gap-2 mt-4">
                 {invoice.hostedInvoiceUrl && (
                   <Button
                     variant="outline"
@@ -213,6 +214,18 @@ function InvoiceCard({ invoice, onDownload, onReceipt }: { invoice: any; onDownl
                   <Download className="w-4 h-4 mr-1" />
                   Download PDF
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEmail(invoice.id);
+                  }}
+                  disabled={isEmailing}
+                >
+                  <Mail className="w-4 h-4 mr-1" />
+                  {isEmailing ? "Sending..." : "Email Invoice"}
+                </Button>
                 {invoice.receiptUrl && (
                   <Button
                     variant="ghost"
@@ -222,7 +235,7 @@ function InvoiceCard({ invoice, onDownload, onReceipt }: { invoice: any; onDownl
                       onReceipt(invoice.id);
                     }}
                   >
-                    <Mail className="w-4 h-4 mr-1" />
+                    <Receipt className="w-4 h-4 mr-1" />
                     Receipt
                   </Button>
                 )}
@@ -335,6 +348,7 @@ export default function PaymentHistory() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [isDownloading, setIsDownloading] = useState<string | null>(null);
+  const [isEmailingInvoice, setIsEmailingInvoice] = useState<string | null>(null);
 
   // Query invoices from Stripe
   const stripeStatus = useQuery(api.stripe.getStripeStatus);
@@ -434,6 +448,39 @@ export default function PaymentHistory() {
       console.error("Failed to generate PDF:", error);
     } finally {
       setIsDownloading(null);
+    }
+  };
+
+  const sendInvoiceEmail = useAction(api.emails.sendInvoiceEmail);
+
+  const handleEmailInvoice = async (invoiceId: string) => {
+    setIsEmailingInvoice(invoiceId);
+    try {
+      const invoice = invoices.find(inv => inv.id === invoiceId);
+      if (invoice && user?.email) {
+        await sendInvoiceEmail({
+          userId: user._id,
+          email: user.email,
+          name: user.name || "",
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.number || invoice.id.slice(-8),
+          amount: invoice.amountPaid || invoice.amountDue,
+          currency: invoice.currency || "usd",
+          periodStart: invoice.periodStart,
+          periodEnd: invoice.periodEnd,
+          paymentMethodLast4: invoice.paymentMethodLast4 || "4242",
+        });
+        toast.success("Invoice emailed successfully!", {
+          description: `Invoice sent to ${user.email}`,
+        });
+      }
+    } catch (error) {
+      console.error("Failed to email invoice:", error);
+      toast.error("Failed to email invoice", {
+        description: "Please try again later",
+      });
+    } finally {
+      setIsEmailingInvoice(null);
     }
   };
 
@@ -574,6 +621,8 @@ export default function PaymentHistory() {
                         invoice={invoice}
                         onDownload={handleDownloadPdf}
                         onReceipt={handleDownloadReceipt}
+                        onEmail={handleEmailInvoice}
+                        isEmailing={isEmailingInvoice === invoice.id}
                       />
                       ))
                     )}

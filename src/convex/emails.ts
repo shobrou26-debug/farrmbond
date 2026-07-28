@@ -115,6 +115,33 @@ export const sendSubscriptionCancelledEmail = action({
 });
 
 /**
+ * Send an invoice email to a user
+ */
+export const sendInvoiceEmail = action({
+  args: {
+    userId: v.id("users"),
+    email: v.string(),
+    name: v.string(),
+    invoiceId: v.string(),
+    invoiceNumber: v.string(),
+    amount: v.number(),
+    currency: v.string(),
+    periodStart: v.number(),
+    periodEnd: v.number(),
+    paymentMethodLast4: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!RESEND_API_KEY) return { sent: false, reason: "API key not configured" };
+    const invoiceUrl = `${APP_URL}/payment-history`;
+    const periodStart = new Date(args.periodStart).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const periodEnd = new Date(args.periodEnd).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const amountFormatted = new Intl.NumberFormat("en-US", { style: "currency", currency: args.currency.toUpperCase() }).format(args.amount / 100);
+    const htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;background:#f7faf7}.container{background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,.1)}.header{background:linear-gradient(135deg,#16a34a,#15803d);padding:32px;text-align:center}.header h1{color:#fff;margin:0;font-size:24px}.content{padding:32px}.invoice-box{background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:20px;margin:24px 0}.invoice-box h3{margin-top:0;color:#166534;font-size:16px}.invoice-box table{width:100%;border-collapse:collapse;margin:12px 0}.invoice-box td{padding:8px 0;border-bottom:1px solid #e5e7eb;font-size:14px}.invoice-box td:last-child{text-align:right;font-weight:600}.cta-button{display:inline-block;background:#16a34a;color:#fff!important;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;margin:24px 0}.footer{background:#f8fafc;padding:24px;text-align:center;color:#64748b;font-size:14px}.footer a{color:#16a34a}</style></head><body><div class="container"><div class="header"><h1>🌱 FarmBond</h1></div><div class="content"><h2>📄 Your Invoice is Ready</h2><p>Hi ${args.name || "there"},</p><p>Thank you for your subscription! Here's your invoice for the current billing period.</p><div class="invoice-box"><h3>Invoice #${args.invoiceNumber}</h3><table><tr><td>Invoice Date</td><td>${periodStart}</td></tr><tr><td>Service Period</td><td>${periodStart} — ${periodEnd}</td></tr><tr><td>Payment Method</td><td>•••• ${args.paymentMethodLast4}</td></tr><tr><td style="border-top:2px solid #16a34a;padding-top:12px"><strong>Amount Paid</strong></td><td style="border-top:2px solid #16a34a;padding-top:12px;color:#16a34a"><strong>${amountFormatted}</strong></td></tr></table></div><a href="${invoiceUrl}" class="cta-button">View & Download Invoice</a><p>You can also download a PDF copy of this invoice from your payment history.</p><p>Happy farming! 🚜<br>The FarmBond Team</p></div><div class="footer"><p>FarmBond — AI-Powered Smart Farming</p><p><a href="${APP_URL}/privacy">Privacy Policy</a> | <a href="${APP_URL}/settings?tab=notifications">Unsubscribe</a></p></div></div></body></html>`;
+    return sendEmail(args.email, `📄 FarmBond Invoice #${args.invoiceNumber} — ${amountFormatted}`, htmlContent);
+  },
+});
+
+/**
  * Helper function to send email via Resend
  */
 async function sendEmail(to: string, subject: string, html: string) {
