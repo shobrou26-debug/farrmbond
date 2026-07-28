@@ -89,6 +89,9 @@ export { Sidebar, SidebarProvider, SidebarTrigger, SidebarInset, SidebarHeader, 
 // Data Visualization
 export { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, ChartStyle } from "./chart"; // ~20KB+ (requires recharts - very large!)
 
+// Image Optimization
+export { ResponsiveImage, getOptimizedImageUrl, getFarmImageSrcSet } from "./responsive-image"; // ~2KB - Lazy loading, blur placeholders, responsive srcSet
+
 // Notifications
 export { Toaster } from "./sonner"; // ~8KB - Toast notifications
 

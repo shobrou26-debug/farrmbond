@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router";
 import { SatelliteViewer } from "@/components/SatelliteViewer";
+import { ResponsiveImage, getFarmImageSrcSet } from "@/components/ui/responsive-image";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -142,11 +143,12 @@ function FarmCard({ farm }: { farm: typeof farms[0] }) {
         <Card className="overflow-hidden border-border/50 card-hover">
           {/* Cover Image */}
           <div className="relative h-36 sm:h-44 overflow-hidden">
-            <img
+            <ResponsiveImage
               src={farm.image}
               alt={farm.name}
-              className="w-full h-full object-cover"
-              loading="lazy"
+              aspectRatio=""
+              className="absolute inset-0"
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
             
