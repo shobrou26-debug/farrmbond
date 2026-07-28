@@ -9,6 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/use-auth";
 import {
   User,
@@ -31,6 +39,19 @@ import {
   AlertTriangle,
   ExternalLink,
   Sprout,
+  Users,
+  Crown,
+  MoreVertical,
+  Search,
+  Filter,
+  ArrowUpRight,
+  ArrowDownRight,
+  BarChart3,
+  Settings as SettingsIcon,
+  UserCheck,
+  UserX,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
 
 // ============================================================
@@ -45,6 +66,33 @@ const containerVariants = {
 const itemVariants = {
   hidden: { opacity: 0, y: 16 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
+};
+
+// ============================================================
+// Mock Users Data (for demo)
+// ============================================================
+
+const mockUsers = [
+  { id: "1", name: "Grace Wanjiku", email: "grace@example.com", role: "farmer", subscription: "pro", status: "active", lastActive: "2 min ago", farms: 3 },
+  { id: "2", name: "James Ochieng", email: "james@example.com", role: "agronomist", subscription: "enterprise", status: "active", lastActive: "15 min ago", farms: 0 },
+  { id: "3", name: "Mary Wanjiru", email: "mary@example.com", role: "farmer", subscription: "free", status: "active", lastActive: "1 hour ago", farms: 1 },
+  { id: "4", name: "Peter Kamau", email: "peter@example.com", role: "farmer", subscription: "pro", status: "suspended", lastActive: "3 days ago", farms: 2 },
+  { id: "5", name: "Dr. Sarah Kimani", email: "sarah@farmbond.com", role: "admin", subscription: "enterprise", status: "active", lastActive: "Just now", farms: 0 },
+  { id: "6", name: "David Mwangi", email: "david@example.com", role: "farmer", subscription: "basic", status: "active", lastActive: "5 hours ago", farms: 1 },
+];
+
+const roleConfig: Record<string, { label: string; color: string; icon: React.ComponentType<{ className?: string }> }> = {
+  farmer: { label: "Farmer", color: "bg-green-500/10 text-green-600", icon: Sprout },
+  agronomist: { label: "Agronomist", color: "bg-blue-500/10 text-blue-600", icon: Users },
+  admin: { label: "Admin", color: "bg-purple-500/10 text-purple-600", icon: ShieldCheck },
+  super_admin: { label: "Super Admin", color: "bg-amber-500/10 text-amber-600", icon: Crown },
+};
+
+const subscriptionConfig: Record<string, { label: string; color: string }> = {
+  free: { label: "Free", color: "bg-gray-500/10 text-gray-600" },
+  basic: { label: "Basic", color: "bg-blue-500/10 text-blue-600" },
+  pro: { label: "Pro", color: "bg-green-500/10 text-green-600" },
+  enterprise: { label: "Enterprise", color: "bg-purple-500/10 text-purple-600" },
 };
 
 // ============================================================
@@ -67,7 +115,6 @@ function ProfileTab() {
 
   return (
     <div className="space-y-6">
-      {/* Avatar */}
       <Card className="border-border/50">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Profile Photo</CardTitle>
@@ -92,7 +139,6 @@ function ProfileTab() {
         </CardContent>
       </Card>
 
-      {/* Personal Info */}
       <Card className="border-border/50">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Personal Information</CardTitle>
@@ -129,7 +175,6 @@ function ProfileTab() {
         </CardContent>
       </Card>
 
-      {/* Farm Preferences */}
       <Card className="border-border/50">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Farm Preferences</CardTitle>
@@ -152,7 +197,6 @@ function ProfileTab() {
         </CardContent>
       </Card>
 
-      {/* Save Button */}
       <div className="flex justify-end">
         <Button onClick={handleSave} className="gradient-primary">
           {saved ? (
@@ -219,10 +263,7 @@ function NotificationsTab() {
                     <p className="text-xs text-muted-foreground">{item.desc}</p>
                   </div>
                 </div>
-                <Switch
-                  checked={notifications[item.key]}
-                  onCheckedChange={() => toggleNotification(item.key)}
-                />
+                <Switch checked={notifications[item.key]} onCheckedChange={() => toggleNotification(item.key)} />
               </div>
             );
           })}
@@ -243,10 +284,7 @@ function NotificationsTab() {
                 <p className="text-xs text-muted-foreground">Summary of your farm activity and insights</p>
               </div>
             </div>
-            <Switch
-              checked={notifications.emailDigest}
-              onCheckedChange={() => toggleNotification("emailDigest")}
-            />
+            <Switch checked={notifications.emailDigest} onCheckedChange={() => toggleNotification("emailDigest")} />
           </div>
         </CardContent>
       </Card>
@@ -259,11 +297,8 @@ function NotificationsTab() {
 // ============================================================
 
 function SecurityTab() {
-  const { user } = useAuth();
-
   return (
     <div className="space-y-6">
-      {/* Password */}
       <Card className="border-border/50">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Password</CardTitle>
@@ -291,7 +326,6 @@ function SecurityTab() {
         </CardContent>
       </Card>
 
-      {/* Two-Factor Authentication */}
       <Card className="border-border/50">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Two-Factor Authentication</CardTitle>
@@ -302,7 +336,8 @@ function SecurityTab() {
             <div className="flex items-center gap-3">
               <Key className="w-4 h-4 text-muted-foreground" />
               <div>
-                <p className="text-sm font-medium">2FA via Authenticator App</p>                <p className="text-xs text-muted-foreground">Use an authenticator app to generate one-time codes</p>
+                <p className="text-sm font-medium">2FA via Authenticator App</p>
+                <p className="text-xs text-muted-foreground">Use an authenticator app to generate one-time codes</p>
               </div>
             </div>
             <Button variant="outline" size="sm">Enable</Button>
@@ -310,7 +345,6 @@ function SecurityTab() {
         </CardContent>
       </Card>
 
-      {/* Active Sessions */}
       <Card className="border-border/50">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Active Sessions</CardTitle>
@@ -339,7 +373,6 @@ function SecurityTab() {
         </CardContent>
       </Card>
 
-      {/* Danger Zone */}
       <Card className="border-red-500/20">
         <CardHeader className="pb-3">
           <CardTitle className="text-base text-red-600">Danger Zone</CardTitle>
@@ -372,7 +405,6 @@ function SubscriptionTab() {
 
   return (
     <div className="space-y-6">
-      {/* Current Plan */}
       <Card className="border-border/50">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Current Plan</CardTitle>
@@ -391,7 +423,6 @@ function SubscriptionTab() {
             </div>
           </div>
 
-          {/* Usage */}
           <div className="space-y-3">
             <p className="text-sm font-medium">Usage This Month</p>
             {[
@@ -416,7 +447,6 @@ function SubscriptionTab() {
         </CardContent>
       </Card>
 
-      {/* Upgrade Options */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {[
           { name: "Pro", price: "$29", period: "/month", features: ["Unlimited farms", "Unlimited AI", "Satellite monitoring", "Advanced analytics"], popular: true },
@@ -450,7 +480,6 @@ function SubscriptionTab() {
         ))}
       </div>
 
-      {/* Payment History */}
       <Card className="border-border/50">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Payment History</CardTitle>
@@ -469,10 +498,262 @@ function SubscriptionTab() {
 }
 
 // ============================================================
+// Admin Tab (Role-Based Access Control)
+// ============================================================
+
+function AdminTab() {
+  const { user } = useAuth();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [users, setUsers] = useState(mockUsers);
+
+  const filteredUsers = users.filter(
+    (u) =>
+      u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      u.role.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const handleRoleChange = (userId: string, newRole: string) => {
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u)));
+  };
+
+  const handleSubscriptionChange = (userId: string, newSub: string) => {
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, subscription: newSub } : u)));
+  };
+
+  const handleStatusToggle = (userId: string) => {
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === userId ? { ...u, status: u.status === "active" ? "suspended" : "active" } : u
+      )
+    );
+  };
+
+  // Stats
+  const totalUsers = users.length;
+  const activeUsers = users.filter((u) => u.status === "active").length;
+  const proUsers = users.filter((u) => u.subscription === "pro" || u.subscription === "enterprise").length;
+
+  return (
+    <div className="space-y-6">
+      {/* Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[
+          { label: "Total Users", value: totalUsers, icon: Users, color: "bg-blue-500", change: "+12 this week" },
+          { label: "Active Users", value: activeUsers, icon: UserCheck, color: "bg-green-500", change: `${Math.round((activeUsers / totalUsers) * 100)}% of total` },
+          { label: "Pro/Enterprise", value: proUsers, icon: Crown, color: "bg-purple-500", change: `${Math.round((proUsers / totalUsers) * 100)}% conversion` },
+        ].map((stat, i) => {
+          const Icon = stat.icon;
+          return (
+            <Card key={i} className="border-border/50">
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-xs text-muted-foreground">{stat.label}</p>
+                    <p className="text-2xl font-bold mt-1">{stat.value}</p>
+                    <p className="text-xs text-green-500 mt-1">{stat.change}</p>
+                  </div>
+                  <div className={`flex items-center justify-center w-10 h-10 rounded-xl ${stat.color}`}>
+                    <Icon className="w-5 h-5 text-white" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* User Management */}
+      <Card className="border-border/50">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">User Management</CardTitle>
+              <CardDescription>Manage user roles, subscriptions, and access</CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search users..."
+                  className="pl-9 h-9 w-48"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <Button variant="outline" size="sm">
+                <Filter className="w-4 h-4 mr-1" />
+                Filter
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {filteredUsers.map((u) => {
+              const roleInfo = roleConfig[u.role] || roleConfig.farmer;
+              const subInfo = subscriptionConfig[u.subscription] || subscriptionConfig.free;
+              const RoleIcon = roleInfo.icon;
+
+              return (
+                <div
+                  key={u.id}
+                  className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-xl border border-border/50 hover:bg-muted/30 transition-colors"
+                >
+                  {/* User Info */}
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <Avatar className="w-10 h-10 shrink-0">
+                      <AvatarFallback className="bg-primary/10 text-primary text-sm">
+                        {u.name.charAt(0)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium truncate">{u.name}</p>
+                        {u.status === "suspended" && (
+                          <Badge variant="destructive" className="text-[10px]">Suspended</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                    </div>
+                  </div>
+
+                  {/* Role Badge */}
+                  <div className="flex items-center gap-2">
+                    <Badge className={`${roleInfo.color} text-xs`}>
+                      <RoleIcon className="w-3 h-3 mr-1" />
+                      {roleInfo.label}
+                    </Badge>
+                  </div>
+
+                  {/* Subscription Badge */}
+                  <Badge className={`${subInfo.color} text-xs`}>{subInfo.label}</Badge>
+
+                  {/* Last Active */}
+                  <span className="text-xs text-muted-foreground hidden md:inline w-20">{u.lastActive}</span>
+
+                  {/* Actions */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                        <MoreVertical className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                      <DropdownMenuLabel>Manage User</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">Change Role</DropdownMenuLabel>
+                      {Object.entries(roleConfig).map(([key, config]) => (
+                        <DropdownMenuItem key={key} onClick={() => handleRoleChange(u.id, key)}>
+                          <config.icon className="w-4 h-4 mr-2" />
+                          {config.label}
+                          {u.role === key && <CheckCircle2 className="w-3 h-3 ml-auto text-green-500" />}
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">Subscription</DropdownMenuLabel>
+                      {Object.entries(subscriptionConfig).map(([key, config]) => (
+                        <DropdownMenuItem key={key} onClick={() => handleSubscriptionChange(u.id, key)}>
+                          {config.label}
+                          {u.subscription === key && <CheckCircle2 className="w-3 h-3 ml-auto text-green-500" />}
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => handleStatusToggle(u.id)}
+                        className={u.status === "active" ? "text-red-500" : "text-green-500"}
+                      >
+                        {u.status === "active" ? (
+                          <>
+                            <UserX className="w-4 h-4 mr-2" />
+                            Suspend User
+                          </>
+                        ) : (
+                          <>
+                            <UserCheck className="w-4 h-4 mr-2" />
+                            Reactivate User
+                          </>
+                        )}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Role Permissions Overview */}
+      <Card className="border-border/50">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Role Permissions</CardTitle>
+          <CardDescription>Overview of what each role can access</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/50">
+                  <th className="text-left py-2 font-medium text-muted-foreground">Feature</th>
+                  <th className="text-center py-2 font-medium text-muted-foreground">Farmer</th>
+                  <th className="text-center py-2 font-medium text-muted-foreground">Agronomist</th>
+                  <th className="text-center py-2 font-medium text-muted-foreground">Admin</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { feature: "Farm Management", farmer: true, agronomist: false, admin: true },
+                  { feature: "AI Assistant", farmer: true, agronomist: true, admin: true },
+                  { feature: "Satellite Monitoring", farmer: true, agronomist: true, admin: true },
+                  { feature: "Consultation Booking", farmer: true, agronomist: true, admin: false },
+                  { feature: "Knowledge Articles", farmer: false, agronomist: true, admin: true },
+                  { feature: "User Management", farmer: false, agronomist: false, admin: true },
+                  { feature: "Subscription Management", farmer: false, agronomist: false, admin: true },
+                  { feature: "Audit Logs", farmer: false, agronomist: false, admin: true },
+                ].map((row, i) => (
+                  <tr key={i} className="border-b border-border/30 last:border-0">
+                    <td className="py-2.5 text-sm">{row.feature}</td>
+                    <td className="text-center py-2.5">
+                      {row.farmer ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto" />
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="text-center py-2.5">
+                      {row.agronomist ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto" />
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="text-center py-2.5">
+                      {row.admin ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto" />
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
 // Main Settings Page
 // ============================================================
 
 export default function Settings() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+
   return (
     <AppLayout>
       <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
@@ -483,7 +764,7 @@ export default function Settings() {
 
         <motion.div variants={containerVariants} initial="hidden" animate="visible">
           <Tabs defaultValue="profile" className="space-y-6">
-            <TabsList className="h-auto p-1 bg-muted/50">
+            <TabsList className="h-auto p-1 bg-muted/50 flex flex-wrap">
               <TabsTrigger value="profile" className="gap-2">
                 <User className="w-4 h-4" />
                 <span className="hidden sm:inline">Profile</span>
@@ -500,6 +781,12 @@ export default function Settings() {
                 <CreditCard className="w-4 h-4" />
                 <span className="hidden sm:inline">Subscription</span>
               </TabsTrigger>
+              {isAdmin && (
+                <TabsTrigger value="admin" className="gap-2">
+                  <Users className="w-4 h-4" />
+                  <span className="hidden sm:inline">Admin</span>
+                </TabsTrigger>
+              )}
             </TabsList>
 
             <TabsContent value="profile">
@@ -514,6 +801,11 @@ export default function Settings() {
             <TabsContent value="subscription">
               <SubscriptionTab />
             </TabsContent>
+            {isAdmin && (
+              <TabsContent value="admin">
+                <AdminTab />
+              </TabsContent>
+            )}
           </Tabs>
         </motion.div>
       </div>
