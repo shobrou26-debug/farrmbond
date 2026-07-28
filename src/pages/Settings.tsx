@@ -937,14 +937,44 @@ function SubscriptionTab() {
 
       <Card className="border-border/50">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Payment History</CardTitle>
-          <CardDescription>Your recent transactions</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base">Payment History</CardTitle>
+              <CardDescription>Your recent transactions and invoices</CardDescription>
+            </div>
+            <Link to="/payment-history">
+              <Button variant="outline" size="sm">
+                View All
+                <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+            </Link>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="text-center py-8 text-muted-foreground">
-            <CreditCard className="w-8 h-8 mx-auto mb-2 opacity-40" />
-            <p className="text-sm">No payment history yet</p>
-            <p className="text-xs mt-1">Upgrade to Pro for $5/month to unlock premium features</p>
+          <div className="space-y-3">
+            {/* Recent invoice preview */}
+            <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 bg-muted/20">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-green-500/10">
+                  <CheckCircle2 className="w-4 h-4 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">FarmBond Pro</p>
+                  <p className="text-xs text-muted-foreground">Monthly subscription</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-medium">$5.00</p>
+                <p className="text-xs text-green-600">Paid</p>
+              </div>
+            </div>
+            
+            <Link to="/payment-history" className="block">
+              <div className="text-center py-4 text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
+                <p className="text-sm">View complete payment history</p>
+                <p className="text-xs mt-1">Invoices, payment methods, and subscription changes</p>
+              </div>
+            </Link>
           </div>
         </CardContent>
       </Card>
