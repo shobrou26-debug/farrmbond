@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useMotionValue, useTransform } from "framer-motion";
 import {
   LayoutDashboard,
   Map,
@@ -28,16 +28,16 @@ import {
   Moon,
   Globe,
   Zap,
+  MoreHorizontal,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useIsMobile, useHaptic, useScrollDirection, useBreakpoint } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Sheet,
   SheetContent,
-  SheetTrigger,
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
@@ -51,7 +51,6 @@ import {
 import { cn } from "@/lib/utils";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
-import { useTranslation } from "@/hooks/use-language";
 
 // ============================================================
 // Navigation Configuration
@@ -131,6 +130,7 @@ function Sidebar({ className }: { className?: string }) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
+  const haptic = useHaptic();
 
   const role = user?.role || "farmer";
   const navItems =
@@ -141,6 +141,7 @@ function Sidebar({ className }: { className?: string }) {
       : farmerNavItems;
 
   const handleSignOut = async () => {
+    haptic.medium();
     await signOut();
     navigate("/");
   };
@@ -169,7 +170,7 @@ function Sidebar({ className }: { className?: string }) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto mobile-scroll">
         {navItems.map((item) => {
           const isActive = location.pathname === item.href;
           const Icon = item.icon;
@@ -179,11 +180,12 @@ function Sidebar({ className }: { className?: string }) {
               key={item.href}
               to={item.href}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all",
+                "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all tap-highlight-none touch-feedback",
                 isActive
                   ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-lg"
                   : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               )}
+              onClick={() => haptic.selection()}
             >
               <Icon className="w-5 h-5 flex-shrink-0" />
               {!collapsed && (
@@ -224,7 +226,7 @@ function Sidebar({ className }: { className?: string }) {
               variant="ghost"
               size="icon"
               onClick={handleSignOut}
-              className="text-sidebar-foreground/60 hover:text-sidebar-foreground"
+              className="text-sidebar-foreground/60 hover:text-sidebar-foreground touch-target"
             >
               <LogOut className="w-4 h-4" />
             </Button>
@@ -241,8 +243,10 @@ function Sidebar({ className }: { className?: string }) {
 
 function Header({ onMenuClick }: { onMenuClick: () => void }) {
   const { user } = useAuth();
-  const { t } = useTranslation();
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const { isHidden, isAtTop } = useScrollDirection();
+  const isMobile = useIsMobile();
+  const haptic = useHaptic();
 
   useEffect(() => {
     const isDark = document.documentElement.classList.contains("dark");
@@ -250,21 +254,42 @@ function Header({ onMenuClick }: { onMenuClick: () => void }) {
   }, []);
 
   const toggleTheme = () => {
+    haptic.light();
     document.documentElement.classList.toggle("dark");
     setTheme((prev) => (prev === "light" ? "dark" : "light"));
   };
 
   return (
-    <header className="sticky top-0 z-30 flex items-center h-16 px-4 md:px-6 bg-background/80 backdrop-blur-xl border-b border-border">
+    <motion.header
+      className="sticky top-0 z-30 flex items-center h-14 md:h-16 px-3 md:px-6 bg-background/80 backdrop-blur-xl border-b border-border"
+      animate={{
+        y: isMobile && isHidden ? -64 : 0,
+      }}
+      transition={{ duration: 0.2 }}
+    >
       {/* Mobile menu button */}
       <Button
         variant="ghost"
         size="icon"
-        onClick={onMenuClick}
-        className="lg:hidden mr-2"
+        onClick={() => {
+          haptic.light();
+          onMenuClick();
+        }}
+        className="lg:hidden mr-2 touch-target"
+        aria-label="Open menu"
       >
         <Menu className="w-5 h-5" />
       </Button>
+
+      {/* Logo on mobile */}
+      <div className="flex lg:hidden mr-3">
+        <Link to="/" className="flex items-center gap-2">
+          <div className="relative flex items-center justify-center w-8 h-8 rounded-lg gradient-primary">
+            <Sprout className="w-5 h-5 text-white" />
+          </div>
+          <span className="text-lg font-bold text-gradient-primary hidden sm:inline">FarmBond</span>
+        </Link>
+      </div>
 
       {/* Search */}
       <div className="flex-1 max-w-md">
@@ -272,31 +297,27 @@ function Header({ onMenuClick }: { onMenuClick: () => void }) {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
             type="search"
-            placeholder="Search farms, crops, weather..."
-            className="w-full h-10 pl-10 pr-4 text-sm bg-muted/50 rounded-xl border-0 focus:ring-2 focus:ring-primary/20 focus:bg-muted transition-all placeholder:text-muted-foreground/60"
+            placeholder={isMobile ? "Search..." : "Search farms, crops, weather..."}
+            className="w-full h-10 pl-10 pr-4 text-sm bg-muted/50 rounded-xl border-0 focus:ring-2 focus:ring-primary/20 focus:bg-muted transition-all placeholder:text-muted-foreground/60 touch-manipulation"
           />
         </div>
       </div>
 
       {/* Right actions */}
-      <div className="flex items-center gap-2 ml-4">
+      <div className="flex items-center gap-1 md:gap-2 ml-2 md:ml-4">
         {/* Theme toggle */}
         <Button
           variant="ghost"
           size="icon"
           onClick={toggleTheme}
-          className="hidden sm:flex"
+          className="hidden sm:flex touch-target"
+          aria-label="Toggle theme"
         >
           {theme === "light" ? (
             <Moon className="w-5 h-5" />
           ) : (
             <Sun className="w-5 h-5" />
           )}
-        </Button>
-
-        {/* Language */}
-        <Button variant="ghost" size="icon" className="hidden sm:flex">
-          <Globe className="w-5 h-5" />
         </Button>
 
         {/* Language */}
@@ -308,7 +329,7 @@ function Header({ onMenuClick }: { onMenuClick: () => void }) {
         {/* User menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="rounded-full">
+            <Button variant="ghost" size="icon" className="rounded-full touch-target">
               <Avatar className="w-8 h-8">
                 <AvatarImage src={user?.image} />
                 <AvatarFallback className="bg-primary/10 text-primary text-sm">
@@ -325,62 +346,142 @@ function Header({ onMenuClick }: { onMenuClick: () => void }) {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={() => haptic.selection()}>
               <Settings className="w-4 h-4 mr-2" />
               Settings
             </DropdownMenuItem>
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={() => haptic.selection()}>
               <HelpCircle className="w-4 h-4 mr-2" />
               Help & Support
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-    </header>
+    </motion.header>
   );
 }
 
 // ============================================================
-// Mobile Bottom Navigation
+// Mobile Bottom Navigation (Enhanced)
 // ============================================================
 
 function MobileBottomNav() {
   const location = useLocation();
   const { user } = useAuth();
   const role = user?.role || "farmer";
+  const haptic = useHaptic();
+  const { isHidden, isAtTop } = useScrollDirection();
+  const navRef = useRef<HTMLElement>(null);
 
-  const mobileNavItems =
+  // Primary nav items (top 5 for bottom nav)
+  const primaryNavItems =
     role === "admin" || role === "super_admin"
-      ? adminNavItems.slice(0, 5)
+      ? adminNavItems.slice(0, 4)
       : role === "agronomist"
-      ? agronomistNavItems.slice(0, 5)
-      : farmerNavItems.slice(0, 5);
+      ? agronomistNavItems.slice(0, 4)
+      : farmerNavItems.slice(0, 4);
+
+  // More menu items (remaining items)
+  const moreNavItems =
+    role === "admin" || role === "super_admin"
+      ? adminNavItems.slice(4)
+      : role === "agronomist"
+      ? agronomistNavItems.slice(4)
+      : farmerNavItems.slice(4);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-xl border-t border-border lg:hidden safe-area-inset-bottom">
-      <div className="flex items-center justify-around h-16 px-2">
-        {mobileNavItems.map((item) => {
-          const isActive = location.pathname === item.href;
-          const Icon = item.icon;
+    <motion.nav
+      ref={navRef}
+      className="fixed bottom-0 left-0 right-0 z-50 lg:hidden"
+      animate={{
+        y: isHidden && !isAtTop ? 80 : 0,
+      }}
+      transition={{ duration: 0.2 }}
+    >
+      {/* Backdrop blur bar */}
+      <div className="bg-background/95 backdrop-blur-xl border-t border-border">
+        <div className="flex items-center h-16 px-1 safe-area-inset-bottom">
+          {primaryNavItems.map((item) => {
+            const isActive = location.pathname === item.href;
+            const Icon = item.icon;
 
-          return (
-            <Link
-              key={item.href}
-              to={item.href}
-              className={cn(
-                "flex flex-col items-center justify-center w-full h-full py-1 transition-colors",
-                isActive
-                  ? "text-primary"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Icon className="w-5 h-5 mb-1" />
-              <span className="text-[10px] font-medium">{item.label}</span>
-            </Link>
-          );
-        })}
+            return (
+              <Link
+                key={item.href}
+                to={item.href}
+                className={cn(
+                  "flex flex-col items-center justify-center flex-1 h-full py-1 transition-all tap-highlight-none",
+                  isActive
+                    ? "text-primary"
+                    : "text-muted-foreground active:text-foreground"
+                )}
+                onClick={() => haptic.selection()}
+              >
+                <motion.div
+                  className={cn(
+                    "flex items-center justify-center w-10 h-8 rounded-xl transition-all",
+                    isActive && "bg-primary/10"
+                  )}
+                  whileTap={{ scale: 0.9 }}
+                >
+                  <Icon className={cn("w-5 h-5", isActive && "text-primary")} />
+                </motion.div>
+                <span className={cn(
+                  "text-[10px] font-medium mt-0.5",
+                  isActive && "text-primary font-semibold"
+                )}>
+                  {item.label}
+                </span>
+              </Link>
+            );
+          })}
+
+          {/* More button */}
+          {moreNavItems.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="flex flex-col items-center justify-center flex-1 h-full py-1 tap-highlight-none text-muted-foreground active:text-foreground"
+                  onClick={() => haptic.selection()}
+                >
+                  <motion.div
+                    className="flex items-center justify-center w-10 h-8 rounded-xl"
+                    whileTap={{ scale: 0.9 }}
+                  >
+                    <MoreHorizontal className="w-5 h-5" />
+                  </motion.div>
+                  <span className="text-[10px] font-medium mt-0.5">More</span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48 mb-2">
+                <DropdownMenuLabel>More Options</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {moreNavItems.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <DropdownMenuItem key={item.href} asChild>
+                      <Link
+                        to={item.href}
+                        className="flex items-center gap-2 touch-target"
+                        onClick={() => haptic.selection()}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span>{item.label}</span>
+                      </Link>
+                    </DropdownMenuItem>
+                  );
+                })}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem>
+                  <Sun className="w-4 h-4 mr-2" />
+                  Toggle Theme
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
-    </nav>
+    </motion.nav>
   );
 }
 
@@ -391,11 +492,43 @@ function MobileBottomNav() {
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const startX = useRef(0);
+
+  // Swipe gesture to open/close sidebar
+  useEffect(() => {
+    if (!isMobile) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      startX.current = e.touches[0].clientX;
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      const endX = e.changedTouches[0].clientX;
+      const dx = endX - startX.current;
+
+      // Swipe right from left edge to open
+      if (startX.current < 30 && dx > 80) {
+        setMobileMenuOpen(true);
+      }
+      // Swipe left to close
+      else if (dx < -80 && mobileMenuOpen) {
+        setMobileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("touchstart", handleTouchStart, { passive: true });
+    document.addEventListener("touchend", handleTouchEnd, { passive: true });
+
+    return () => {
+      document.removeEventListener("touchstart", handleTouchStart);
+      document.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [isMobile, mobileMenuOpen]);
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-background overflow-hidden">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex lg:w-64 xl:w-72">
+      <aside className="hidden lg:flex lg:w-64 xl:w-72 flex-shrink-0">
         <Sidebar />
       </aside>
 
@@ -408,14 +541,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       </Sheet>
 
       {/* Main Content */}
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <Header onMenuClick={() => setMobileMenuOpen(true)} />
-        
-        <main className="flex-1 overflow-y-auto pb-20 lg:pb-0">
+
+        <main className="flex-1 overflow-y-auto pb-20 lg:pb-0 mobile-scroll">
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
+            transition={{ duration: 0.3 }}
             className="h-full"
           >
             {children}

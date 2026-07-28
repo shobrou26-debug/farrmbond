@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
+import { useIsMobile, useHaptic } from "@/hooks/use-mobile";
 import {
   Leaf,
   Beef,
@@ -49,7 +50,7 @@ const itemVariants = {
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.4 } as const
+    transition: { duration: 0.4 }
   },
 };
 
@@ -68,19 +69,21 @@ function QuickAction({
   href: string;
   color: string;
 }) {
+  const haptic = useHaptic();
+
   return (
-    <Link to={href}>
+    <Link to={href} onClick={() => haptic.selection()}>
       <motion.div
         whileHover={{ scale: 1.02, y: -2 }}
-        whileTap={{ scale: 0.98 }}
-        className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-card border border-border/50 hover:border-primary/20 hover:shadow-lg transition-all cursor-pointer group"
+        whileTap={{ scale: 0.97 }}
+        className="flex flex-col items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-2xl bg-card border border-border/50 hover:border-primary/20 hover:shadow-lg transition-all cursor-pointer group touch-target tap-highlight-none"
       >
         <div
-          className={`flex items-center justify-center w-12 h-12 rounded-xl ${color} group-hover:scale-110 transition-transform`}
+          className={`flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 rounded-xl ${color} group-hover:scale-110 transition-transform`}
         >
-          <Icon className="w-6 h-6 text-white" />
+          <Icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
         </div>
-        <span className="text-sm font-medium text-foreground/80">{label}</span>
+        <span className="text-xs sm:text-sm font-medium text-foreground/80 text-center leading-tight">{label}</span>
       </motion.div>
     </Link>
   );
@@ -105,21 +108,21 @@ function StatCard({
 }) {
   const isPositive = change && !change.startsWith("-");
   return (
-    <Card className="relative overflow-hidden border-border/50 card-hover">
-      <CardContent className="p-5">
+    <Card className="relative overflow-hidden border-border/50 card-hover touch-feedback tap-highlight-none">
+      <CardContent className="p-4 sm:p-5">
         <div className="flex items-start justify-between">
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-muted-foreground">{title}</p>
-            <p className="text-2xl font-bold tracking-tight">{value}</p>
+          <div className="space-y-1 sm:space-y-2">
+            <p className="text-xs sm:text-sm font-medium text-muted-foreground">{title}</p>
+            <p className="text-xl sm:text-2xl font-bold tracking-tight">{value}</p>
             {change && (
               <div className="flex items-center gap-1">
                 {isPositive ? (
-                  <TrendingUp className="w-3.5 h-3.5 text-green-500" />
+                  <TrendingUp className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-green-500" />
                 ) : (
-                  <TrendingDown className="w-3.5 h-3.5 text-red-500" />
+                  <TrendingDown className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-red-500" />
                 )}
                 <span
-                  className={`text-xs font-medium ${
+                  className={`text-[10px] sm:text-xs font-medium ${
                     isPositive ? "text-green-500" : "text-red-500"
                   }`}
                 >
@@ -128,8 +131,8 @@ function StatCard({
               </div>
             )}
           </div>
-          <div className={`flex items-center justify-center w-10 h-10 rounded-xl ${color}`}>
-            <Icon className="w-5 h-5 text-white" />
+          <div className={`flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl ${color}`}>
+            <Icon className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
           </div>
         </div>
       </CardContent>
@@ -148,38 +151,40 @@ function StatCard({
 // ============================================================
 
 function WeatherWidget() {
+  const haptic = useHaptic();
+
   return (
     <Card className="border-border/50 overflow-hidden">
-      <div className="gradient-nature p-5 text-white">
-        <div className="flex items-center justify-between mb-4">
+      <div className="gradient-nature p-4 sm:p-5 text-white">
+        <div className="flex items-center justify-between mb-3 sm:mb-4">
           <div>
-            <p className="text-white/80 text-sm">Current Weather</p>
-            <p className="text-3xl font-bold">24°C</p>
+            <p className="text-white/80 text-xs sm:text-sm">Current Weather</p>
+            <p className="text-2xl sm:text-3xl font-bold">24°C</p>
           </div>
-          <Sun className="w-12 h-12 text-yellow-300" />
+          <Sun className="w-10 h-10 sm:w-12 sm:h-12 text-yellow-300" />
         </div>
-        <p className="text-white/90 text-sm">Partly Cloudy • Feels like 26°C</p>
+        <p className="text-white/90 text-xs sm:text-sm">Partly Cloudy • Feels like 26°C</p>
       </div>
-      <CardContent className="p-4">
-        <div className="grid grid-cols-3 gap-4 text-center">
+      <CardContent className="p-3 sm:p-4">
+        <div className="grid grid-cols-3 gap-3 sm:gap-4 text-center">
           <div className="space-y-1">
             <Droplets className="w-4 h-4 mx-auto text-blue-400" />
-            <p className="text-xs text-muted-foreground">Humidity</p>
-            <p className="text-sm font-semibold">65%</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground">Humidity</p>
+            <p className="text-xs sm:text-sm font-semibold">65%</p>
           </div>
           <div className="space-y-1">
             <Wind className="w-4 h-4 mx-auto text-cyan-400" />
-            <p className="text-xs text-muted-foreground">Wind</p>
-            <p className="text-sm font-semibold">12 km/h</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground">Wind</p>
+            <p className="text-xs sm:text-sm font-semibold">12 km/h</p>
           </div>
           <div className="space-y-1">
             <Thermometer className="w-4 h-4 mx-auto text-orange-400" />
-            <p className="text-xs text-muted-foreground">UV Index</p>
-            <p className="text-sm font-semibold">6</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground">UV Index</p>
+            <p className="text-xs sm:text-sm font-semibold">6</p>
           </div>
         </div>
-        <Link to="/weather">
-          <Button variant="ghost" className="w-full mt-4 text-primary">
+        <Link to="/weather" onClick={() => haptic.light()}>
+          <Button variant="ghost" className="w-full mt-3 sm:mt-4 text-primary touch-target">
             View Full Forecast <ArrowRight className="w-4 h-4 ml-2" />
           </Button>
         </Link>
@@ -193,6 +198,7 @@ function WeatherWidget() {
 // ============================================================
 
 function AIAssistantWidget() {
+  const haptic = useHaptic();
   const suggestions = [
     "What crops should I plant this season?",
     "Analyze my farm's soil requirements",
@@ -201,30 +207,30 @@ function AIAssistantWidget() {
 
   return (
     <Card className="border-border/50">
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-3 px-4 sm:px-6 pt-4 sm:pt-6">
         <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-10 h-10 rounded-xl gradient-primary">
+          <div className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl gradient-primary shrink-0">
             <Bot className="w-5 h-5 text-white" />
           </div>
           <div>
-            <CardTitle className="text-base">AI Farming Assistant</CardTitle>
-            <p className="text-xs text-muted-foreground">Powered by advanced AI</p>
+            <CardTitle className="text-sm sm:text-base">AI Farming Assistant</CardTitle>
+            <p className="text-[10px] sm:text-xs text-muted-foreground">Powered by advanced AI</p>
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-2 sm:space-y-3 px-4 sm:px-6 pb-4 sm:pb-6">
         {suggestions.map((suggestion, i) => (
-          <Link key={i} to="/ai-assistant">
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/50 hover:bg-muted transition-colors cursor-pointer group">
+          <Link key={i} to="/ai-assistant" onClick={() => haptic.selection()}>
+            <div className="flex items-center gap-3 p-2.5 sm:p-3 rounded-xl bg-muted/50 hover:bg-muted transition-colors cursor-pointer group touch-feedback">
               <Zap className="w-4 h-4 text-primary shrink-0" />
-              <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">
+              <span className="text-xs sm:text-sm text-muted-foreground group-hover:text-foreground transition-colors line-clamp-1">
                 {suggestion}
               </span>
-              <ArrowRight className="w-4 h-4 ml-auto text-muted-foreground/50 group-hover:text-primary transition-colors" />
+              <ArrowRight className="w-4 h-4 ml-auto text-muted-foreground/50 group-hover:text-primary transition-colors shrink-0" />
             </div>
           </Link>
         ))}
-        <Link to="/ai-assistant">
+        <Link to="/ai-assistant" onClick={() => haptic.medium()}>
           <Button className="w-full gradient-primary mt-2" size="sm">
             <Bot className="w-4 h-4 mr-2" />
             Open AI Assistant
@@ -269,25 +275,25 @@ function RecentActivity() {
 
   return (
     <Card className="border-border/50">
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-3 px-4 sm:px-6 pt-4 sm:pt-6">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base">Recent Activity</CardTitle>
-          <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">
+          <CardTitle className="text-sm sm:text-base">Recent Activity</CardTitle>
+          <Button variant="ghost" size="sm" className="text-[10px] sm:text-xs text-muted-foreground touch-target">
             View All <ArrowRight className="w-3 h-3 ml-1" />
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3 sm:space-y-4 px-4 sm:px-6 pb-4 sm:pb-6">
         {activities.map((activity, i) => {
           const Icon = activity.icon;
           return (
-            <div key={i} className="flex items-start gap-3">
-              <div className={`flex items-center justify-center w-8 h-8 rounded-lg shrink-0 ${activity.color}`}>
-                <Icon className="w-4 h-4" />
+            <div key={i} className="flex items-start gap-3 touch-feedback">
+              <div className={`flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg shrink-0 ${activity.color}`}>
+                <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium line-clamp-1">{activity.title}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{activity.time}</p>
+                <p className="text-xs sm:text-sm font-medium line-clamp-2 sm:line-clamp-1">{activity.title}</p>
+                <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{activity.time}</p>
               </div>
             </div>
           );
@@ -302,6 +308,7 @@ function RecentActivity() {
 // ============================================================
 
 function UpcomingTasks() {
+  const haptic = useHaptic();
   const tasks = [
     { title: "Apply fertilizer to maize field", due: "Tomorrow", priority: "high" },
     { title: "Harvest tomatoes from Plot B", due: "In 2 days", priority: "medium" },
@@ -317,25 +324,25 @@ function UpcomingTasks() {
 
   return (
     <Card className="border-border/50">
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-3 px-4 sm:px-6 pt-4 sm:pt-6">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base">Upcoming Tasks</CardTitle>
-          <Link to="/calendar">
-            <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">
+          <CardTitle className="text-sm sm:text-base">Upcoming Tasks</CardTitle>
+          <Link to="/calendar" onClick={() => haptic.light()}>
+            <Button variant="ghost" size="sm" className="text-[10px] sm:text-xs text-muted-foreground touch-target">
               Calendar <ArrowRight className="w-3 h-3 ml-1" />
             </Button>
           </Link>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-2 sm:space-y-3 px-4 sm:px-6 pb-4 sm:pb-6">
         {tasks.map((task, i) => (
-          <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-muted/30 hover:bg-muted/50 transition-colors">
+          <div key={i} className="flex items-center gap-3 p-2.5 sm:p-3 rounded-xl bg-muted/30 hover:bg-muted/50 transition-colors touch-feedback">
             <div className={`w-2 h-2 rounded-full shrink-0 ${priorityColors[task.priority as keyof typeof priorityColors]}`} />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium line-clamp-1">{task.title}</p>
-              <p className="text-xs text-muted-foreground">{task.due}</p>
+              <p className="text-xs sm:text-sm font-medium line-clamp-1">{task.title}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">{task.due}</p>
             </div>
-            <Clock className="w-4 h-4 text-muted-foreground/50" />
+            <Clock className="w-4 h-4 text-muted-foreground/50 shrink-0" />
           </div>
         ))}
       </CardContent>
@@ -349,22 +356,23 @@ function UpcomingTasks() {
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const firstName = user?.name?.split(" ")[0] || "Farmer";
 
   return (
     <AppLayout>
-      <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
+      <div className="p-3 sm:p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
         {/* Welcome Header */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="mb-8"
+          className="mb-5 sm:mb-6 md:mb-8"
         >
-          <h1 className="text-3xl font-bold tracking-tight">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight">
             Good morning, {firstName} 👋
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-xs sm:text-sm md:text-base text-muted-foreground mt-1">
             Here's what's happening on your farm today.
           </p>
         </motion.div>
@@ -373,10 +381,10 @@ export default function Dashboard() {
           variants={containerVariants}
           initial="hidden"
           animate="visible"
-          className="space-y-6"
+          className="space-y-4 sm:space-y-6"
         >
           {/* Stats Grid */}
-          <motion.div variants={itemVariants} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">
             <StatCard
               title="Active Farms"
               value="3"
@@ -409,8 +417,8 @@ export default function Dashboard() {
 
           {/* Quick Actions */}
           <motion.div variants={itemVariants}>
-            <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+            <h2 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Quick Actions</h2>
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3">
               <QuickAction icon={Plus} label="Add Farm" href="/farms/new" color="bg-emerald-500" />
               <QuickAction icon={Sprout} label="Add Crop" href="/crops/new" color="bg-green-500" />
               <QuickAction icon={Beef} label="Add Livestock" href="/livestock/new" color="bg-amber-500" />
@@ -421,34 +429,34 @@ export default function Dashboard() {
           </motion.div>
 
           {/* Main Content Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             {/* Left Column */}
-            <motion.div variants={itemVariants} className="lg:col-span-2 space-y-6">
+            <motion.div variants={itemVariants} className="lg:col-span-2 space-y-4 sm:space-y-6">
               {/* Farm Health Overview */}
               <Card className="border-border/50">
-                <CardHeader className="pb-3">
+                <CardHeader className="pb-3 px-4 sm:px-6 pt-4 sm:pt-6">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">Farm Health Overview</CardTitle>
-                    <Badge variant="secondary" className="bg-green-500/10 text-green-600 border-green-500/20">
+                    <CardTitle className="text-sm sm:text-base">Farm Health Overview</CardTitle>
+                    <Badge variant="secondary" className="bg-green-500/10 text-green-600 border-green-500/20 text-[10px] sm:text-xs">
                       <CheckCircle2 className="w-3 h-3 mr-1" />
                       Healthy
                     </Badge>
                   </div>
                 </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <CardContent className="px-4 sm:px-6 pb-4 sm:pb-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                     {[
                       { name: "Green Valley Farm", score: 92, acres: 45 },
                       { name: "Sunrise Ranch", score: 78, acres: 120 },
                       { name: "Riverside Fields", score: 85, acres: 30 },
                     ].map((farm) => (
-                      <div key={farm.name} className="p-4 rounded-xl bg-muted/30 space-y-3">
+                      <div key={farm.name} className="p-3 sm:p-4 rounded-xl bg-muted/30 space-y-2 sm:space-y-3">
                         <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium truncate">{farm.name}</p>
-                          <span className="text-xs text-muted-foreground">{farm.acres} ac</span>
+                          <p className="text-xs sm:text-sm font-medium truncate">{farm.name}</p>
+                          <span className="text-[10px] sm:text-xs text-muted-foreground shrink-0 ml-2">{farm.acres} ac</span>
                         </div>
                         <div className="space-y-1.5">
-                          <div className="flex items-center justify-between text-xs">
+                          <div className="flex items-center justify-between text-[10px] sm:text-xs">
                             <span className="text-muted-foreground">Health Score</span>
                             <span className="font-medium">{farm.score}%</span>
                           </div>
@@ -473,14 +481,14 @@ export default function Dashboard() {
               </Card>
 
               {/* Recent Activity & Tasks */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                 <RecentActivity />
                 <UpcomingTasks />
               </div>
             </motion.div>
 
             {/* Right Column */}
-            <motion.div variants={itemVariants} className="space-y-6">
+            <motion.div variants={itemVariants} className="space-y-4 sm:space-y-6">
               <WeatherWidget />
               <AIAssistantWidget />
             </motion.div>

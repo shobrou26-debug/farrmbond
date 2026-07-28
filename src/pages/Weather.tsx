@@ -4,6 +4,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useIsMobile, useHaptic } from "@/hooks/use-mobile";
 import {
   Sun,
   Cloud,
@@ -102,16 +103,15 @@ function getWindDirection(degrees: number): string {
 
 function WeatherLoading() {
   return (
-    <AppLayout>
-      <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
-        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-          <Loader2 className="w-12 h-12 text-primary animate-spin" />
-          <div className="text-center">
-            <p className="text-lg font-semibold">Loading Weather Data</p>
-            <p className="text-sm text-muted-foreground mt-1">Fetching real-time weather from Open-Meteo...</p>
+    <AppLayout>        <div className="p-3 sm:p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
+          <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+            <Loader2 className="w-10 h-10 sm:w-12 sm:h-12 text-primary animate-spin" />
+            <div className="text-center">
+              <p className="text-base sm:text-lg font-semibold">Loading Weather Data</p>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">Fetching real-time weather from Open-Meteo...</p>
+            </div>
           </div>
         </div>
-      </div>
     </AppLayout>
   );
 }
@@ -380,6 +380,8 @@ function FarmingRecommendations({ recommendations }: { recommendations: import("
 export default function Weather() {
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const { data, isLoading, error, refetch } = useWeather();
+  const isMobile = useIsMobile();
+  const haptic = useHaptic();
 
   useEffect(() => {
     if (data) setLastUpdated(new Date());
@@ -389,15 +391,14 @@ export default function Weather() {
 
   if (error || !data) {
     return (
-      <AppLayout>
-        <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
+      <AppLayout>          <div className="p-3 sm:p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
           <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-            <AlertTriangle className="w-12 h-12 text-amber-500" />
+            <AlertTriangle className="w-10 h-10 sm:w-12 sm:h-12 text-amber-500" />
             <div className="text-center">
-              <p className="text-lg font-semibold">Unable to Load Weather</p>
-              <p className="text-sm text-muted-foreground mt-1">{error || "Please try again later."}</p>
+              <p className="text-base sm:text-lg font-semibold">Unable to Load Weather</p>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">{error || "Please try again later."}</p>
             </div>
-            <Button onClick={() => refetch()} variant="outline">
+            <Button onClick={() => { haptic.medium(); refetch(); }} variant="outline" className="touch-target">
               <RefreshCw className="w-4 h-4 mr-2" />Retry
             </Button>
           </div>
@@ -410,31 +411,30 @@ export default function Weather() {
   const WeatherIcon = getWeatherIconForCode(current.weatherCode, current.isDay);
 
   return (
-    <AppLayout>
-      <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
+    <AppLayout>        <div className="p-3 sm:p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="mb-8"
+          className="mb-5 sm:mb-6 md:mb-8"
         >
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">Weather Intelligence</h1>
-              <p className="text-muted-foreground mt-1">
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight">Weather Intelligence</h1>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">
                 Real-time weather data and agricultural forecasts
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <div className="text-right">
-                <p className="text-xs text-muted-foreground">Last updated</p>
-                <p className="text-sm font-medium">
+                <p className="text-[10px] sm:text-xs text-muted-foreground">Last updated</p>
+                <p className="text-xs sm:text-sm font-medium">
                   <Clock className="w-3 h-3 inline mr-1" />
                   {lastUpdated.toLocaleTimeString()}
                 </p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => refetch()}>
+              <Button variant="outline" size="sm" onClick={() => { haptic.light(); refetch(); }} className="touch-target">
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Refresh
               </Button>
@@ -446,22 +446,22 @@ export default function Weather() {
           variants={containerVariants}
           initial="hidden"
           animate="visible"
-          className="space-y-6"
+          className="space-y-4 sm:space-y-6"
         >
           {/* Current Weather Hero */}
           <motion.div variants={itemVariants}>
-            <div className="gradient-nature rounded-2xl p-6 md:p-8 text-white relative overflow-hidden">
+            <div className="gradient-nature rounded-2xl p-4 sm:p-6 md:p-8 text-white relative overflow-hidden">
               <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
               <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
 
-              <div className="relative grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="relative grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <MapPin className="w-4 h-4" />
                     <span className="text-white/80">{location.name}</span>
                   </div>
                   <div className="flex items-end gap-4 mb-4">
-                    <span className="text-6xl font-bold">{Math.round(current.temperature)}°</span>
+                    <span className="text-4xl sm:text-5xl md:text-6xl font-bold">{Math.round(current.temperature)}°</span>
                     <div className="pb-2">
                       <p className="text-white/90 font-medium">{getWeatherDescription(current.weatherCode)}</p>
                       <p className="text-white/70 text-sm">
@@ -518,11 +518,11 @@ export default function Weather() {
           </motion.div>
 
           {/* Main Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             <motion.div variants={itemVariants}>
               <WeeklyForecast daily={daily} />
             </motion.div>
-            <motion.div variants={itemVariants} className="space-y-6">
+            <motion.div variants={itemVariants} className="space-y-4 sm:space-y-6">
               <SoilConditions soil={soil} />
               <AgriWeatherAlerts alerts={alerts} />
             </motion.div>

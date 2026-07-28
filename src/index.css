@@ -364,4 +364,67 @@
     ring-color: oklch(0.42 0.14 155 / 0.3);
     border-color: oklch(0.42 0.14 155);
   }
+  
+  /* Mobile touch utilities */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  .touch-feedback {
+    transition: transform 0.1s ease, opacity 0.1s ease;
+  }
+  .touch-feedback:active {
+    transform: scale(0.97);
+    opacity: 0.9;
+  }
+  
+  .tap-highlight-none {
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  .touch-manipulation {
+    touch-action: manipulation;
+  }
+  
+  .no-scroll-x {
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Pull to refresh indicator */
+  .pull-indicator {
+    transition: transform 0.2s ease, opacity 0.2s ease;
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  .pull-indicator.pulling {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  .pull-indicator.refreshing {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  
+  /* Swipe card styles */
+  .swipe-card {
+    touch-action: pan-y;
+    user-select: none;
+  }
+  
+  /* Mobile-optimized scrolling */
+  .mobile-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  
+  /* Bottom sheet handle */
+  .bottom-sheet-handle {
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: oklch(0.70 0.03 145);
+    margin: 8px auto;
+  }
 }
