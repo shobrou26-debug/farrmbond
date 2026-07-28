@@ -51,6 +51,9 @@ import {
   Timer,
   Smartphone as PhoneIcon,
   Loader2,
+  Bot,
+  Eye,
+  Sparkles,
 } from "lucide-react";
 
 // ============================================================
@@ -645,6 +648,74 @@ function SubscriptionTab() {
                 </div>
               </div>
             ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* AI Services Status */}
+      <Card className="border-border/50">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base">AI Services</CardTitle>
+              <CardDescription>Active AI providers powering your farming assistant</CardDescription>
+            </div>
+            <Badge className="bg-green-500/10 text-green-600 text-[10px]">
+              <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse mr-1" />
+              All Systems Operational
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {/* Groq - AI Chat */}
+          <div className="flex items-center justify-between p-3 rounded-xl bg-gradient-to-r from-purple-50 to-violet-50 dark:from-purple-950/30 dark:to-violet-950/30 border border-purple-200 dark:border-purple-800">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-purple-500">
+                <Bot className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold">Groq AI</p>
+                  <Badge className="bg-purple-500/10 text-purple-600 text-[10px]">Primary</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">Chat & text responses • 14,400 requests/day free</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge className="bg-green-500/10 text-green-600 text-[10px]">
+                <CheckCircle2 className="w-3 h-3 mr-1" /> Active
+              </Badge>
+            </div>
+          </div>
+
+          {/* Gemini - AI Vision */}
+          <div className="flex items-center justify-between p-3 rounded-xl bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-950/30 dark:to-cyan-950/30 border border-blue-200 dark:border-blue-800">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-blue-500">
+                <Eye className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold">Google Gemini</p>
+                  <Badge className="bg-blue-500/10 text-blue-600 text-[10px]">Vision</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">Disease detection & image analysis • 1,500 requests/day free</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge className="bg-green-500/10 text-green-600 text-[10px]">
+                <CheckCircle2 className="w-3 h-3 mr-1" /> Active
+              </Badge>
+            </div>
+          </div>
+
+          {/* Info Note */}
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-muted/30">
+            <Sparkles className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+            <div className="text-xs text-muted-foreground">
+              <p className="font-medium text-foreground">How it works</p>
+              <p className="mt-0.5">Your farming assistant uses <span className="font-medium text-purple-600">Groq</span> for fast chat responses and <span className="font-medium text-blue-600">Gemini</span> for analyzing plant disease images. Both are free, trusted AI providers with generous daily limits.</p>
+            </div>
           </div>
         </CardContent>
       </Card>
