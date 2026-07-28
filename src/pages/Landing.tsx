@@ -610,7 +610,7 @@ function Footer() {
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li><Link to="/privacy" className="hover:text-foreground transition-colors">Privacy</Link></li>
               <li><a href="#" className="hover:text-foreground transition-colors">Terms</a></li>
-              <li><a href="#" className="hover:text-foreground transition-colors">Security</a></li>
+              <li><Link to="/security" className="hover:text-foreground transition-colors">Security</Link></li>
               <li><CookieSettingsButton variant="link" size="sm" className="h-auto p-0 text-sm text-muted-foreground hover:text-foreground" /></li>
             </ul>
           </div>
