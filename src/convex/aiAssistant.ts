@@ -2,9 +2,15 @@ import { action } from "./_generated/server";
 import { v } from "convex/values";
 
 // ============================================================
-// AI Farming Assistant - Powered by Google Gemini
-// Free tier: 1,500 requests/day, multimodal support
+// AI Farming Assistant
+// Primary: Groq (free tier: 14,400 requests/day, fast inference)
+// Fallback: Google Gemini for multimodal/image analysis
 // ============================================================
+
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_MODEL = "llama-3.3-70b-versatile"; // 1,000 req/day free — best quality
+// Alternative: "llama-3.1-8b-instant" — 14,400 req/day free — fastest
 
 const GEMINI_API_KEY = process.env.GOOGLE_GEMINI_API_KEY;
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
@@ -45,7 +51,41 @@ FORMAT YOUR RESPONSES WITH:
 Keep responses concise but comprehensive. Aim for 150-400 words unless the question requires more detail.`;
 
 /**
- * Send a message to the AI farming assistant
+ * Build Groq/OpenAI-compatible messages array from conversation history
+ */
+function buildGroqMessages(
+  history: Array<{ role: string; parts: Array<{ text: string }> }> | undefined,
+  currentMessage: string,
+) {
+  const messages: Array<{ role: string; content: string }> = [];
+
+  // System instruction
+  messages.push({ role: "system", content: SYSTEM_PROMPT });
+
+  if (!history || history.length === 0) {
+    messages.push({ role: "user", content: currentMessage });
+  } else {
+    // Convert Gemini-style history to OpenAI/Groq format
+    for (let i = 0; i < history.length; i++) {
+      const msg = history[i];
+      const text = msg.parts?.map((p) => p.text).join("\n") || "";
+      // Strip system instruction prefix from first message if present
+      const cleaned = i === 0 ? text.replace(/^System instruction:.*?\n\n/s, "") : text;
+      messages.push({
+        role: msg.role === "model" ? "assistant" : "user",
+        content: cleaned,
+      });
+    }
+    messages.push({ role: "user", content: currentMessage });
+  }
+
+  return messages;
+}
+
+/**
+ * Send a message to the AI farming assistant via Groq
+ * Free tier: 14,400 requests/day (llama-3.1-8b-instant)
+ * or 1,000 requests/day (llama-3.3-70b-versatile)
  */
 export const chatWithAI = action({
   args: {
@@ -60,69 +100,48 @@ export const chatWithAI = action({
     ),
   },
   handler: async (ctx, args) => {
-    if (!GEMINI_API_KEY) {
-      throw new Error("AI service is not configured. Please add GOOGLE_GEMINI_API_KEY to your environment variables.");
+    if (!GROQ_API_KEY) {
+      throw new Error(
+        "AI service is not configured. Please add GROQ_API_KEY to your environment variables. " +
+        "Get a free key at https://console.groq.com — 14,400 requests/day free."
+      );
     }
 
-    // Build conversation history
-    const contents = [];
-
-    // Add system instruction as first user message if no history
-    if (!args.history || args.history.length === 0) {
-      contents.push({
-        role: "user",
-        parts: [{ text: `System instruction: ${SYSTEM_PROMPT}\n\nUser question: ${args.message}` }],
-      });
-    } else {
-      // Add system context to first message
-      contents.push({
-        role: "user",
-        parts: [{ text: `System instruction: ${SYSTEM_PROMPT}\n\n${args.history[0]?.parts[0]?.text || args.message}` }],
-      });
-      // Add rest of history
-      for (let i = 1; i < args.history.length; i++) {
-        contents.push(args.history[i]);
-      }
-      // Add current message
-      contents.push({
-        role: "user",
-        parts: [{ text: args.message }],
-      });
-    }
+    const messages = buildGroqMessages(args.history, args.message);
 
     try {
-      const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+      const response = await fetch(GROQ_API_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${GROQ_API_KEY}`,
         },
         body: JSON.stringify({
-          contents,
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 2048,
-          },
-          safetySettings: [
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-          ],
+          model: GROQ_MODEL,
+          messages,
+          temperature: 0.7,
+          top_p: 0.95,
+          max_tokens: 2048,
+          frequency_penalty: 0.1,
+          presence_penalty: 0.1,
         }),
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("Gemini API error:", response.status, errorText);
+        console.error("Groq API error:", response.status, errorText);
+
+        // If Groq is down, try Gemini as fallback for text
+        if (GEMINI_API_KEY) {
+          console.log("Falling back to Gemini for text chat...");
+          return await chatWithGeminiFallback(args.message, args.history);
+        }
+
         throw new Error(`AI service error: ${response.status}`);
       }
 
       const data = await response.json();
-
-      // Extract text from Gemini response
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      const text = data.choices?.[0]?.message?.content;
 
       if (!text) {
         throw new Error("No response generated from AI");
@@ -137,7 +156,59 @@ export const chatWithAI = action({
 });
 
 /**
- * Detect plant disease from image (multimodal)
+ * Gemini fallback for text chat (when Groq is unavailable)
+ */
+async function chatWithGeminiFallback(
+  message: string,
+  history?: Array<{ role: string; parts: Array<{ text: string }> }>,
+) {
+  if (!GEMINI_API_KEY) {
+    throw new Error("No AI provider available");
+  }
+
+  const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+
+  if (!history || history.length === 0) {
+    contents.push({
+      role: "user",
+      parts: [{ text: `System instruction: ${SYSTEM_PROMPT}\n\nUser question: ${message}` }],
+    });
+  } else {
+    contents.push({
+      role: "user",
+      parts: [{ text: `System instruction: ${SYSTEM_PROMPT}\n\n${history[0]?.parts[0]?.text || message}` }],
+    });
+    for (let i = 1; i < history.length; i++) {
+      contents.push(history[i]);
+    }
+    contents.push({ role: "user", parts: [{ text: message }] });
+  }
+
+  const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents,
+      generationConfig: { temperature: 0.7, topK: 40, topP: 0.95, maxOutputTokens: 2048 },
+      safetySettings: [
+        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+      ],
+    }),
+  });
+
+  if (!response.ok) throw new Error("Fallback AI error");
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("No response from fallback AI");
+  return { response: text };
+}
+
+/**
+ * Detect plant disease from image (multimodal — uses Gemini)
+ * Groq doesn't support image analysis, so Gemini is used for vision tasks
  */
 export const detectDisease = action({
   args: {
@@ -147,7 +218,10 @@ export const detectDisease = action({
   },
   handler: async (ctx, args) => {
     if (!GEMINI_API_KEY) {
-      throw new Error("AI service is not configured.");
+      throw new Error(
+        "Image analysis requires Google Gemini. Please add GOOGLE_GEMINI_API_KEY to your environment variables. " +
+        "Get a free key at https://aistudio.google.com/apikey — 1,500 requests/day free."
+      );
     }
 
     const prompt = `You are an expert plant pathologist. Analyze this image of a plant/leaf/crop and identify any diseases, pests, or health issues.
@@ -178,9 +252,7 @@ ${args.additionalInfo ? `Additional context from farmer: ${args.additionalInfo}`
     try {
       const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [
             {
@@ -195,10 +267,7 @@ ${args.additionalInfo ? `Additional context from farmer: ${args.additionalInfo}`
               ],
             },
           ],
-          generationConfig: {
-            temperature: 0.4,
-            maxOutputTokens: 1500,
-          },
+          generationConfig: { temperature: 0.4, maxOutputTokens: 1500 },
         }),
       });
 
