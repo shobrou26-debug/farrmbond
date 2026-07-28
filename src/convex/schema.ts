@@ -621,7 +621,6 @@ const schema = defineSchema(
       
       // Metadata
       createdAt: v.number(),
-      updatedAt: v.number(),
     })
       .index("by_post", ["postId"])
       .index("by_user", ["userId"])
@@ -935,6 +934,83 @@ const schema = defineSchema(
       .index("by_farm", ["farmId"])
       .index("by_type", ["type"])
       .index("by_detected", ["detectedAt"]),
+
+    // ============================================================
+    // ADS & PROMOTIONS TABLE
+    // ============================================================
+    ads: defineTable({
+      // Ad content
+      title: v.string(),
+      description: v.string(),
+      imageUrl: v.optional(v.string()),
+      logoUrl: v.optional(v.string()),
+      
+      // Ad type: "pro_upgrade" (internal), "sponsor" (third-party), "seasonal" (promo), "cross_sell" (other services)
+      adType: v.union(
+        v.literal("pro_upgrade"),
+        v.literal("sponsor"),
+        v.literal("seasonal"),
+        v.literal("cross_sell"),
+      ),
+      
+      // Display settings
+      priority: v.number(), // Higher = shown more often
+      maxImpressionsPerUser: v.number(), // Max times a user sees this ad
+      impressionCooldownDays: v.number(), // Days between impressions for same user
+      
+      // Targeting
+      targetRoles: v.array(v.string()), // Roles to show to, empty = all
+      targetCountries: v.optional(v.array(v.string())), // Countries, empty = all
+      targetSubscriptionTiers: v.array(v.string()), // Subscription tiers to target
+      
+      // Link
+      ctaText: v.string(), // "Learn More", "Upgrade Now", "Visit Website", etc.
+      ctaUrl: v.string(), // URL to navigate to
+      
+      // Sponsor details (for third-party ads)
+      sponsorName: v.optional(v.string()),
+      sponsorWebsite: v.optional(v.string()),
+      
+      // Status
+      isActive: v.boolean(),
+      
+      // Schedule
+      startDate: v.number(),
+      endDate: v.number(),
+      
+      // Stats
+      totalImpressions: v.number(),
+      totalClicks: v.number(),
+      
+      // Metadata
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_active", ["isActive"])
+      .index("by_type", ["adType"])
+      .index("by_dates", ["startDate", "endDate"])
+      .index("by_priority", ["priority"]),
+
+    // ============================================================
+    // AD IMPRESSIONS TABLE (Track per-user impressions)
+    // ============================================================
+    adImpressions: defineTable({
+      adId: v.id("ads"),
+      userId: v.id("users"),
+      
+      // Impression details
+      impressionCount: v.number(),
+      lastImpressionAt: v.number(),
+      clickCount: v.number(),
+      lastClickAt: v.optional(v.number()),
+      
+      // Metadata
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_ad_user", ["adId", "userId"])
+      .index("by_user", ["userId"]),
   },
   {
     schemaValidation: false,

@@ -52,6 +52,7 @@ import { cn } from "@/lib/utils";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { CookieConsentBanner, CookiePreferencesModal } from "@/components/CookiePreferences";
+import { AdPopup, SidebarAdBanner } from "@/components/AdPopup";
 
 // ============================================================
 // Navigation Configuration
@@ -565,6 +566,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Cookie Consent */}
       <CookieConsentBanner />
       <CookiePreferencesModal />
+
+      {/* Ad Popups */}
+      <AdPopup />
     </div>
   );
 }
