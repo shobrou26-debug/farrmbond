@@ -18,7 +18,6 @@ const MTN_MOMO_ENVIRONMENT = process.env.MTN_MOMO_ENVIRONMENT || "sandbox"; // s
 const AIRTEL_MONEY_API_URL = process.env.AIRTEL_MONEY_API_URL || "https://openapi.airtel.africa";
 const AIRTEL_MONEY_CLIENT_ID = process.env.AIRTEL_MONEY_CLIENT_ID;
 const AIRTEL_MONEY_CLIENT_SECRET = process.env.AIRTEL_MONEY_CLIENT_SECRET;
-const AIRTEL_MONEY_PIN = process.env.AIRTEL_MONEY_PIN;
 
 const APP_URL = process.env.APP_URL || "https://farmbond.com";
 

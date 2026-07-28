@@ -29,32 +29,23 @@ import {
   Save,
   Camera,
   Mail,
-  Phone,
-  MapPin,
-  Globe,
   Lock,
   Key,
   Smartphone,
   Trash2,
-  Download,
   ChevronRight,
   CheckCircle2,
   AlertTriangle,
-  ExternalLink,
   Sprout,
   Users,
   Crown,
   MoreVertical,
   Search,
   Filter,
-  ArrowUpRight,
-  ArrowDownRight,
-  BarChart3,
-  Settings as SettingsIcon,
+
   UserCheck,
   UserX,
   ShieldCheck,
-  ShieldAlert,
   Clock,
   MailCheck,
   Timer,
@@ -70,13 +61,6 @@ const containerVariants = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { staggerChildren: 0.06 } },
 };
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 16 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
-};
-
-
 
 const roleConfig: Record<string, { label: string; color: string; icon: React.ComponentType<{ className?: string }> }> = {
   farmer: { label: "Farmer", color: "bg-green-500/10 text-green-600", icon: Sprout },
@@ -403,14 +387,12 @@ function SubscriptionTab() {
   const mobileMoneyStats = useQuery(api.mobileMoney.getMobileMoneyStats);
   const supportedProviders = useQuery(api.mobileMoney.getSupportedProviders, { countryCode: user?.country });
   const startTrial = useMutation(api.trials.startTrial);
-  const verifyPaymentMethod = useMutation(api.subscriptions.verifyPaymentMethod);
   const createCheckoutSession = useAction(api.stripe.createCheckoutSession);
   const createPortalSession = useAction(api.stripe.createPortalSession);
   const retryPayment = useAction(api.stripe.retryPayment);
   const initiateMtnPayment = useAction(api.mobileMoney.initiateMtnPayment);
   const initiateAirtelPayment = useAction(api.mobileMoney.initiateAirtelPayment);
   const [isStartingTrial, setIsStartingTrial] = useState(false);
-  const [isVerifying, setIsVerifying] = useState(false);
   const [isCreatingCheckout, setIsCreatingCheckout] = useState(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [isRetryingPayment, setIsRetryingPayment] = useState(false);
@@ -421,11 +403,9 @@ function SubscriptionTab() {
   const [selectedMobileProvider, setSelectedMobileProvider] = useState<string | null>(null);
   
   const paymentMethodVerified = user?.paymentMethodVerified ?? false;
-  const hasStripeSubscription = !!stripeStatus?.stripeSubscriptionId;
   const paymentFailureCount = stripeStatus?.paymentFailureCount || 0;
   const hasPaymentFailed = paymentFailureCount > 0;
 
-  const now = Date.now();
   const isTrialActive = trialStatus?.isTrialActive ?? false;
   const trialDaysRemaining = trialStatus?.trialDaysRemaining ?? 0;
   const trialEndDate = trialStatus?.trialEndDate;
