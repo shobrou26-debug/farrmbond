@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -68,18 +70,7 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
-// ============================================================
-// Mock Users Data (for demo)
-// ============================================================
 
-const mockUsers = [
-  { id: "1", name: "Grace Wanjiku", email: "grace@example.com", role: "farmer", subscription: "pro", status: "active", lastActive: "2 min ago", farms: 3 },
-  { id: "2", name: "James Ochieng", email: "james@example.com", role: "agronomist", subscription: "enterprise", status: "active", lastActive: "15 min ago", farms: 0 },
-  { id: "3", name: "Mary Wanjiru", email: "mary@example.com", role: "farmer", subscription: "free", status: "active", lastActive: "1 hour ago", farms: 1 },
-  { id: "4", name: "Peter Kamau", email: "peter@example.com", role: "farmer", subscription: "pro", status: "suspended", lastActive: "3 days ago", farms: 2 },
-  { id: "5", name: "Dr. Sarah Kimani", email: "sarah@farmbond.com", role: "admin", subscription: "enterprise", status: "active", lastActive: "Just now", farms: 0 },
-  { id: "6", name: "David Mwangi", email: "david@example.com", role: "farmer", subscription: "basic", status: "active", lastActive: "5 hours ago", farms: 1 },
-];
 
 const roleConfig: Record<string, { label: string; color: string; icon: React.ComponentType<{ className?: string }> }> = {
   farmer: { label: "Farmer", color: "bg-green-500/10 text-green-600", icon: Sprout },
@@ -504,35 +495,87 @@ function SubscriptionTab() {
 function AdminTab() {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
-  const [users, setUsers] = useState(mockUsers);
 
-  const filteredUsers = users.filter(
+  // Real Convex queries and mutations
+  const users = useQuery(api.admin.listAllUsers);
+  const stats = useQuery(api.admin.getUserStats);
+  const updateUserRole = useMutation(api.admin.updateUserRole);
+  const updateUserSubscription = useMutation(api.admin.updateUserSubscription);
+  const toggleUserStatus = useMutation(api.admin.toggleUserStatus);
+
+  const [loadingAction, setLoadingAction] = useState<string | null>(null);
+
+  const filteredUsers = users?.filter(
     (u) =>
-      u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.role.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+      u.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      u.role?.toLowerCase().includes(searchQuery.toLowerCase())
+  ) || [];
 
-  const handleRoleChange = (userId: string, newRole: string) => {
-    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u)));
+  const handleRoleChange = async (userId: string, newRole: string) => {
+    setLoadingAction(`role-${userId}`);
+    try {
+      await updateUserRole({ targetUserId: userId as any, newRole: newRole as any });
+    } catch (err) {
+      console.error("Failed to update role:", err);
+    } finally {
+      setLoadingAction(null);
+    }
   };
 
-  const handleSubscriptionChange = (userId: string, newSub: string) => {
-    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, subscription: newSub } : u)));
+  const handleSubscriptionChange = async (userId: string, newSub: string) => {
+    setLoadingAction(`sub-${userId}`);
+    try {
+      await updateUserSubscription({ targetUserId: userId as any, newTier: newSub as any });
+    } catch (err) {
+      console.error("Failed to update subscription:", err);
+    } finally {
+      setLoadingAction(null);
+    }
   };
 
-  const handleStatusToggle = (userId: string) => {
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId ? { ...u, status: u.status === "active" ? "suspended" : "active" } : u
-      )
+  const handleStatusToggle = async (userId: string) => {
+    setLoadingAction(`status-${userId}`);
+    try {
+      await toggleUserStatus({ targetUserId: userId as any });
+    } catch (err) {
+      console.error("Failed to toggle status:", err);
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  // Stats from Convex
+  const totalUsers = stats?.total || 0;
+  const activeUsers = stats?.activeUsers || 0;
+  const proUsers = (stats?.bySubscription?.pro || 0) + (stats?.bySubscription?.enterprise || 0);
+
+  // Loading state
+  if (users === undefined || stats === undefined) {
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => (
+            <Card key={i} className="border-border/50">
+              <CardContent className="p-4">
+                <div className="animate-pulse space-y-2">
+                  <div className="h-3 bg-muted rounded w-20" />
+                  <div className="h-8 bg-muted rounded w-12" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Card className="border-border/50">
+          <CardContent className="p-8">
+            <div className="flex items-center justify-center text-muted-foreground">
+              <p className="text-sm">Loading user data...</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     );
-  };
-
-  // Stats
-  const totalUsers = users.length;
-  const activeUsers = users.filter((u) => u.status === "active").length;
-  const proUsers = users.filter((u) => u.subscription === "pro" || u.subscription === "enterprise").length;
+  }
 
   return (
     <div className="space-y-6">
@@ -540,8 +583,8 @@ function AdminTab() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
           { label: "Total Users", value: totalUsers, icon: Users, color: "bg-blue-500", change: "+12 this week" },
-          { label: "Active Users", value: activeUsers, icon: UserCheck, color: "bg-green-500", change: `${Math.round((activeUsers / totalUsers) * 100)}% of total` },
-          { label: "Pro/Enterprise", value: proUsers, icon: Crown, color: "bg-purple-500", change: `${Math.round((proUsers / totalUsers) * 100)}% conversion` },
+          { label: "Active Users", value: activeUsers, icon: UserCheck, color: "bg-green-500", change: `${totalUsers > 0 ? Math.round((activeUsers / totalUsers) * 100) : 0}% of total` },
+          { label: "Pro/Enterprise", value: proUsers, icon: Crown, color: "bg-purple-500", change: `${totalUsers > 0 ? Math.round((proUsers / totalUsers) * 100) : 0}% conversion` },
         ].map((stat, i) => {
           const Icon = stat.icon;
           return (
@@ -592,29 +635,26 @@ function AdminTab() {
           <div className="space-y-3">
             {filteredUsers.map((u) => {
               const roleInfo = roleConfig[u.role] || roleConfig.farmer;
-              const subInfo = subscriptionConfig[u.subscription] || subscriptionConfig.free;
+              const subInfo = subscriptionConfig[u.subscriptionTier] || subscriptionConfig.free;
               const RoleIcon = roleInfo.icon;
 
               return (
                 <div
-                  key={u.id}
+                  key={u._id}
                   className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-xl border border-border/50 hover:bg-muted/30 transition-colors"
                 >
                   {/* User Info */}
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <Avatar className="w-10 h-10 shrink-0">
                       <AvatarFallback className="bg-primary/10 text-primary text-sm">
-                        {u.name.charAt(0)}
+                        {u.name?.charAt(0) || "U"}
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium truncate">{u.name}</p>
-                        {u.status === "suspended" && (
-                          <Badge variant="destructive" className="text-[10px]">Suspended</Badge>
-                        )}
+                        <p className="text-sm font-medium truncate">{u.name || "Unknown"}</p>
                       </div>
-                      <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                      <p className="text-xs text-muted-foreground truncate">{u.email || "No email"}</p>
                     </div>
                   </div>
 
@@ -630,12 +670,14 @@ function AdminTab() {
                   <Badge className={`${subInfo.color} text-xs`}>{subInfo.label}</Badge>
 
                   {/* Last Active */}
-                  <span className="text-xs text-muted-foreground hidden md:inline w-20">{u.lastActive}</span>
+                  <span className="text-xs text-muted-foreground hidden md:inline w-20">
+                    {u.lastActiveAt ? new Date(u.lastActiveAt).toLocaleDateString() : "Never"}
+                  </span>
 
                   {/* Actions */}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" disabled={loadingAction !== null}>
                         <MoreVertical className="w-4 h-4" />
                       </Button>
                     </DropdownMenuTrigger>
@@ -644,7 +686,7 @@ function AdminTab() {
                       <DropdownMenuSeparator />
                       <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">Change Role</DropdownMenuLabel>
                       {Object.entries(roleConfig).map(([key, config]) => (
-                        <DropdownMenuItem key={key} onClick={() => handleRoleChange(u.id, key)}>
+                        <DropdownMenuItem key={key} onClick={() => handleRoleChange(u._id, key)} disabled={loadingAction !== null}>
                           <config.icon className="w-4 h-4 mr-2" />
                           {config.label}
                           {u.role === key && <CheckCircle2 className="w-3 h-3 ml-auto text-green-500" />}
@@ -653,27 +695,19 @@ function AdminTab() {
                       <DropdownMenuSeparator />
                       <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">Subscription</DropdownMenuLabel>
                       {Object.entries(subscriptionConfig).map(([key, config]) => (
-                        <DropdownMenuItem key={key} onClick={() => handleSubscriptionChange(u.id, key)}>
+                        <DropdownMenuItem key={key} onClick={() => handleSubscriptionChange(u._id, key)} disabled={loadingAction !== null}>
                           {config.label}
-                          {u.subscription === key && <CheckCircle2 className="w-3 h-3 ml-auto text-green-500" />}
+                          {u.subscriptionTier === key && <CheckCircle2 className="w-3 h-3 ml-auto text-green-500" />}
                         </DropdownMenuItem>
                       ))}
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
-                        onClick={() => handleStatusToggle(u.id)}
-                        className={u.status === "active" ? "text-red-500" : "text-green-500"}
+                        onClick={() => handleStatusToggle(u._id)}
+                        disabled={loadingAction !== null || u._id === user?._id}
+                        className="text-red-500"
                       >
-                        {u.status === "active" ? (
-                          <>
-                            <UserX className="w-4 h-4 mr-2" />
-                            Suspend User
-                          </>
-                        ) : (
-                          <>
-                            <UserCheck className="w-4 h-4 mr-2" />
-                            Reactivate User
-                          </>
-                        )}
+                        <UserX className="w-4 h-4 mr-2" />
+                        Suspend User
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
