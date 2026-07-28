@@ -3,6 +3,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { PWAInstallPrompt, OfflineBanner } from "@/components/PWAInstallPrompt";
 import { LanguageProvider } from "@/hooks/use-language";
+import { AnalyticsScripts, MarketingScripts, PersonalizationScripts } from "@/components/ConsentGate";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
@@ -123,6 +124,9 @@ createRoot(document.getElementById("root")!).render(
         <BrowserRouter>
           <PWAInstallPrompt />
           <OfflineBanner />
+          <AnalyticsScripts />
+          <MarketingScripts />
+          <PersonalizationScripts />
           <Suspense fallback={<RouteLoading />}>
             <Routes>
               {/* Public Routes */}
