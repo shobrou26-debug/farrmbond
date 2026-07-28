@@ -36,6 +36,7 @@ import {
   Shield,
   Edit,
 } from "lucide-react";
+import { generateInvoicePDF, generateAllInvoicesPDF, generateReceiptPDF } from "@/lib/pdf-invoice";
 
 // ============================================================
 // Animation Variants
@@ -55,7 +56,7 @@ const itemVariants = {
 // Invoice Card Component
 // ============================================================
 
-function InvoiceCard({ invoice, onDownload }: { invoice: any; onDownload: (id: string) => void }) {
+function InvoiceCard({ invoice, onDownload, onReceipt }: { invoice: any; onDownload: (id: string) => void; onReceipt: (id: string) => void }) {
   const [isExpanded, setIsExpanded] = useState(false);
   
   const statusConfig: Record<string, { color: string; icon: any; label: string }> = {
@@ -218,7 +219,7 @@ function InvoiceCard({ invoice, onDownload }: { invoice: any; onDownload: (id: s
                     size="sm"
                     onClick={(e) => {
                       e.stopPropagation();
-                      window.open(invoice.receiptUrl, "_blank");
+                      onReceipt(invoice.id);
                     }}
                   >
                     <Mail className="w-4 h-4 mr-1" />
@@ -424,11 +425,31 @@ export default function PaymentHistory() {
 
   const handleDownloadPdf = async (invoiceId: string) => {
     setIsDownloading(invoiceId);
-    // Simulate PDF download
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setIsDownloading(null);
-    // In production, this would generate/download the actual PDF
-    alert("PDF download would start here. In production, this would fetch the PDF from Stripe's hosted invoice URL.");
+    try {
+      const invoice = invoices.find(inv => inv.id === invoiceId);
+      if (invoice) {
+        generateInvoicePDF(invoice);
+      }
+    } catch (error) {
+      console.error("Failed to generate PDF:", error);
+    } finally {
+      setIsDownloading(null);
+    }
+  };
+
+  const handleDownloadReceipt = async (invoiceId: string) => {
+    try {
+      const invoice = invoices.find(inv => inv.id === invoiceId);
+      if (invoice) {
+        generateReceiptPDF(invoice);
+      }
+    } catch (error) {
+      console.error("Failed to generate receipt:", error);
+    }
+  };
+
+  const handleExportAll = () => {
+    generateAllInvoicesPDF(invoices);
   };
 
   return (
@@ -446,7 +467,7 @@ export default function PaymentHistory() {
               <h1 className="text-3xl font-bold tracking-tight">Payment History</h1>
               <p className="text-muted-foreground mt-1">View your invoices, payment methods, and subscription changes</p>
             </div>
-            <Button variant="outline" className="w-fit">
+            <Button variant="outline" className="w-fit" onClick={handleExportAll}>
               <Download className="w-4 h-4 mr-2" />
               Export All
             </Button>
@@ -548,11 +569,12 @@ export default function PaymentHistory() {
                       </div>
                     ) : (
                       filteredInvoices.map((invoice) => (
-                        <InvoiceCard
-                          key={invoice.id}
-                          invoice={invoice}
-                          onDownload={handleDownloadPdf}
-                        />
+                      <InvoiceCard
+                        key={invoice.id}
+                        invoice={invoice}
+                        onDownload={handleDownloadPdf}
+                        onReceipt={handleDownloadReceipt}
+                      />
                       ))
                     )}
                   </div>
