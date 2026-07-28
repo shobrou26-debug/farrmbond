@@ -2,7 +2,7 @@ import { action } from "./_generated/server";
 import { v } from "convex/values";
 
 // ============================================================
-// Email Notifications - Trial & Subscription Expiry Warnings
+// Email Notifications - Trial, Subscription, and Payment Reminders
 // Uses Resend API for transactional emails
 // ============================================================
 
@@ -383,6 +383,149 @@ export const sendSubscriptionExpiredEmail = action({
       return { sent: true, emailId: result.id };
     } catch (error) {
       console.error("Failed to send subscription expired email:", error);
+      return { sent: false, reason: String(error) };
+    }
+  },
+});
+
+/**
+ * Send a payment method reminder email to users before subscription renewal
+ * Warns them to update their payment details to avoid failed payments
+ */
+export const sendPaymentMethodReminder = action({
+  args: {
+    userId: v.id("users"),
+    email: v.string(),
+    name: v.string(),
+    daysUntilRenewal: v.number(),
+    subscriptionEndDate: v.number(),
+  },
+  handler: async (ctx, args) => {
+    if (!RESEND_API_KEY) {
+      console.log("RESEND_API_KEY not configured, skipping email");
+      return { sent: false, reason: "API key not configured" };
+    }
+
+    const renewalDate = new Date(args.subscriptionEndDate).toLocaleDateString("en-US", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+
+    const billingUrl = `${APP_URL}/settings?tab=subscription`;
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Action Required: Update Your Payment Method</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f7faf7; }
+    .container { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .header { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); padding: 32px; text-align: center; }
+    .header h1 { color: white; margin: 0; font-size: 24px; }
+    .content { padding: 32px; }
+    .alert-badge { display: inline-block; background: #fef2f2; color: #991b1b; padding: 8px 16px; border-radius: 20px; font-weight: 600; font-size: 14px; margin: 16px 0; }
+    .info-box { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 20px; margin: 24px 0; }
+    .info-box h3 { margin-top: 0; color: #92400e; font-size: 16px; }
+    .info-box ul { margin: 8px 0 0 0; padding-left: 20px; }
+    .info-box li { margin-bottom: 6px; font-size: 14px; }
+    .success-box { background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 20px; margin: 24px 0; }
+    .success-box h3 { margin-top: 0; color: #166534; font-size: 16px; }
+    .success-box ul { margin: 8px 0 0 0; padding-left: 20px; }
+    .success-box li { margin-bottom: 6px; font-size: 14px; }
+    .cta-button { display: inline-block; background: #16a34a; color: white !important; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 24px 0; }
+    .cta-button:hover { background: #15803d; }
+    .footer { background: #f8fafc; padding: 24px; text-align: center; color: #64748b; font-size: 14px; }
+    .footer a { color: #16a34a; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🌱 FarmBond</h1>
+    </div>
+    <div class="content">
+      <h2>⚡ Action Required: Update Your Payment Method</h2>
+      <p>Hi ${args.name || "there"},</p>
+      <div class="alert-badge">💳 Payment verification needed</div>
+      <p>Your FarmBond Pro subscription is set to renew on <strong>${renewalDate}</strong> for <strong>$5/month</strong>.</p>
+      
+      <div class="info-box">
+        <h3>⚠️ Why are we contacting you?</h3>
+        <p>To ensure uninterrupted access to your premium features, we need you to verify your payment method is up to date.</p>
+        <ul>
+          <li>Your current payment method may be expired or invalid</li>
+          <li>A failed payment could interrupt your Pro access</li>
+          <li>Updating now takes just 2 minutes</li>
+        </ul>
+      </div>
+
+      <div class="success-box">
+        <h3>🌟 Your Pro features at risk:</h3>
+        <ul>
+          <li>🤖 Unlimited AI farming assistant</li>
+          <li>🛰️ Satellite imagery & NDVI analysis</li>
+          <li>📊 Advanced analytics & reports</li>
+          <li>🧑‍🌾 Expert consultations</li>
+          <li>📄 PDF & Excel exports</li>
+          <li>🎯 Priority support</li>
+        </ul>
+      </div>
+
+      <p><strong>Don't let your subscription lapse!</strong> Update your payment method now to keep all your Pro features.</p>
+      
+      <a href="${billingUrl}" class="cta-button">Update Payment Method</a>
+      
+      <p style="font-size: 13px; color: #64748b; margin-top: 24px;">
+        We accept Visa, Mastercard, PayPal, MTN Mobile Money, Airtel Money, and Skrill.
+      </p>
+      
+      <p>If you have any questions, reply to this email or visit our <a href="${APP_URL}/support">support center</a>.</p>
+      
+      <p>Happy farming! 🚜<br>The FarmBond Team</p>
+    </div>
+    <div class="footer">
+      <p>FarmBond — AI-Powered Smart Farming</p>
+      <p>
+        <a href="${APP_URL}/privacy">Privacy Policy</a> | 
+        <a href="${APP_URL}/settings?tab=notifications">Email Preferences</a>
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+    try {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${RESEND_API_KEY}`,
+        },
+        body: JSON.stringify({
+          from: FROM_EMAIL,
+          to: [args.email],
+          subject: `⚡ Action Required: Update Payment Method Before ${args.daysUntilRenewal}-Day Renewal`,
+          html: htmlContent,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error("Resend API error:", error);
+        return { sent: false, reason: error };
+      }
+
+      const result = await response.json();
+      console.log("Payment method reminder email sent successfully:", result.id);
+      return { sent: true, emailId: result.id };
+    } catch (error) {
+      console.error("Failed to send payment method reminder email:", error);
       return { sent: false, reason: String(error) };
     }
   },

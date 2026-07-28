@@ -182,6 +182,124 @@ export const sendSubscriptionExpiryWarnings = mutation({
 });
 
 /**
+ * Send payment method reminder emails to users before subscription renewal
+ * Warns them to update payment details to avoid failed payments
+ */
+export const sendPaymentMethodReminders = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    let emailsSent = 0;
+    let emailsSkipped = 0;
+    const errors: string[] = [];
+
+    // Find all users with paid subscriptions
+    const users = await ctx.db.query("users").collect();
+
+    for (const user of users) {
+      // Skip users without paid subscriptions or without email
+      if (!user.subscriptionEndDate || !user.email || user.subscriptionTier !== "pro") {
+        continue;
+      }
+
+      const subEnd = user.subscriptionEndDate;
+      const daysUntilRenewal = Math.ceil((subEnd - now) / (24 * 60 * 60 * 1000));
+
+      // Skip if subscription has already expired
+      if (daysUntilRenewal <= 0) {
+        continue;
+      }
+
+      // Send reminder 7 days before renewal if payment method is not verified
+      const shouldRemind = !user.paymentMethodVerified && daysUntilRenewal <= 7;
+      
+      if (shouldRemind) {
+        // Check if we already sent a reminder for this subscription period
+        const existingLog = await ctx.db
+          .query("auditLogs")
+          .filter((q) =>
+            q.and(
+              q.eq(q.field("userId"), user._id),
+              q.eq(q.field("action"), "payment_method_reminder_sent")
+            )
+          )
+          .order("desc")
+          .first();
+
+        // Skip if we already sent a reminder in the last 24 hours
+        if (existingLog && existingLog.createdAt > now - 24 * 60 * 60 * 1000) {
+          emailsSkipped++;
+          continue;
+        }
+
+        // Send the reminder email
+        try {
+          await ctx.scheduler.runAfter(0, api.emails.sendPaymentMethodReminder, {
+            userId: user._id,
+            email: user.email,
+            name: user.name || "there",
+            daysUntilRenewal,
+            subscriptionEndDate: subEnd,
+          });
+
+          // Log that we sent the reminder
+          await createAuditLog(ctx, {
+            userId: user._id,
+            action: "payment_method_reminder_sent",
+            resource: "users",
+            resourceId: user._id,
+            changes: {
+              daysUntilRenewal,
+              subscriptionEndDate: subEnd,
+              emailSentTo: user.email,
+            },
+          });
+
+          emailsSent++;
+        } catch (error) {
+          console.error(`Failed to send payment method reminder to ${user.email}:`, error);
+          errors.push(`${user.email}: ${String(error)}`);
+        }
+      }
+    }
+
+    return {
+      success: true,
+      emailsSent,
+      emailsSkipped,
+      errors,
+    };
+  },
+});
+
+/**
+ * Mark payment method as verified for a user
+ */
+export const verifyPaymentMethod = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { userId } = await requireAuth(ctx);
+    const now = Date.now();
+
+    await ctx.db.patch(userId, {
+      paymentMethodVerified: true,
+      lastPaymentMethodReminder: undefined, // Clear reminder since verified
+      updatedAt: now,
+    });
+
+    await createAuditLog(ctx, {
+      userId,
+      action: "payment_method_verified",
+      resource: "users",
+      resourceId: userId,
+      changes: { paymentMethodVerified: true },
+    });
+
+    return { success: true };
+  },
+});
+
+/**
  * Expire subscriptions for users whose paid subscriptions have ended
  * Downgrades them to Free tier and sends notification email
  */

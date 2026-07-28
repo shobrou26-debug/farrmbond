@@ -48,4 +48,14 @@ crons.interval(
   api.subscriptions.expireSubscriptions
 );
 
+/**
+ * Send payment method reminder emails daily.
+ * Warns users 7 days before renewal if payment method is not verified.
+ */
+crons.interval(
+  "payment_method_reminders",
+  { hours: 24 },
+  api.subscriptions.sendPaymentMethodReminders
+);
+
 export default crons;

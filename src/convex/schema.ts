@@ -145,6 +145,8 @@ const schema = defineSchema(
       subscriptionStartDate: v.optional(v.number()),
       subscriptionEndDate: v.optional(v.number()),
       trialEndDate: v.optional(v.number()), // 7-day free trial expiry
+      paymentMethodVerified: v.optional(v.boolean()), // Payment method on file
+      lastPaymentMethodReminder: v.optional(v.number()), // Last time we sent payment reminder
       
       // Profile
       bio: v.optional(v.string()),
