@@ -2,6 +2,15 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { roleValidator, subscriptionTierValidator } from "./schema";
+import {
+  requireAuth,
+  requireAdmin,
+  requireSuperAdmin,
+  hasRole,
+  createAuditLog,
+  checkRateLimit,
+} from "./authHelpers";
+import { ROLES } from "./schema";
 
 // ============================================================
 // Admin Queries
@@ -13,13 +22,7 @@ import { roleValidator, subscriptionTierValidator } from "./schema";
 export const listAllUsers = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const currentUser = await ctx.db.get(userId);
-    if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "super_admin")) {
-      throw new Error("Not authorized");
-    }
+    const { userId } = await requireAdmin(ctx);
 
     const users = await ctx.db.query("users").collect();
     return users.map((u) => ({
@@ -43,13 +46,7 @@ export const listAllUsers = query({
 export const getUserStats = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const currentUser = await ctx.db.get(userId);
-    if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "super_admin")) {
-      throw new Error("Not authorized");
-    }
+    const { userId } = await requireAdmin(ctx);
 
     const users = await ctx.db.query("users").collect();
     const total = users.length;
@@ -73,12 +70,27 @@ export const getUserStats = query({
   },
 });
 
+/**
+ * List all audit logs (admin only)
+ */
+export const listAuditLogs = query({
+  args: {},
+  handler: async (ctx) => {
+    const { userId } = await requireAdmin(ctx);
+
+    return await ctx.db
+      .query("auditLogs")
+      .order("desc")
+      .take(100);
+  },
+});
+
 // ============================================================
 // Admin Mutations
 // ============================================================
 
 /**
- * Update a user's role (admin only)
+ * Update a user's role (admin only, super_admin for promoting to super_admin)
  */
 export const updateUserRole = mutation({
   args: {
@@ -86,17 +98,17 @@ export const updateUserRole = mutation({
     newRole: roleValidator,
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const { userId, user } = await requireAdmin(ctx);
 
-    const currentUser = await ctx.db.get(userId);
-    if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "super_admin")) {
-      throw new Error("Not authorized");
+    // Rate limiting: max 10 role changes per hour
+    const rateCheck = await checkRateLimit(ctx, userId, "role_changed", 10, 60 * 60 * 1000);
+    if (!rateCheck.allowed) {
+      throw new Error("Rate limit exceeded: Too many role changes. Try again later.");
     }
 
     // Prevent non-super-admins from promoting to super_admin
-    if (args.newRole === "super_admin" && currentUser.role !== "super_admin") {
-      throw new Error("Only super admins can assign super admin role");
+    if (args.newRole === "super_admin" && user.role !== "super_admin") {
+      throw new Error("Authorization denied: Only super admins can assign super admin role");
     }
 
     const targetUser = await ctx.db.get(args.targetUserId);
@@ -111,7 +123,7 @@ export const updateUserRole = mutation({
     });
 
     // Create audit log
-    await ctx.db.insert("auditLogs", {
+    await createAuditLog(ctx, {
       userId,
       action: "role_changed",
       resource: "users",
@@ -123,7 +135,6 @@ export const updateUserRole = mutation({
         userName: targetUser.name,
         userEmail: targetUser.email,
       },
-      createdAt: Date.now(),
     });
 
     return { success: true, oldRole, newRole: args.newRole };
@@ -139,12 +150,12 @@ export const updateUserSubscription = mutation({
     newTier: subscriptionTierValidator,
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const { userId } = await requireAdmin(ctx);
 
-    const currentUser = await ctx.db.get(userId);
-    if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "super_admin")) {
-      throw new Error("Not authorized");
+    // Rate limiting: max 20 subscription changes per hour
+    const rateCheck = await checkRateLimit(ctx, userId, "subscription_changed", 20, 60 * 60 * 1000);
+    if (!rateCheck.allowed) {
+      throw new Error("Rate limit exceeded: Too many subscription changes. Try again later.");
     }
 
     const targetUser = await ctx.db.get(args.targetUserId);
@@ -157,12 +168,12 @@ export const updateUserSubscription = mutation({
     await ctx.db.patch(args.targetUserId, {
       subscriptionTier: args.newTier,
       subscriptionStartDate: now,
-      subscriptionEndDate: args.newTier === "free" ? undefined : now + 30 * 24 * 60 * 60 * 1000, // 30 days from now
+      subscriptionEndDate: args.newTier === "free" ? undefined : now + 30 * 24 * 60 * 60 * 1000,
       updatedAt: now,
     });
 
     // Create audit log
-    await ctx.db.insert("auditLogs", {
+    await createAuditLog(ctx, {
       userId,
       action: "subscription_changed",
       resource: "users",
@@ -174,7 +185,6 @@ export const updateUserSubscription = mutation({
         userName: targetUser.name,
         userEmail: targetUser.email,
       },
-      createdAt: now,
     });
 
     return { success: true, oldTier, newTier: args.newTier };
@@ -189,13 +199,7 @@ export const toggleUserStatus = mutation({
     targetUserId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const currentUser = await ctx.db.get(userId);
-    if (!currentUser || (currentUser.role !== "admin" && currentUser.role !== "super_admin")) {
-      throw new Error("Not authorized");
-    }
+    const { userId } = await requireAdmin(ctx);
 
     // Prevent suspending yourself
     if (args.targetUserId === userId) {
@@ -205,8 +209,12 @@ export const toggleUserStatus = mutation({
     const targetUser = await ctx.db.get(args.targetUserId);
     if (!targetUser) throw new Error("User not found");
 
+    // Cannot suspend super admins
+    if (targetUser.role === "super_admin") {
+      throw new Error("Cannot suspend a super admin");
+    }
+
     // Toggle: if user has no isSuspended field or it's false, set to true (suspended)
-    // If it's true, set to false (active)
     const isCurrentlySuspended = (targetUser as Record<string, unknown>).isSuspended === true;
     const newSuspendedState = !isCurrentlySuspended;
 
@@ -216,7 +224,7 @@ export const toggleUserStatus = mutation({
     } as Record<string, unknown>);
 
     // Create audit log
-    await ctx.db.insert("auditLogs", {
+    await createAuditLog(ctx, {
       userId,
       action: newSuspendedState ? "user_suspended" : "user_reactivated",
       resource: "users",
@@ -226,7 +234,6 @@ export const toggleUserStatus = mutation({
         userEmail: targetUser.email,
         status: newSuspendedState ? "suspended" : "active",
       },
-      createdAt: Date.now(),
     });
 
     return { success: true, suspended: newSuspendedState };

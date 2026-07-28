@@ -1,6 +1,17 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import {
+  requireAuth,
+  requireRole,
+  verifyFarmOwnership,
+  createAuditLog,
+  validateString,
+  validateNumber,
+  validateCoordinates,
+  sanitizeInput,
+  requireOwnerOfResource,
+} from "./authHelpers";
+import { ROLES } from "./schema";
 
 // ============================================================
 // Farm Queries
@@ -10,16 +21,13 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 export const listUserFarms = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+    const { userId } = await requireAuth(ctx);
 
-    const farms = await ctx.db
+    return await ctx.db
       .query("farms")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .order("desc")
       .collect();
-
-    return farms;
   },
 });
 
@@ -27,8 +35,7 @@ export const listUserFarms = query({
 export const getFarm = query({
   args: { farmId: v.id("farms") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
+    const { userId } = await requireAuth(ctx);
 
     const farm = await ctx.db.get(args.farmId);
     if (!farm || farm.userId !== userId) return null;
@@ -41,11 +48,8 @@ export const getFarm = query({
 export const getFarmStats = query({
   args: { farmId: v.id("farms") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-
-    const farm = await ctx.db.get(args.farmId);
-    if (!farm || farm.userId !== userId) return null;
+    const { userId } = await requireAuth(ctx);
+    const farm = await verifyFarmOwnership(ctx, args.farmId, userId);
 
     const crops = await ctx.db
       .query("crops")
@@ -94,30 +98,38 @@ export const createFarm = mutation({
     irrigationType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    // Authorization: any authenticated user can create a farm
+    const { userId } = await requireAuth(ctx);
+
+    // Input validation
+    const name = sanitizeInput(validateString(args.name, "Farm name", 100));
+    validateNumber(args.size, "Farm size", 0.01, 100000);
+    validateCoordinates(args.latitude, args.longitude);
+    if (args.soilPh !== undefined) {
+      validateNumber(args.soilPh, "Soil pH", 0, 14);
+    }
 
     const now = Date.now();
 
     const farmId = await ctx.db.insert("farms", {
       userId,
-      name: args.name,
-      description: args.description,
+      name,
+      description: args.description ? sanitizeInput(args.description) : undefined,
       location: {
         latitude: args.latitude,
         longitude: args.longitude,
-        address: args.address,
-        city: args.city,
-        state: args.state,
-        country: args.country,
+        address: args.address ? sanitizeInput(args.address) : undefined,
+        city: args.city ? sanitizeInput(args.city) : undefined,
+        state: args.state ? sanitizeInput(args.state) : undefined,
+        country: args.country ? sanitizeInput(args.country) : undefined,
       },
       size: args.size,
       sizeUnit: args.sizeUnit,
       status: "active",
-      soilType: args.soilType,
+      soilType: args.soilType ? sanitizeInput(args.soilType) : undefined,
       soilPh: args.soilPh,
       waterSources: args.waterSources,
-      irrigationType: args.irrigationType,
+      irrigationType: args.irrigationType ? sanitizeInput(args.irrigationType) : undefined,
       createdAt: now,
       updatedAt: now,
     });
@@ -130,6 +142,15 @@ export const createFarm = mutation({
         updatedAt: now,
       });
     }
+
+    // Audit log
+    await createAuditLog(ctx, {
+      userId,
+      action: "farm_created",
+      resource: "farms",
+      resourceId: farmId,
+      changes: { name, size: args.size, sizeUnit: args.sizeUnit },
+    });
 
     return farmId;
   },
@@ -164,38 +185,48 @@ export const updateFarm = mutation({
     ndviScore: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const farm = await ctx.db.get(args.farmId);
-    if (!farm || farm.userId !== userId) throw new Error("Farm not found");
+    const { userId } = await requireAuth(ctx);
+    const farm = await verifyFarmOwnership(ctx, args.farmId, userId);
 
     const updates: Record<string, unknown> = { updatedAt: Date.now() };
 
-    if (args.name !== undefined) updates.name = args.name;
-    if (args.description !== undefined) updates.description = args.description;
-    if (args.size !== undefined) updates.size = args.size;
+    if (args.name !== undefined) updates.name = sanitizeInput(validateString(args.name, "Farm name", 100));
+    if (args.description !== undefined) updates.description = sanitizeInput(args.description);
+    if (args.size !== undefined) updates.size = validateNumber(args.size, "Farm size", 0.01, 100000);
     if (args.sizeUnit !== undefined) updates.sizeUnit = args.sizeUnit;
     if (args.status !== undefined) updates.status = args.status;
-    if (args.soilType !== undefined) updates.soilType = args.soilType;
-    if (args.soilPh !== undefined) updates.soilPh = args.soilPh;
+    if (args.soilType !== undefined) updates.soilType = sanitizeInput(args.soilType);
+    if (args.soilPh !== undefined) updates.soilPh = validateNumber(args.soilPh, "Soil pH", 0, 14);
     if (args.waterSources !== undefined) updates.waterSources = args.waterSources;
-    if (args.irrigationType !== undefined) updates.irrigationType = args.irrigationType;
-    if (args.ndviScore !== undefined) updates.ndviScore = args.ndviScore;
+    if (args.irrigationType !== undefined) updates.irrigationType = sanitizeInput(args.irrigationType);
+    if (args.ndviScore !== undefined) updates.ndviScore = validateNumber(args.ndviScore, "NDVI Score", 0, 100);
 
     if (args.latitude !== undefined || args.longitude !== undefined) {
+      const lat = args.latitude ?? farm.location.latitude;
+      const lng = args.longitude ?? farm.location.longitude;
+      validateCoordinates(lat, lng);
       updates.location = {
         ...farm.location,
-        latitude: args.latitude ?? farm.location.latitude,
-        longitude: args.longitude ?? farm.location.longitude,
-        address: args.address ?? farm.location.address,
-        city: args.city ?? farm.location.city,
-        state: args.state ?? farm.location.state,
-        country: args.country ?? farm.location.country,
+        latitude: lat,
+        longitude: lng,
+        address: args.address ? sanitizeInput(args.address) : farm.location.address,
+        city: args.city ? sanitizeInput(args.city) : farm.location.city,
+        state: args.state ? sanitizeInput(args.state) : farm.location.state,
+        country: args.country ? sanitizeInput(args.country) : farm.location.country,
       };
     }
 
     await ctx.db.patch(args.farmId, updates);
+
+    // Audit log
+    await createAuditLog(ctx, {
+      userId,
+      action: "farm_updated",
+      resource: "farms",
+      resourceId: args.farmId,
+      changes: { updatedFields: Object.keys(updates).filter((k) => k !== "updatedAt") },
+    });
+
     return args.farmId;
   },
 });
@@ -204,11 +235,8 @@ export const updateFarm = mutation({
 export const deleteFarm = mutation({
   args: { farmId: v.id("farms") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const farm = await ctx.db.get(args.farmId);
-    if (!farm || farm.userId !== userId) throw new Error("Farm not found");
+    const { userId } = await requireAuth(ctx);
+    const farm = await verifyFarmOwnership(ctx, args.farmId, userId);
 
     // Delete associated crops
     const crops = await ctx.db
@@ -232,6 +260,15 @@ export const deleteFarm = mutation({
 
     // Delete the farm
     await ctx.db.delete(args.farmId);
+
+    // Audit log
+    await createAuditLog(ctx, {
+      userId,
+      action: "farm_deleted",
+      resource: "farms",
+      resourceId: args.farmId,
+      changes: { name: farm.name, cropsDeleted: crops.length, livestockDeleted: livestock.length } as Record<string, unknown>,
+    });
 
     return true;
   },

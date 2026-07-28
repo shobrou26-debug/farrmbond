@@ -1,6 +1,14 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import {
+  requireAuth,
+  verifyTransactionOwnership,
+  verifyFarmOwnership,
+  createAuditLog,
+  validateString,
+  validateNumber,
+  sanitizeInput,
+} from "./authHelpers";
 
 // ============================================================
 // Transaction Queries
@@ -10,8 +18,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 export const listUserTransactions = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+    const { userId } = await requireAuth(ctx);
 
     return await ctx.db
       .query("transactions")
@@ -25,8 +32,8 @@ export const listUserTransactions = query({
 export const listFarmTransactions = query({
   args: { farmId: v.id("farms") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+    const { userId } = await requireAuth(ctx);
+    await verifyFarmOwnership(ctx, args.farmId, userId);
 
     return await ctx.db
       .query("transactions")
@@ -40,8 +47,7 @@ export const listFarmTransactions = query({
 export const getFinancialSummary = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
+    const { userId } = await requireAuth(ctx);
 
     const transactions = await ctx.db
       .query("transactions")
@@ -115,26 +121,44 @@ export const createTransaction = mutation({
     paymentMethod: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const { userId } = await requireAuth(ctx);
+
+    // Verify user owns the farm
+    await verifyFarmOwnership(ctx, args.farmId, userId);
+
+    // Input validation
+    const category = sanitizeInput(validateString(args.category, "Category", 50));
+    const description = sanitizeInput(validateString(args.description, "Description", 500));
+    validateNumber(args.amount, "Amount", 0.01, 100000000);
 
     const now = Date.now();
 
-    return await ctx.db.insert("transactions", {
+    const transactionId = await ctx.db.insert("transactions", {
       userId,
       farmId: args.farmId,
       cropId: args.cropId,
       livestockId: args.livestockId,
       type: args.type,
-      category: args.category,
-      description: args.description,
+      category,
+      description,
       amount: args.amount,
       currency: args.currency,
       date: args.date,
-      paymentMethod: args.paymentMethod,
+      paymentMethod: args.paymentMethod ? sanitizeInput(args.paymentMethod) : undefined,
       createdAt: now,
       updatedAt: now,
     });
+
+    // Audit log
+    await createAuditLog(ctx, {
+      userId,
+      action: "transaction_created",
+      resource: "transactions",
+      resourceId: transactionId,
+      changes: { type: args.type, category, amount: args.amount, farmId: args.farmId },
+    });
+
+    return transactionId;
   },
 });
 
@@ -142,13 +166,20 @@ export const createTransaction = mutation({
 export const deleteTransaction = mutation({
   args: { transactionId: v.id("transactions") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const transaction = await ctx.db.get(args.transactionId);
-    if (!transaction || transaction.userId !== userId) throw new Error("Transaction not found");
+    const { userId } = await requireAuth(ctx);
+    const transaction = await verifyTransactionOwnership(ctx, args.transactionId, userId);
 
     await ctx.db.delete(args.transactionId);
+
+    // Audit log
+    await createAuditLog(ctx, {
+      userId,
+      action: "transaction_deleted",
+      resource: "transactions",
+      resourceId: args.transactionId,
+      changes: { type: transaction.type, amount: transaction.amount, category: transaction.category } as Record<string, unknown>,
+    });
+
     return true;
   },
 });

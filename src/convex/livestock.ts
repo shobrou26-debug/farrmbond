@@ -1,6 +1,14 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import {
+  requireAuth,
+  verifyLivestockOwnership,
+  verifyFarmOwnership,
+  createAuditLog,
+  validateString,
+  validateNumber,
+  sanitizeInput,
+} from "./authHelpers";
 
 // ============================================================
 // Livestock Queries
@@ -10,8 +18,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 export const listUserLivestock = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+    const { userId } = await requireAuth(ctx);
 
     return await ctx.db
       .query("livestock")
@@ -25,8 +32,8 @@ export const listUserLivestock = query({
 export const listFarmLivestock = query({
   args: { farmId: v.id("farms") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+    const { userId } = await requireAuth(ctx);
+    await verifyFarmOwnership(ctx, args.farmId, userId);
 
     return await ctx.db
       .query("livestock")
@@ -56,29 +63,47 @@ export const createLivestock = mutation({
     dailyFeedCost: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const { userId } = await requireAuth(ctx);
+
+    // Verify user owns the farm
+    await verifyFarmOwnership(ctx, args.farmId, userId);
+
+    // Input validation
+    const name = sanitizeInput(validateString(args.name, "Livestock name", 100));
+    const type = sanitizeInput(validateString(args.type, "Livestock type", 50));
+    validateNumber(args.quantity, "Quantity", 1, 100000);
 
     const now = Date.now();
 
-    return await ctx.db.insert("livestock", {
+    const livestockId = await ctx.db.insert("livestock", {
       farmId: args.farmId,
       userId,
-      name: args.name,
-      type: args.type,
-      breed: args.breed,
+      name,
+      type,
+      breed: args.breed ? sanitizeInput(args.breed) : undefined,
       quantity: args.quantity,
       unit: args.unit,
       status: "healthy",
       healthScore: 100,
       acquisitionDate: args.acquisitionDate,
       acquisitionCost: args.acquisitionCost,
-      productionType: args.productionType,
-      feedType: args.feedType,
+      productionType: args.productionType ? sanitizeInput(args.productionType) : undefined,
+      feedType: args.feedType ? sanitizeInput(args.feedType) : undefined,
       dailyFeedCost: args.dailyFeedCost,
       createdAt: now,
       updatedAt: now,
     });
+
+    // Audit log
+    await createAuditLog(ctx, {
+      userId,
+      action: "livestock_created",
+      resource: "livestock",
+      resourceId: livestockId,
+      changes: { name, type, quantity: args.quantity, farmId: args.farmId },
+    });
+
+    return livestockId;
   },
 });
 
@@ -103,23 +128,30 @@ export const updateLivestock = mutation({
     dailyFeedCost: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const livestock = await ctx.db.get(args.livestockId);
-    if (!livestock || livestock.userId !== userId) throw new Error("Livestock not found");
+    const { userId } = await requireAuth(ctx);
+    await verifyLivestockOwnership(ctx, args.livestockId, userId);
 
     const updates: Record<string, unknown> = { updatedAt: Date.now() };
-    if (args.name !== undefined) updates.name = args.name;
+    if (args.name !== undefined) updates.name = sanitizeInput(validateString(args.name, "Livestock name", 100));
     if (args.status !== undefined) updates.status = args.status;
-    if (args.healthScore !== undefined) updates.healthScore = args.healthScore;
-    if (args.quantity !== undefined) updates.quantity = args.quantity;
+    if (args.healthScore !== undefined) updates.healthScore = validateNumber(args.healthScore, "Health score", 0, 100);
+    if (args.quantity !== undefined) updates.quantity = validateNumber(args.quantity, "Quantity", 1, 100000);
     if (args.lastVaccination !== undefined) updates.lastVaccination = args.lastVaccination;
     if (args.nextVaccination !== undefined) updates.nextVaccination = args.nextVaccination;
     if (args.lastCheckup !== undefined) updates.lastCheckup = args.lastCheckup;
     if (args.dailyFeedCost !== undefined) updates.dailyFeedCost = args.dailyFeedCost;
 
     await ctx.db.patch(args.livestockId, updates);
+
+    // Audit log
+    await createAuditLog(ctx, {
+      userId,
+      action: "livestock_updated",
+      resource: "livestock",
+      resourceId: args.livestockId,
+      changes: { updatedFields: Object.keys(updates).filter((k) => k !== "updatedAt") },
+    });
+
     return args.livestockId;
   },
 });
@@ -128,13 +160,20 @@ export const updateLivestock = mutation({
 export const deleteLivestock = mutation({
   args: { livestockId: v.id("livestock") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const livestock = await ctx.db.get(args.livestockId);
-    if (!livestock || livestock.userId !== userId) throw new Error("Livestock not found");
+    const { userId } = await requireAuth(ctx);
+    const livestock = await verifyLivestockOwnership(ctx, args.livestockId, userId);
 
     await ctx.db.delete(args.livestockId);
+
+    // Audit log
+    await createAuditLog(ctx, {
+      userId,
+      action: "livestock_deleted",
+      resource: "livestock",
+      resourceId: args.livestockId,
+      changes: { name: livestock.name, type: livestock.type } as Record<string, unknown>,
+    });
+
     return true;
   },
 });
