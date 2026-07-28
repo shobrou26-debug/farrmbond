@@ -23,19 +23,17 @@ export const roleValidator = v.union(
 );
 export type Role = Infer<typeof roleValidator>;
 
-// Subscription tiers
+// Subscription tiers (single $5/month plan)
 export const SUBSCRIPTION_TIERS = {
   FREE: "free",
-  BASIC: "basic",
   PRO: "pro",
-  ENTERPRISE: "enterprise",
 } as const;
+
+export const SUBSCRIPTION_PRICE = 5; // $5/month
 
 export const subscriptionTierValidator = v.union(
   v.literal(SUBSCRIPTION_TIERS.FREE),
-  v.literal(SUBSCRIPTION_TIERS.BASIC),
   v.literal(SUBSCRIPTION_TIERS.PRO),
-  v.literal(SUBSCRIPTION_TIERS.ENTERPRISE),
 );
 export type SubscriptionTier = Infer<typeof subscriptionTierValidator>;
 

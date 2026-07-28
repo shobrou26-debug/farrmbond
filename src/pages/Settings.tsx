@@ -81,9 +81,7 @@ const roleConfig: Record<string, { label: string; color: string; icon: React.Com
 
 const subscriptionConfig: Record<string, { label: string; color: string }> = {
   free: { label: "Free", color: "bg-gray-500/10 text-gray-600" },
-  basic: { label: "Basic", color: "bg-blue-500/10 text-blue-600" },
   pro: { label: "Pro", color: "bg-green-500/10 text-green-600" },
-  enterprise: { label: "Enterprise", color: "bg-purple-500/10 text-purple-600" },
 };
 
 // ============================================================
@@ -387,7 +385,7 @@ function SecurityTab() {
 }
 
 // ============================================================
-// Subscription Tab
+// Subscription Tab - Single $5/month Plan
 // ============================================================
 
 function SubscriptionTab() {
@@ -438,38 +436,43 @@ function SubscriptionTab() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {[
-          { name: "Pro", price: "$29", period: "/month", features: ["Unlimited farms", "Unlimited AI", "Satellite monitoring", "Advanced analytics"], popular: true },
-          { name: "Enterprise", price: "$99", period: "/month", features: ["Everything in Pro", "API access", "Custom integrations", "Dedicated support"], popular: false },
-        ].map((plan, i) => (
-          <Card key={i} className={`border-border/50 ${plan.popular ? "border-primary/50" : ""}`}>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">{plan.name}</CardTitle>
-                {plan.popular && <Badge className="gradient-primary text-[10px]">Recommended</Badge>}
-              </div>
-              <div className="mt-2">
-                <span className="text-3xl font-bold">{plan.price}</span>
-                <span className="text-muted-foreground text-sm">{plan.period}</span>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <ul className="space-y-2">
-                {plan.features.map((feature, j) => (
-                  <li key={j} className="flex items-center gap-2 text-sm">
-                    <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
-              <Button className={`w-full ${plan.popular ? "gradient-primary" : ""}`} variant={plan.popular ? "default" : "outline"}>
-                {tier === plan.name.toLowerCase() ? "Current Plan" : "Upgrade"}
-              </Button>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* Single Pro Plan - $5/month */}
+      <Card className="border-primary/50">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">FarmBond Pro</CardTitle>
+            {tier === "free" && <Badge className="gradient-primary text-[10px]">Recommended</Badge>}
+            {tier === "pro" && <Badge className="bg-green-500/10 text-green-600 text-[10px]">Current Plan</Badge>}
+          </div>
+          <div className="mt-2">
+            <span className="text-3xl font-bold">$5</span>
+            <span className="text-muted-foreground text-sm">/month</span>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">Unlock the full power of FarmBond with Pro features:</p>
+          <ul className="space-y-2">
+            {[
+              "Unlimited farms",
+              "Unlimited crops & livestock tracking",
+              "Unlimited AI assistant queries",
+              "Satellite NDVI monitoring",
+              "Advanced analytics & reports",
+              "Priority support",
+              "PDF & Excel exports",
+              "Expert consultations",
+            ].map((feature, j) => (
+              <li key={j} className="flex items-center gap-2 text-sm">
+                <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                {feature}
+              </li>
+            ))}
+          </ul>
+          <Button className="w-full gradient-primary mt-4" disabled={tier === "pro"}>
+            {tier === "pro" ? "Current Plan" : "Upgrade to Pro — $5/month"}
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card className="border-border/50">
         <CardHeader className="pb-3">
@@ -480,7 +483,7 @@ function SubscriptionTab() {
           <div className="text-center py-8 text-muted-foreground">
             <CreditCard className="w-8 h-8 mx-auto mb-2 opacity-40" />
             <p className="text-sm">No payment history yet</p>
-            <p className="text-xs mt-1">Upgrade to Pro to unlock premium features</p>
+            <p className="text-xs mt-1">Upgrade to Pro for $5/month to unlock premium features</p>
           </div>
         </CardContent>
       </Card>
@@ -548,7 +551,7 @@ function AdminTab() {
   // Stats from Convex
   const totalUsers = stats?.total || 0;
   const activeUsers = stats?.activeUsers || 0;
-  const proUsers = (stats?.bySubscription?.pro || 0) + (stats?.bySubscription?.enterprise || 0);
+  const proUsers = (stats?.bySubscription?.pro || 0);
 
   // Loading state
   if (users === undefined || stats === undefined) {
@@ -584,7 +587,7 @@ function AdminTab() {
         {[
           { label: "Total Users", value: totalUsers, icon: Users, color: "bg-blue-500", change: "+12 this week" },
           { label: "Active Users", value: activeUsers, icon: UserCheck, color: "bg-green-500", change: `${totalUsers > 0 ? Math.round((activeUsers / totalUsers) * 100) : 0}% of total` },
-          { label: "Pro/Enterprise", value: proUsers, icon: Crown, color: "bg-purple-500", change: `${totalUsers > 0 ? Math.round((proUsers / totalUsers) * 100) : 0}% conversion` },
+          { label: "Pro Users", value: proUsers, icon: Crown, color: "bg-purple-500", change: `$${proUsers * 5}/mo revenue` },
         ].map((stat, i) => {
           const Icon = stat.icon;
           return (

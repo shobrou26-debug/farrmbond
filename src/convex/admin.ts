@@ -57,9 +57,7 @@ export const getUserStats = query({
     };
     const bySubscription = {
       free: users.filter((u) => !u.subscriptionTier || u.subscriptionTier === "free").length,
-      basic: users.filter((u) => u.subscriptionTier === "basic").length,
       pro: users.filter((u) => u.subscriptionTier === "pro").length,
-      enterprise: users.filter((u) => u.subscriptionTier === "enterprise").length,
     };
 
     // Count users active in last 7 days
