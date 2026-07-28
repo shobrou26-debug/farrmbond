@@ -28,4 +28,24 @@ crons.interval(
   api.trials.sendTrialExpiryWarnings
 );
 
+/**
+ * Send subscription expiry warning emails daily.
+ * Warns paid users 3 days before their subscription renews/expires.
+ */
+crons.interval(
+  "subscription_expiry_warnings",
+  { hours: 24 },
+  api.subscriptions.sendSubscriptionExpiryWarnings
+);
+
+/**
+ * Expire paid subscriptions every 24 hours.
+ * Downgrades users whose subscriptions have lapsed and sends notification.
+ */
+crons.interval(
+  "expire_subscriptions",
+  { hours: 24 },
+  api.subscriptions.expireSubscriptions
+);
+
 export default crons;

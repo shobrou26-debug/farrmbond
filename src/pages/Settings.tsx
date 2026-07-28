@@ -395,6 +395,7 @@ function SubscriptionTab() {
   const { user } = useAuth();
   const tier = user?.subscriptionTier || "free";
   const trialStatus = useQuery(api.trials.getTrialStatus);
+  const subStatus = useQuery(api.subscriptions.getSubscriptionStatus);
   const startTrial = useMutation(api.trials.startTrial);
   const [isStartingTrial, setIsStartingTrial] = useState(false);
 
@@ -403,6 +404,13 @@ function SubscriptionTab() {
   const trialDaysRemaining = trialStatus?.trialDaysRemaining ?? 0;
   const trialEndDate = trialStatus?.trialEndDate;
   const hasUsedTrial = trialStatus?.hasUsedTrial ?? false;
+
+  // Subscription status for paid users
+  const isPaid = tier === "pro" && !isTrialActive;
+  const subDaysUntilRenewal = subStatus?.daysUntilRenewal ?? 0;
+  const isSubExpiringSoon = isPaid && (subStatus?.isExpiringSoon ?? false);
+  const isSubUrgent = isPaid && (subStatus?.isUrgent ?? false);
+  const subEndDate = subStatus?.subscriptionEndDate;
 
   // Calculate trial progress (7 day trial)
   const trialDuration = 7;
@@ -455,6 +463,7 @@ function SubscriptionTab() {
             </div>
           </div>
 
+          {/* Trial Expiry Warning */}
           {isTrialActive && trialEndDate && (
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -537,6 +546,76 @@ function SubscriptionTab() {
               }`}>
                 Subscribe now to keep all Pro features uninterrupted.
               </p>
+            </motion.div>
+          )}
+
+          {/* Paid Subscription Renewal Warning */}
+          {isPaid && !isTrialActive && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className={`rounded-xl border p-4 space-y-3 ${
+                isSubUrgent
+                  ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800"
+                  : isSubExpiringSoon
+                    ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800"
+                    : "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800"
+              }`}
+            >
+              {/* Warning Header */}
+              <div className="flex items-center gap-2">
+                <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                  isSubUrgent ? "bg-red-100 dark:bg-red-900/50" : isSubExpiringSoon ? "bg-amber-100 dark:bg-amber-900/50" : "bg-green-100 dark:bg-green-900/50"
+                }`}>
+                  {isSubUrgent ? (
+                    <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                  ) : isSubExpiringSoon ? (
+                    <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <p className={`text-sm font-semibold ${
+                    isSubUrgent ? "text-red-800 dark:text-red-200" : isSubExpiringSoon ? "text-amber-800 dark:text-amber-200" : "text-green-800 dark:text-green-200"
+                  }`}>
+                    {isSubUrgent
+                      ? "Subscription renews tomorrow!"
+                      : isSubExpiringSoon
+                        ? `Subscription renews in ${subDaysUntilRenewal} day${subDaysUntilRenewal !== 1 ? "s" : ""}`
+                        : `Next renewal in ${subDaysUntilRenewal} day${subDaysUntilRenewal !== 1 ? "s" : ""}`
+                    }
+                  </p>
+                  <p className={`text-xs ${
+                    isSubUrgent ? "text-red-600 dark:text-red-400" : isSubExpiringSoon ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"
+                  }`}>
+                    Renews {subEndDate ? new Date(subEndDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : ""} • $5/month
+                  </p>
+                </div>
+                <Badge className={`${
+                  isSubUrgent ? "bg-red-500/10 text-red-600 border-red-500/20" : isSubExpiringSoon ? "bg-amber-500/10 text-amber-600 border-amber-500/20" : "bg-green-500/10 text-green-600 border-green-500/20"
+                } border text-[10px]`}>{isSubUrgent ? "URGENT" : isSubExpiringSoon ? "RENEWING" : "ACTIVE"}</Badge>
+              </div>
+
+              {/* Email Notification Status */}
+              <div className="flex items-center gap-2 text-xs">
+                <MailCheck className={`w-3.5 h-3.5 ${isSubExpiringSoon ? "text-green-600" : "text-muted-foreground"}`} />
+                <span className={isSubExpiringSoon ? "text-green-700 dark:text-green-400" : "text-muted-foreground"}>
+                  {isSubExpiringSoon
+                    ? "Renewal reminder email sent — check your inbox"
+                    : "You'll receive a reminder 3 days before renewal"
+                  }
+                </span>
+              </div>
+
+              {/* Action Message */}
+              {isSubExpiringSoon && (
+                <p className={`text-xs ${
+                  isSubUrgent ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"
+                }`}>
+                  Make sure your payment method is up to date to avoid interruption.
+                </p>
+              )}
             </motion.div>
           )}
 
