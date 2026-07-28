@@ -208,7 +208,7 @@ export default function AIAssistant() {
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: "I'm sorry, I encountered an error processing your request. Please make sure the GOOGLE_GEMINI_API_KEY is configured in your environment, or try again later.",
+        content: "I'm sorry, I encountered an error processing your request. Please make sure the GROQ_API_KEY is configured in your environment, or try again later.\n\nGet a free key at https://console.groq.com — 14,400 requests/day free.",
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMessage]);
@@ -244,7 +244,7 @@ export default function AIAssistant() {
             </div>
             <Badge variant="secondary" className="hidden sm:flex">
               <Sparkles className="w-3 h-3 mr-1 text-primary" />
-              AI Powered
+              Powered by Groq AI
             </Badge>
           </div>
         </div>
