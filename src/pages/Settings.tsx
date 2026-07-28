@@ -385,12 +385,32 @@ function SecurityTab() {
 }
 
 // ============================================================
-// Subscription Tab - Single $5/month Plan
+// Subscription Tab - Single $5/month Plan with Free Trial
 // ============================================================
 
 function SubscriptionTab() {
   const { user } = useAuth();
   const tier = user?.subscriptionTier || "free";
+  const trialStatus = useQuery(api.trials.getTrialStatus);
+  const startTrial = useMutation(api.trials.startTrial);
+  const [isStartingTrial, setIsStartingTrial] = useState(false);
+
+  const now = Date.now();
+  const isTrialActive = trialStatus?.isTrialActive ?? false;
+  const trialDaysRemaining = trialStatus?.trialDaysRemaining ?? 0;
+  const trialEndDate = trialStatus?.trialEndDate;
+  const hasUsedTrial = trialStatus?.hasUsedTrial ?? false;
+
+  const handleStartTrial = async () => {
+    setIsStartingTrial(true);
+    try {
+      await startTrial();
+    } catch (err) {
+      console.error("Failed to start trial:", err);
+    } finally {
+      setIsStartingTrial(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -404,13 +424,41 @@ function SubscriptionTab() {
             <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-green-500">
               <Sprout className="w-6 h-6 text-white" />
             </div>
-            <div>
-              <p className="text-lg font-bold capitalize">{tier} Plan</p>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <p className="text-lg font-bold capitalize">{tier} Plan</p>
+                {isTrialActive && (
+                  <Badge className="bg-amber-500/10 text-amber-600 text-[10px]">
+                    Free Trial • {trialDaysRemaining}d left
+                  </Badge>
+                )}
+              </div>
               <p className="text-sm text-muted-foreground">
-                {tier === "free" ? "Limited features • 1 farm" : "Unlimited access • Priority support"}
+                {tier === "free"
+                  ? hasUsedTrial
+                    ? "Limited features • 1 farm"
+                    : "Limited features • Start your free trial!"
+                  : isTrialActive
+                    ? `Trial ends ${trialEndDate ? new Date(trialEndDate).toLocaleDateString() : ""}`
+                    : "Unlimited access • Priority support"
+                }
               </p>
             </div>
           </div>
+
+          {isTrialActive && trialEndDate && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <div className="text-sm">
+                <p className="font-medium text-amber-800 dark:text-amber-200">
+                  Free trial active — {trialDaysRemaining} day{trialDaysRemaining !== 1 ? "s" : ""} remaining
+                </p>
+                <p className="text-amber-700 dark:text-amber-300 text-xs">
+                  After the trial, you'll be downgraded to Free. Subscribe to keep Pro features.
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-3">
             <p className="text-sm font-medium">Usage This Month</p>
@@ -441,8 +489,10 @@ function SubscriptionTab() {
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">FarmBond Pro</CardTitle>
-            {tier === "free" && <Badge className="gradient-primary text-[10px]">Recommended</Badge>}
-            {tier === "pro" && <Badge className="bg-green-500/10 text-green-600 text-[10px]">Current Plan</Badge>}
+            {tier === "free" && !hasUsedTrial && <Badge className="gradient-primary text-[10px]">Free Trial Available</Badge>}
+            {tier === "free" && hasUsedTrial && <Badge className="bg-gray-500/10 text-gray-600 text-[10px]">Upgrade Required</Badge>}
+            {(tier === "pro" && !isTrialActive) && <Badge className="bg-green-500/10 text-green-600 text-[10px]">Current Plan</Badge>}
+            {(tier === "pro" && isTrialActive) && <Badge className="bg-amber-500/10 text-amber-600 text-[10px]">Trial Active</Badge>}
           </div>
           <div className="mt-2">
             <span className="text-3xl font-bold">$5</span>
@@ -468,9 +518,24 @@ function SubscriptionTab() {
               </li>
             ))}
           </ul>
-          <Button className="w-full gradient-primary mt-4" disabled={tier === "pro"}>
-            {tier === "pro" ? "Current Plan" : "Upgrade to Pro — $5/month"}
-          </Button>
+          <div className="mt-4 space-y-2">
+            {tier === "free" && !hasUsedTrial && (
+              <Button
+                className="w-full bg-amber-500 hover:bg-amber-600 text-white"
+                onClick={handleStartTrial}
+                disabled={isStartingTrial}
+              >
+                {isStartingTrial ? (
+                  <>Starting trial...</>
+                ) : (
+                  <>Start Free Trial — 7 Days</>
+                )}
+              </Button>
+            )}
+            <Button className="w-full gradient-primary" disabled={tier === "pro"}>
+              {tier === "pro" ? "Current Plan" : "Upgrade to Pro — $5/month"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

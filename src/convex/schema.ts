@@ -144,6 +144,7 @@ const schema = defineSchema(
       subscriptionTier: v.optional(subscriptionTierValidator),
       subscriptionStartDate: v.optional(v.number()),
       subscriptionEndDate: v.optional(v.number()),
+      trialEndDate: v.optional(v.number()), // 7-day free trial expiry
       
       // Profile
       bio: v.optional(v.string()),
