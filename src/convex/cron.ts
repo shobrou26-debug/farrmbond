@@ -18,4 +18,14 @@ crons.interval(
   api.trials.expireTrials
 );
 
+/**
+ * Send trial expiry warning emails daily.
+ * Warns users 2 days before their trial expires.
+ */
+crons.interval(
+  "trial_expiry_warnings",
+  { hours: 24 },
+  api.trials.sendTrialExpiryWarnings
+);
+
 export default crons;

@@ -1,7 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireAuth, createAuditLog } from "./authHelpers";
-import { Doc, Id } from "./_generated/dataModel";
+import { api } from "./_generated/api";
 
 // ============================================================
 // Trial Management
@@ -9,6 +9,7 @@ import { Doc, Id } from "./_generated/dataModel";
 // ============================================================
 
 const TRIAL_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const WARNING_DAYS = 2; // Send warning 2 days before expiry
 
 /**
  * Get the current user's trial status
@@ -148,6 +149,94 @@ export const expireTrials = mutation({
 });
 
 /**
+ * Send trial expiry warning emails to users whose trials end in 2 days
+ * Called by the cron job to proactively warn users before downgrade
+ */
+export const sendTrialExpiryWarnings = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    let emailsSent = 0;
+    let emailsSkipped = 0;
+    const errors: string[] = [];
+
+    // Calculate the warning window (2 days from now)
+    const warningStart = now;
+    const warningEnd = now + WARNING_DAYS * 24 * 60 * 60 * 1000;
+
+    // Find all users with active trials
+    const users = await ctx.db.query("users").collect();
+
+    for (const user of users) {
+      // Skip users without trials or without email
+      if (!user.trialEndDate || !user.email) {
+        continue;
+      }
+
+      const trialEnd = user.trialEndDate;
+      const daysRemaining = Math.ceil((trialEnd - now) / (24 * 60 * 60 * 1000));
+
+      // Check if trial is within warning window (1-2 days remaining)
+      if (daysRemaining <= WARNING_DAYS && daysRemaining > 0 && user.subscriptionTier === "pro") {
+        // Check if we already sent a warning for this trial
+        const existingLog = await ctx.db
+          .query("auditLogs")
+          .filter((q) =>
+            q.and(
+              q.eq(q.field("userId"), user._id),
+              q.eq(q.field("action"), "trial_warning_sent")
+            )
+          )
+          .order("desc")
+          .first();
+
+        // Skip if we already sent a warning in the last 24 hours
+        if (existingLog && existingLog.createdAt > now - 24 * 60 * 60 * 1000) {
+          emailsSkipped++;
+          continue;
+        }
+
+        // Send the warning email
+        try {
+          await ctx.scheduler.runAfter(0, api.emails.sendTrialExpiryWarning, {
+            userId: user._id,
+            email: user.email,
+            name: user.name || "there",
+            daysRemaining,
+            trialEndDate: trialEnd,
+          });
+
+          // Log that we sent the warning
+          await createAuditLog(ctx, {
+            userId: user._id,
+            action: "trial_warning_sent",
+            resource: "users",
+            resourceId: user._id,
+            changes: {
+              daysRemaining,
+              trialEndDate: trialEnd,
+              emailSentTo: user.email,
+            },
+          });
+
+          emailsSent++;
+        } catch (error) {
+          console.error(`Failed to send trial warning to ${user.email}:`, error);
+          errors.push(`${user.email}: ${String(error)}`);
+        }
+      }
+    }
+
+    return {
+      success: true,
+      emailsSent,
+      emailsSkipped,
+      errors,
+    };
+  },
+});
+
+/**
  * Get trial statistics for admin dashboard
  */
 export const getTrialStats = query({
@@ -162,17 +251,23 @@ export const getTrialStats = query({
     let activeTrials = 0;
     let expiredTrials = 0;
     let neverTrialed = 0;
+    let trialsExpiringSoon = 0;
 
     for (const user of users) {
       if (user.trialEndDate === undefined) {
         neverTrialed++;
       } else if (user.trialEndDate > now) {
         activeTrials++;
+        // Check if trial expires within 2 days
+        const daysRemaining = Math.ceil((user.trialEndDate - now) / (24 * 60 * 60 * 1000));
+        if (daysRemaining <= WARNING_DAYS) {
+          trialsExpiringSoon++;
+        }
       } else {
         expiredTrials++;
       }
     }
 
-    return { activeTrials, expiredTrials, neverTrialed, total: users.length };
+    return { activeTrials, expiredTrials, neverTrialed, trialsExpiringSoon, total: users.length };
   },
 });
