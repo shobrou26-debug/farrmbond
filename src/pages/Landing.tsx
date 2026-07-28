@@ -3,6 +3,7 @@ import { motion, useScroll, useTransform } from "framer-motion";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { CookieSettingsButton } from "@/components/CookiePreferences";
 import {
   Sprout,
   Leaf,
@@ -610,6 +611,7 @@ function Footer() {
               <li><a href="#" className="hover:text-foreground transition-colors">Privacy</a></li>
               <li><a href="#" className="hover:text-foreground transition-colors">Terms</a></li>
               <li><a href="#" className="hover:text-foreground transition-colors">Security</a></li>
+              <li><CookieSettingsButton variant="link" size="sm" className="h-auto p-0 text-sm text-muted-foreground hover:text-foreground" /></li>
             </ul>
           </div>
         </div>

@@ -51,6 +51,7 @@ import {
 import { cn } from "@/lib/utils";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { CookieConsentBanner, CookiePreferencesModal } from "@/components/CookiePreferences";
 
 // ============================================================
 // Navigation Configuration
@@ -558,6 +559,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Mobile Bottom Nav */}
       <MobileBottomNav />
+
+      {/* Cookie Consent */}
+      <CookieConsentBanner />
+      <CookiePreferencesModal />
     </div>
   );
 }
