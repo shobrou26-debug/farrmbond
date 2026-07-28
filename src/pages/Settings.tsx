@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "react-router";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/use-auth";
+import { toast } from "sonner";
 import {
   User,
   Bell,
@@ -57,6 +58,8 @@ import {
   Clock,
   MailCheck,
   Timer,
+  Smartphone as PhoneIcon,
+  Loader2,
 } from "lucide-react";
 
 // ============================================================
@@ -397,16 +400,25 @@ function SubscriptionTab() {
   const trialStatus = useQuery(api.trials.getTrialStatus);
   const subStatus = useQuery(api.subscriptions.getSubscriptionStatus);
   const stripeStatus = useQuery(api.stripe.getStripeStatus);
+  const mobileMoneyStats = useQuery(api.mobileMoney.getMobileMoneyStats);
+  const supportedProviders = useQuery(api.mobileMoney.getSupportedProviders, { countryCode: user?.country });
   const startTrial = useMutation(api.trials.startTrial);
   const verifyPaymentMethod = useMutation(api.subscriptions.verifyPaymentMethod);
   const createCheckoutSession = useAction(api.stripe.createCheckoutSession);
   const createPortalSession = useAction(api.stripe.createPortalSession);
   const retryPayment = useAction(api.stripe.retryPayment);
+  const initiateMtnPayment = useAction(api.mobileMoney.initiateMtnPayment);
+  const initiateAirtelPayment = useAction(api.mobileMoney.initiateAirtelPayment);
   const [isStartingTrial, setIsStartingTrial] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isCreatingCheckout, setIsCreatingCheckout] = useState(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [isRetryingPayment, setIsRetryingPayment] = useState(false);
+  const [showMobileMoney, setShowMobileMoney] = useState(false);
+  const [mobileMoneyPhone, setMobileMoneyPhone] = useState(user?.phone || "");
+  const [mobileMoneyCountry, setMobileMoneyCountry] = useState(user?.country || "KE");
+  const [isInitiatingMobilePayment, setIsInitiatingMobilePayment] = useState(false);
+  const [selectedMobileProvider, setSelectedMobileProvider] = useState<string | null>(null);
   
   const paymentMethodVerified = user?.paymentMethodVerified ?? false;
   const hasStripeSubscription = !!stripeStatus?.stripeSubscriptionId;
@@ -691,7 +703,7 @@ function SubscriptionTab() {
               </li>
             ))}
           </ul>
-          <div className="mt-4 space-y-2">
+          <div className="mt-4 space-y-3">
             {tier === "free" && !hasUsedTrial && (
               <Button
                 className="w-full bg-amber-500 hover:bg-amber-600 text-white"
@@ -706,34 +718,59 @@ function SubscriptionTab() {
               </Button>
             )}
             {tier === "free" && hasUsedTrial && (
-              <Button
-                className="w-full gradient-primary"
-                onClick={async () => {
-                  setIsCreatingCheckout(true);
-                  try {
-                    const result = await createCheckoutSession({
-                      email: user?.email || undefined,
-                      name: user?.name || undefined,
-                      stripeCustomerId: (user as any)?.stripeCustomerId || undefined,
-                      stripeSubscriptionId: (user as any)?.stripeSubscriptionId || undefined,
-                    });
-                    if (result.checkoutUrl) {
-                      window.location.href = result.checkoutUrl;
+              <>
+                {/* Card Payment Button */}
+                <Button
+                  className="w-full gradient-primary"
+                  onClick={async () => {
+                    setIsCreatingCheckout(true);
+                    try {
+                      const result = await createCheckoutSession({
+                        email: user?.email || undefined,
+                        name: user?.name || undefined,
+                        stripeCustomerId: (user as any)?.stripeCustomerId || undefined,
+                        stripeSubscriptionId: (user as any)?.stripeSubscriptionId || undefined,
+                      });
+                      if (result.checkoutUrl) {
+                        window.location.href = result.checkoutUrl;
+                      }
+                    } catch (err) {
+                      console.error("Failed to create checkout:", err);
+                    } finally {
+                      setIsCreatingCheckout(false);
                     }
-                  } catch (err) {
-                    console.error("Failed to create checkout:", err);
-                  } finally {
-                    setIsCreatingCheckout(false);
-                  }
-                }}
-                disabled={isCreatingCheckout}
-              >
-                {isCreatingCheckout ? (
-                  <>Redirecting to checkout...</>
-                ) : (
-                  <>Upgrade to Pro — $5/month</>
+                  }}
+                  disabled={isCreatingCheckout}
+                >
+                  {isCreatingCheckout ? (
+                    <>Redirecting to checkout...</>
+                  ) : (
+                    <>Upgrade with Card — $5/month</>
+                  )}
+                </Button>
+
+                {/* Mobile Money Toggle */}
+                {supportedProviders && supportedProviders.length > 0 && (
+                  <>
+                    <div className="relative">
+                      <div className="absolute inset-0 flex items-center">
+                        <span className="w-full border-t border-border/50" />
+                      </div>
+                      <div className="relative flex justify-center text-xs uppercase">
+                        <span className="bg-background px-2 text-muted-foreground">or pay with Mobile Money</span>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => setShowMobileMoney(!showMobileMoney)}
+                    >
+                      <PhoneIcon className="w-4 h-4 mr-2" />
+                      {showMobileMoney ? 'Hide Mobile Money' : 'Pay with Mobile Money'}
+                    </Button>
+                  </>
                 )}
-              </Button>
+              </>
             )}
             {tier === "pro" && (
               <Button
@@ -934,6 +971,178 @@ function SubscriptionTab() {
           </CardContent>
         </Card>
       )}
+
+      {/* Mobile Money Payment Form */}
+      <AnimatePresence>
+        {showMobileMoney && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <Card className="border-border/50">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Mobile Money Payment</CardTitle>
+                <CardDescription>Pay your $5/month subscription using mobile money</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Country Selection */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Country</label>
+                  <select
+                    value={mobileMoneyCountry}
+                    onChange={(e) => setMobileMoneyCountry(e.target.value)}
+                    className="w-full h-10 px-3 text-sm bg-muted/50 rounded-xl border-0 focus:ring-2 focus:ring-primary/20"
+                  >
+                    <option value="KE">Kenya (KES)</option>
+                    <option value="UG">Uganda (UGX)</option>
+                    <option value="TZ">Tanzania (TZS)</option>
+                    <option value="NG">Nigeria (NGN)</option>
+                    <option value="GH">Ghana (GHS)</option>
+                    <option value="ZM">Zambia (ZMW)</option>
+                    <option value="RW">Rwanda (RWF)</option>
+                    <option value="CM">Cameroon (XAF)</option>
+                    <option value="CI">Côte d'Ivoire (XOF)</option>
+                    <option value="MW">Malawi (MWK)</option>
+                  </select>
+                </div>
+
+                {/* Phone Number */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Mobile Money Number</label>
+                  <Input
+                    type="tel"
+                    placeholder="e.g., +254 700 000000"
+                    value={mobileMoneyPhone}
+                    onChange={(e) => setMobileMoneyPhone(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Enter the phone number linked to your mobile money account
+                  </p>
+                </div>
+
+                {/* Available Providers */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Payment Provider</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {supportedProviders?.map((provider) => (
+                      <button
+                        key={provider.id}
+                        onClick={() => setSelectedMobileProvider(provider.id)}
+                        className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all ${
+                          selectedMobileProvider === provider.id
+                            ? "border-primary bg-primary/5"
+                            : "border-border/50 hover:border-border"
+                        }`}
+                      >
+                        <div
+                          className="flex items-center justify-center w-10 h-10 rounded-lg text-white font-bold text-xs"
+                          style={{ backgroundColor: provider.color }}
+                        >
+                          {provider.id === "mtn_momo" ? "MTN" : "AIR"}
+                        </div>
+                        <div className="text-left">
+                          <p className="text-sm font-medium">{provider.name}</p>
+                          <p className="text-xs text-muted-foreground">{provider.fees} • {provider.processingTime}</p>
+                        </div>
+                        {selectedMobileProvider === provider.id && (
+                          <CheckCircle2 className="w-5 h-5 text-primary ml-auto" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Mobile Money Stats */}
+                {mobileMoneyStats && mobileMoneyStats.totalTransactions > 0 && (
+                  <div className="p-3 rounded-xl bg-muted/30">
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Your Mobile Money Stats</p>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="text-center">
+                        <p className="text-lg font-bold">{mobileMoneyStats.completedTransactions}</p>
+                        <p className="text-xs text-muted-foreground">Successful</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-lg font-bold">{mobileMoneyStats.pendingTransactions}</p>
+                        <p className="text-xs text-muted-foreground">Pending</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-lg font-bold">${(mobileMoneyStats.totalPaid / 100).toFixed(2)}</p>
+                        <p className="text-xs text-muted-foreground">Total Paid</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Pay Button */}
+                <Button
+                  className="w-full gradient-primary"
+                  onClick={async () => {
+                    if (!selectedMobileProvider) {
+                      toast.error("Please select a payment provider");
+                      return;
+                    }
+                    if (!mobileMoneyPhone) {
+                      toast.error("Please enter your mobile money number");
+                      return;
+                    }
+                    setIsInitiatingMobilePayment(true);
+                    try {
+                      if (selectedMobileProvider === "mtn_momo") {
+                        const result = await initiateMtnPayment({
+                          amount: 5,
+                          currency: "USD",
+                          phoneNumber: mobileMoneyPhone,
+                          email: user?.email || "",
+                          name: user?.name || "",
+                          description: "FarmBond Pro Subscription",
+                        });
+                        toast.success(result.message);
+                      } else if (selectedMobileProvider === "airtel_money") {
+                        const result = await initiateAirtelPayment({
+                          amount: 5,
+                          currency: "USD",
+                          phoneNumber: mobileMoneyPhone,
+                          email: user?.email || "",
+                          name: user?.name || "",
+                          countryCode: mobileMoneyCountry,
+                          description: "FarmBond Pro Subscription",
+                        });
+                        toast.success(result.message);
+                      }
+                    } catch (err) {
+                      console.error("Failed to initiate payment:", err);
+                      toast.error("Failed to initiate payment. Please try again.");
+                    } finally {
+                      setIsInitiatingMobilePayment(false);
+                    }
+                  }}
+                  disabled={isInitiatingMobilePayment || !selectedMobileProvider || !mobileMoneyPhone}
+                >
+                  {isInitiatingMobilePayment ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Initiating Payment...
+                    </>
+                  ) : (
+                    <>
+                      <PhoneIcon className="w-4 h-4 mr-2" />
+                      Pay $5 with Mobile Money
+                    </>
+                  )}
+                </Button>
+
+                {/* Security Note */}
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Shield className="w-3.5 h-3.5" />
+                  <span>You will receive a prompt on your phone to confirm the payment</span>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <Card className="border-border/50">
         <CardHeader className="pb-3">

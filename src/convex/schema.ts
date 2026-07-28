@@ -1011,6 +1011,43 @@ const schema = defineSchema(
     })
       .index("by_ad_user", ["adId", "userId"])
       .index("by_user", ["userId"]),
+
+    // ============================================================
+    // MOBILE MONEY TRANSACTIONS TABLE (MTN MoMo & Airtel Money)
+    // ============================================================
+    mobileMoneyTransactions: defineTable({
+      userId: v.id("users"),
+      
+      // Provider info
+      provider: v.string(), // "mtn_momo" or "airtel_money"
+      referenceId: v.string(), // Provider reference ID
+      externalId: v.string(), // Internal reference
+      
+      // Transaction details
+      amount: v.number(),
+      currency: v.string(),
+      phoneNumber: v.string(),
+      countryCode: v.optional(v.string()),
+      
+      // Status
+      status: v.string(), // "pending", "completed", "failed", "expired"
+      
+      // Provider response
+      providerResponse: v.optional(v.any()),
+      
+      // Description
+      description: v.optional(v.string()),
+      
+      // Timestamps
+      completedAt: v.optional(v.number()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_user", ["userId"])
+      .index("by_reference", ["referenceId"])
+      .index("by_status", ["status"])
+      .index("by_provider", ["provider"])
+      .index("by_created", ["createdAt"]),
   },
   {
     schemaValidation: false,
