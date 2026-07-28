@@ -37,6 +37,7 @@ const WeatherAlerts = lazy(() => import("./pages/WeatherAlerts.tsx"));
 const AuditLog = lazy(() => import("./pages/AuditLog.tsx"));
 const Privacy = lazy(() => import("./pages/Privacy.tsx"));
 const Security = lazy(() => import("./pages/Security.tsx"));
+const Terms = lazy(() => import("./pages/Terms.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 // ============================================================
@@ -127,6 +128,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/auth" element={<AuthPage redirectAfterAuth="/dashboard" />} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/security" element={<Security />} />
+              <Route path="/terms" element={<Terms />} />
 
               {/* Protected Farmer Routes */}
               <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
