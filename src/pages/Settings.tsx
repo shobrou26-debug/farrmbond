@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -396,12 +396,22 @@ function SubscriptionTab() {
   const tier = user?.subscriptionTier || "free";
   const trialStatus = useQuery(api.trials.getTrialStatus);
   const subStatus = useQuery(api.subscriptions.getSubscriptionStatus);
+  const stripeStatus = useQuery(api.stripe.getStripeStatus);
   const startTrial = useMutation(api.trials.startTrial);
   const verifyPaymentMethod = useMutation(api.subscriptions.verifyPaymentMethod);
+  const createCheckoutSession = useAction(api.stripe.createCheckoutSession);
+  const createPortalSession = useAction(api.stripe.createPortalSession);
+  const retryPayment = useAction(api.stripe.retryPayment);
   const [isStartingTrial, setIsStartingTrial] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isCreatingCheckout, setIsCreatingCheckout] = useState(false);
+  const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+  const [isRetryingPayment, setIsRetryingPayment] = useState(false);
   
   const paymentMethodVerified = user?.paymentMethodVerified ?? false;
+  const hasStripeSubscription = !!stripeStatus?.stripeSubscriptionId;
+  const paymentFailureCount = stripeStatus?.paymentFailureCount || 0;
+  const hasPaymentFailed = paymentFailureCount > 0;
 
   const now = Date.now();
   const isTrialActive = trialStatus?.isTrialActive ?? false;
@@ -695,12 +705,130 @@ function SubscriptionTab() {
                 )}
               </Button>
             )}
-            <Button className="w-full gradient-primary" disabled={tier === "pro"}>
-              {tier === "pro" ? "Current Plan" : "Upgrade to Pro — $5/month"}
-            </Button>
+            {tier === "free" && hasUsedTrial && (
+              <Button
+                className="w-full gradient-primary"
+                onClick={async () => {
+                  setIsCreatingCheckout(true);
+                  try {
+                    const result = await createCheckoutSession({
+                      email: user?.email || undefined,
+                      name: user?.name || undefined,
+                      stripeCustomerId: (user as any)?.stripeCustomerId || undefined,
+                      stripeSubscriptionId: (user as any)?.stripeSubscriptionId || undefined,
+                    });
+                    if (result.checkoutUrl) {
+                      window.location.href = result.checkoutUrl;
+                    }
+                  } catch (err) {
+                    console.error("Failed to create checkout:", err);
+                  } finally {
+                    setIsCreatingCheckout(false);
+                  }
+                }}
+                disabled={isCreatingCheckout}
+              >
+                {isCreatingCheckout ? (
+                  <>Redirecting to checkout...</>
+                ) : (
+                  <>Upgrade to Pro — $5/month</>
+                )}
+              </Button>
+            )}
+            {tier === "pro" && (
+              <Button
+                className="w-full"
+                variant="outline"                onClick={async () => {
+                    setIsOpeningPortal(true);
+                    try {
+                      const result = await createPortalSession({
+                        stripeCustomerId: (user as any)?.stripeCustomerId || "",
+                      });
+                      if (result.portalUrl) {
+                        window.location.href = result.portalUrl;
+                      }
+                    } catch (err) {
+                      console.error("Failed to open portal:", err);
+                    } finally {
+                      setIsOpeningPortal(false);
+                    }
+                  }}
+                  disabled={isOpeningPortal}
+                >
+                  {isOpeningPortal ? (
+                    <>Opening billing portal...</>
+                  ) : (
+                    <>Manage Subscription</>
+                  )}
+                </Button>
+              )}
           </div>
         </CardContent>
       </Card>
+
+      {/* Payment Failed Warning */}
+      {isPaid && hasPaymentFailed && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-4 space-y-3"
+        >
+          <div className="flex items-center gap-2">
+            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/50">
+              <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-red-800 dark:text-red-200">
+                Payment Failed — {paymentFailureCount} attempt{paymentFailureCount !== 1 ? 's' : ''}
+              </p>
+              <p className="text-xs text-red-600 dark:text-red-400">
+                Your last payment was declined. Please update your payment method or retry payment.
+              </p>
+            </div>
+            <Badge className="bg-red-500/10 text-red-600 border-red-500/20 border text-[10px]">ACTION REQUIRED</Badge>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              className="bg-red-600 hover:bg-red-700 text-white"                    onClick={async () => {
+                      setIsRetryingPayment(true);
+                      try {
+                        await retryPayment({
+                          stripeCustomerId: (user as any)?.stripeCustomerId || "",
+                          stripeSubscriptionId: (user as any)?.stripeSubscriptionId || "",
+                        });
+                      } catch (err) {
+                        console.error("Failed to retry payment:", err);
+                      } finally {
+                        setIsRetryingPayment(false);
+                      }
+                    }}
+                    disabled={isRetryingPayment}
+                  >
+                    {isRetryingPayment ? "Retrying..." : "Retry Payment"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      setIsOpeningPortal(true);
+                      try {
+                        const result = await createPortalSession({
+                          stripeCustomerId: (user as any)?.stripeCustomerId || "",
+                        });
+                        if (result.portalUrl) window.location.href = result.portalUrl;
+                      } catch (err) {
+                        console.error(err);
+                      } finally {
+                        setIsOpeningPortal(false);
+                      }
+                    }}
+                  >
+                    Update Payment Method
+            </Button>
+          </div>
+        </motion.div>
+      )}
 
       {/* Payment Method Status */}
       {isPaid && (
@@ -754,26 +882,46 @@ function SubscriptionTab() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {!paymentMethodVerified && (
+                {hasPaymentFailed && (
                   <Button
                     variant="outline"
                     size="sm"
+                    className="text-amber-600 border-amber-300 hover:bg-amber-50"
                     onClick={async () => {
-                      setIsVerifying(true);
+                      setIsRetryingPayment(true);
                       try {
-                        await verifyPaymentMethod();
+                        await retryPayment({
+                          stripeCustomerId: (user as any)?.stripeCustomerId || "",
+                          stripeSubscriptionId: (user as any)?.stripeSubscriptionId || "",
+                        });
                       } catch (err) {
-                        console.error("Failed to verify payment method:", err);
+                        console.error("Failed to retry payment:", err);
                       } finally {
-                        setIsVerifying(false);
+                        setIsRetryingPayment(false);
                       }
                     }}
-                    disabled={isVerifying}
+                    disabled={isRetryingPayment}
                   >
-                    {isVerifying ? "Verifying..." : "Mark as Verified"}
+                    {isRetryingPayment ? "Retrying..." : "Retry Payment"}
                   </Button>
                 )}
-                <Button variant="ghost" size="sm">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={async () => {
+                    setIsOpeningPortal(true);
+                    try {
+                      const result = await createPortalSession({ stripeCustomerId: (user as any)?.stripeCustomerId || "" });
+                      if (result.portalUrl) {
+                        window.location.href = result.portalUrl;
+                      }
+                    } catch (err) {
+                      console.error("Failed to open portal:", err);
+                    } finally {
+                      setIsOpeningPortal(false);
+                    }
+                  }}
+                >
                   Update
                 </Button>
               </div>

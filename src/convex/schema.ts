@@ -148,6 +148,14 @@ const schema = defineSchema(
       paymentMethodVerified: v.optional(v.boolean()), // Payment method on file
       lastPaymentMethodReminder: v.optional(v.number()), // Last time we sent payment reminder
       
+      // Stripe Integration
+      stripeCustomerId: v.optional(v.string()), // Stripe customer ID
+      stripeSubscriptionId: v.optional(v.string()), // Stripe subscription ID
+      stripePriceId: v.optional(v.string()), // Stripe price ID
+      stripeCurrentPeriodEnd: v.optional(v.number()), // Current billing period end
+      paymentFailedAt: v.optional(v.number()), // Last payment failure timestamp
+      paymentFailureCount: v.optional(v.number()), // Number of consecutive payment failures
+      
       // Profile
       bio: v.optional(v.string()),
       location: v.optional(v.string()),
