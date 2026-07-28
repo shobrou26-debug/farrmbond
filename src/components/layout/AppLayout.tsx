@@ -347,10 +347,12 @@ function Header({ onMenuClick }: { onMenuClick: () => void }) {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => haptic.selection()}>
-              <Settings className="w-4 h-4 mr-2" />
-              Settings
-            </DropdownMenuItem>
+            <Link to="/settings" onClick={() => haptic.selection()}>
+              <DropdownMenuItem>
+                <Settings className="w-4 h-4 mr-2" />
+                Settings
+              </DropdownMenuItem>
+            </Link>
             <DropdownMenuItem onClick={() => haptic.selection()}>
               <HelpCircle className="w-4 h-4 mr-2" />
               Help & Support

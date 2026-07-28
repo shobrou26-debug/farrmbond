@@ -39,6 +39,7 @@ const Privacy = lazy(() => import("./pages/Privacy.tsx"));
 const Security = lazy(() => import("./pages/Security.tsx"));
 const Terms = lazy(() => import("./pages/Terms.tsx"));
 const About = lazy(() => import("./pages/About.tsx"));
+const Settings = lazy(() => import("./pages/Settings.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 // ============================================================
@@ -131,6 +132,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/security" element={<Security />} />
               <Route path="/terms" element={<Terms />} />
               <Route path="/about" element={<About />} />
+              <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
 
               {/* Protected Farmer Routes */}
               <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
