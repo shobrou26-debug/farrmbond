@@ -305,9 +305,9 @@ export default function YieldPrediction() {
   // Map Convex predictions to local format with enriched crop/farm data
   const predictions: YieldPredictionItem[] = useMemo(() => {
     if (!predictionsData || !crops || !farms) return [];
-    return predictionsData.map((p) => {
-      const crop = crops.find((c) => c._id === p.cropId);
-      const farm = farms.find((f) => f._id === p.farmId);
+    return predictionsData.map((p: any) => {
+      const crop = crops.find((c: any) => c._id === p.cropId);
+      const farm = farms.find((f: any) => f._id === p.farmId);
       const targetYield = crop?.expectedYield || p.predictedYield * 1.1;
       const status = getStatus(p.predictedYield, targetYield);
       return {
@@ -323,15 +323,15 @@ export default function YieldPrediction() {
         targetYield,
         unit: p.unit,
         confidence: p.confidence,
-        factors: p.factors.map((f) => ({
+        factors: p.factors.map((f: any) => ({
           name: f.name,
           impact: Math.round((f.impact + 100) / 2), // Convert -100..100 to 0..100
           description: f.description,
         })),
         weatherImpact: p.weatherImpact || 70,
         recommendations: p.factors
-          .filter((f) => f.impact < 50)
-          .map((f) => `Improve ${f.name.toLowerCase()}: ${f.description}`),
+          .filter((f: any) => f.impact < 50)
+          .map((f: any) => `Improve ${f.name.toLowerCase()}: ${f.description}`),
         status,
       };
     });

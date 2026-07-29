@@ -25,11 +25,17 @@ export const listUserPredictions = query({
   },
 });
 
-/** Get yield predictions for a specific crop */
+/** Get yield predictions for a specific crop (with ownership check) */
 export const listCropPredictions = query({
   args: { cropId: v.id("crops") },
   handler: async (ctx, args) => {
     const { userId } = await requireAuth(ctx);
+
+    // Verify the user owns this crop before returning predictions
+    const crop = await ctx.db.get(args.cropId);
+    if (!crop || crop.userId !== userId) {
+      throw new Error("Crop not found or unauthorized");
+    }
 
     return await ctx.db
       .query("yieldPredictions")

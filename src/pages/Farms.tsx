@@ -86,8 +86,8 @@ function FarmCard({ farm, index }: { farm: any; index: number }) {
     return "text-red-600 bg-red-500/10 border-red-500/20";
   };
 
-  const activeCrops = crops.filter((c) => c.status !== "harvested" && c.status !== "failed").length;
-  const totalLivestock = livestock.reduce((sum, l) => sum + l.quantity, 0);
+  const activeCrops = crops.filter((c: { status: string }) => c.status !== "harvested" && c.status !== "failed").length;
+  const totalLivestock = livestock.reduce((sum: number, l: { quantity: number }) => sum + l.quantity, 0);
   const locationStr = [farm.location.city, farm.location.state, farm.location.country].filter(Boolean).join(", ") || `${farm.location.latitude.toFixed(2)}°, ${farm.location.longitude.toFixed(2)}°`;
 
   return (
@@ -249,9 +249,9 @@ export default function Farms() {
   const farms = useQuery(api.farms.listUserFarms) ?? undefined;
   const isLoading = farms === undefined;
 
-  const totalSize = farms?.reduce((sum, f) => sum + f.size, 0) ?? 0;
+  const totalSize = farms?.reduce((sum: number, f: { size: number }) => sum + f.size, 0) ?? 0;
   const avgHealth = farms && farms.length > 0
-    ? Math.round(farms.reduce((sum, f) => sum + (f.ndviScore ?? 85), 0) / farms.length)
+    ? Math.round(farms.reduce((sum: number, f: { ndviScore?: number }) => sum + (f.ndviScore ?? 85), 0) / farms.length)
     : 0;
 
   return (
@@ -333,7 +333,7 @@ export default function Farms() {
                   <div className="flex items-center gap-2 sm:gap-3">
                     <Leaf className="w-5 h-5 text-amber-500 shrink-0" />
                     <div>
-                      <p className="text-lg sm:text-xl font-bold">{farms?.filter(f => f.status === "active").length ?? 0}</p>
+                      <p className="text-lg sm:text-xl font-bold">{farms?.filter((f: { status: string }) => f.status === "active").length ?? 0}</p>
                       <p className="text-[10px] sm:text-xs text-muted-foreground">Active Farms</p>
                     </div>
                   </div>
@@ -357,7 +357,7 @@ export default function Farms() {
             animate="visible"
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6"
           >
-            {farms.map((farm, index) => (
+            {farms.map((farm: any, index: number) => (
               <FarmCard key={farm._id} farm={farm} index={index} />
             ))}
           </motion.div>

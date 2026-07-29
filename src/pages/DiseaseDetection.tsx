@@ -122,8 +122,13 @@ function ImageUploader({
       if (e.dataTransfer.files && e.dataTransfer.files[0]) {
         const file = e.dataTransfer.files[0];
         if (file.type.startsWith("image/")) {
-          const preview = URL.createObjectURL(file);
-          onUpload(file, preview);
+          // Use data URL instead of blob URL so it persists across page reloads
+          const reader = new FileReader();
+          reader.onload = () => {
+            const dataUrl = reader.result as string;
+            onUpload(file, dataUrl);
+          };
+          reader.readAsDataURL(file);
         }
       }
     },
@@ -134,8 +139,13 @@ function ImageUploader({
     (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files[0]) {
         const file = e.target.files[0];
-        const preview = URL.createObjectURL(file);
-        onUpload(file, preview);
+        // Use data URL instead of blob URL so it persists across page reloads
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          onUpload(file, dataUrl);
+        };
+        reader.readAsDataURL(file);
       }
     },
     [onUpload]

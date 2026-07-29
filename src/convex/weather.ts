@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, mutation, action, internalQuery } from "./_generated/server";
+import { query, mutation, action } from "./_generated/server";
 import { api } from "./_generated/api";
 
 // ============================================================
@@ -286,27 +286,16 @@ export const fetchAndCacheWeather = action({
 export const prefetchAllFarmWeather = action({
   args: {},
   handler: async (ctx) => {
-    // Inline the farm location query directly to avoid circular reference
-    const farms = await ctx.runQuery(api.farms.listUserFarms);
-    
-    // Extract unique locations
-    const locationMap = new Map<string, { latitude: number; longitude: number }>();
-    for (const farm of farms) {
-      const lat = Math.round(farm.location.latitude * 100) / 100;
-      const lon = Math.round(farm.location.longitude * 100) / 100;
-      const key = `${lat},${lon}`;
-      if (!locationMap.has(key)) {
-        locationMap.set(key, { latitude: lat, longitude: lon });
-      }
-    }
-    const uniqueLocations = Array.from(locationMap.values());
+    // Fetch all farm locations directly from DB (no auth needed for cron)
+    const farmsResult = await ctx.runQuery(api.farmLocations.getAllFarmLocations) as Array<{ latitude: number; longitude: number }>;
+    const farms = farmsResult;
 
-    console.log(`[Weather Cron] Pre-fetching weather for ${uniqueLocations.length} unique locations`);
+    console.log(`[Weather Cron] Pre-fetching weather for ${farms.length} unique locations`);
 
     let successCount = 0;
     let errorCount = 0;
 
-    for (const loc of uniqueLocations) {
+    for (const loc of farms) {
       try {
         const weatherData = await fetchOpenMeteoWeather(loc.latitude, loc.longitude);
 
@@ -328,6 +317,6 @@ export const prefetchAllFarmWeather = action({
     }
 
     console.log(`[Weather Cron] Done: ${successCount} cached, ${errorCount} failed`);
-    return { successCount, errorCount, totalLocations: uniqueLocations.length };
+    return { successCount, errorCount, totalLocations: farms.length };
   },
 });
