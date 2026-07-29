@@ -1,9 +1,12 @@
 import { useState, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsMobile, useHaptic, useSwipeGesture } from "@/hooks/use-mobile";
 import {
@@ -13,18 +16,15 @@ import {
   Droplets,
   Satellite,
   MoreVertical,
-  TrendingUp,
-  ChevronRight,
   Eye,
   Edit,
   Trash2,
   Navigation,
-  Calendar,
   Activity,
 } from "lucide-react";
 import { Link } from "react-router";
 import { SatelliteViewer } from "@/components/SatelliteViewer";
-import { ResponsiveImage, getFarmImageSrcSet } from "@/components/ui/responsive-image";
+import { ResponsiveImage } from "@/components/ui/responsive-image";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,86 +51,44 @@ const itemVariants = {
 };
 
 // ============================================================
-// Mock Data
+// Default farm images
 // ============================================================
 
-const farms = [
-  {
-    id: "1",
-    name: "Green Valley Farm",
-    location: "Nakuru County, Kenya",
-    acres: 45,
-    healthScore: 92,
-    crops: 5,
-    livestock: 12,
-    image: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600",
-    coordinates: { lat: -0.3031, lng: 36.0800 },
-    status: "active",
-    lastActivity: "2 hours ago",
-  },
-  {
-    id: "2",
-    name: "Sunrise Ranch",
-    location: "Nyeri County, Kenya",
-    acres: 120,
-    healthScore: 78,
-    crops: 8,
-    livestock: 36,
-    image: "https://images.unsplash.com/photo-1500076656116-558758c991c1?w=600",
-    coordinates: { lat: -0.4167, lng: 36.9500 },
-    status: "active",
-    lastActivity: "1 day ago",
-  },
-  {
-    id: "3",
-    name: "Riverside Fields",
-    location: "Kiambu County, Kenya",
-    acres: 30,
-    healthScore: 85,
-    crops: 3,
-    livestock: 0,
-    image: "https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=600",
-    coordinates: { lat: -1.1667, lng: 36.9667 },
-    status: "active",
-    lastActivity: "3 days ago",
-  },
-  {
-    id: "4",
-    name: "Highland Orchards",
-    location: "Meru County, Kenya",
-    acres: 25,
-    healthScore: 95,
-    crops: 4,
-    livestock: 5,
-    image: "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=600",
-    coordinates: { lat: 0.0500, lng: 37.6500 },
-    status: "active",
-    lastActivity: "5 hours ago",
-  },
+const defaultImages = [
+  "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600",
+  "https://images.unsplash.com/photo-1500076656116-558758c991c1?w=600",
+  "https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=600",
+  "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=600",
 ];
 
 // ============================================================
 // Farm Card Component
 // ============================================================
 
-function FarmCard({ farm }: { farm: typeof farms[0] }) {
+function FarmCard({ farm, index }: { farm: any; index: number }) {
   const isMobile = useIsMobile();
   const haptic = useHaptic();
   const [satelliteOpen, setSatelliteOpen] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+  const crops = useQuery(api.crops.listFarmCrops, { farmId: farm._id }) ?? [];
+  const livestock = useQuery(api.livestock.listFarmLivestock, { farmId: farm._id }) ?? [];
 
-  // Swipe to reveal actions on mobile
   useSwipeGesture(cardRef, {
     onSwipeLeft: () => haptic.light(),
     onSwipeRight: () => haptic.light(),
     enabled: isMobile,
   });
 
-  const getHealthColor = (score: number) => {
-    if (score >= 90) return "text-green-600 bg-green-500/10 border-green-500/20";
-    if (score >= 70) return "text-amber-600 bg-amber-500/10 border-amber-500/20";
+  const score = farm.ndviScore ?? 85;
+  const getHealthColor = (s: number) => {
+    if (s >= 90) return "text-green-600 bg-green-500/10 border-green-500/20";
+    if (s >= 70) return "text-amber-600 bg-amber-500/10 border-amber-500/20";
     return "text-red-600 bg-red-500/10 border-red-500/20";
   };
+
+  const activeCrops = crops.filter((c) => c.status !== "harvested" && c.status !== "failed").length;
+  const totalLivestock = livestock.reduce((sum, l) => sum + l.quantity, 0);
+  const locationStr = [farm.location.city, farm.location.state, farm.location.country].filter(Boolean).join(", ") || `${farm.location.latitude.toFixed(2)}°, ${farm.location.longitude.toFixed(2)}°`;
 
   return (
     <>
@@ -144,7 +102,7 @@ function FarmCard({ farm }: { farm: typeof farms[0] }) {
           {/* Cover Image */}
           <div className="relative h-36 sm:h-44 overflow-hidden">
             <ResponsiveImage
-              src={farm.image}
+              src={farm.coverImage || defaultImages[index % defaultImages.length]}
               alt={farm.name}
               aspectRatio=""
               className="absolute inset-0"
@@ -152,14 +110,12 @@ function FarmCard({ farm }: { farm: typeof farms[0] }) {
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
             
-            {/* Top badges */}
             <div className="absolute top-3 left-3 flex gap-2">
               <Badge variant="secondary" className="bg-background/80 backdrop-blur-sm text-xs">
-                {farm.acres} acres
+                {farm.size} {farm.sizeUnit === "hectares" ? "ha" : "ac"}
               </Badge>
             </div>
 
-            {/* More menu */}
             <div className="absolute top-3 right-3">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -194,60 +150,55 @@ function FarmCard({ farm }: { farm: typeof farms[0] }) {
               </DropdownMenu>
             </div>
 
-            {/* Bottom info */}
             <div className="absolute bottom-3 left-3 right-3">
               <h3 className="text-white font-semibold text-base sm:text-lg truncate">{farm.name}</h3>
               <div className="flex items-center gap-1 text-white/80 text-xs mt-1">
                 <Map className="w-3 h-3" />
-                <span className="truncate">{farm.location}</span>
+                <span className="truncate">{locationStr}</span>
               </div>
             </div>
           </div>
 
-          {/* Content */}
           <CardContent className="p-3 sm:p-4">
-            {/* Health Score */}
             <div className="flex items-center justify-between mb-3">
-              <Badge variant="outline" className={getHealthColor(farm.healthScore)}>
+              <Badge variant="outline" className={getHealthColor(score)}>
                 <Activity className="w-3 h-3 mr-1" />
-                {farm.healthScore}% Health
+                {score}% Health
               </Badge>
-              <span className="text-[10px] sm:text-xs text-muted-foreground">{farm.lastActivity}</span>
+              <span className="text-[10px] sm:text-xs text-muted-foreground capitalize">{farm.status}</span>
             </div>
 
-            {/* Stats */}
             <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3">
               <div className="text-center p-2 rounded-lg bg-muted/30">
                 <Leaf className="w-4 h-4 mx-auto text-green-500 mb-1" />
-                <p className="text-xs font-semibold">{farm.crops}</p>
+                <p className="text-xs font-semibold">{activeCrops}</p>
                 <p className="text-[10px] text-muted-foreground">Crops</p>
               </div>
               <div className="text-center p-2 rounded-lg bg-muted/30">
                 <Navigation className="w-4 h-4 mx-auto text-blue-500 mb-1" />
-                <p className="text-xs font-semibold">{farm.acres}</p>
-                <p className="text-[10px] text-muted-foreground">Acres</p>
+                <p className="text-xs font-semibold">{farm.size}</p>
+                <p className="text-[10px] text-muted-foreground">{farm.sizeUnit === "hectares" ? "Ha" : "Ac"}</p>
               </div>
               <div className="text-center p-2 rounded-lg bg-muted/30">
                 <Droplets className="w-4 h-4 mx-auto text-cyan-500 mb-1" />
-                <p className="text-xs font-semibold">{farm.livestock}</p>
+                <p className="text-xs font-semibold">{totalLivestock}</p>
                 <p className="text-[10px] text-muted-foreground">Livestock</p>
               </div>
             </div>
 
-            {/* Health Bar */}
             <div className="space-y-1.5 mb-3">
               <div className="flex items-center justify-between text-[10px] sm:text-xs">
                 <span className="text-muted-foreground">Farm Health</span>
-                <span className="font-medium">{farm.healthScore}%</span>
+                <span className="font-medium">{score}%</span>
               </div>
               <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-500"
                   style={{
-                    width: `${farm.healthScore}%`,
-                    background: farm.healthScore >= 90
+                    width: `${score}%`,
+                    background: score >= 90
                       ? "linear-gradient(90deg, #22c55e, #16a34a)"
-                      : farm.healthScore >= 70
+                      : score >= 70
                       ? "linear-gradient(90deg, #f59e0b, #d97706)"
                       : "linear-gradient(90deg, #ef4444, #dc2626)",
                   }}
@@ -255,7 +206,6 @@ function FarmCard({ farm }: { farm: typeof farms[0] }) {
               </div>
             </div>
 
-            {/* Actions */}
             <div className="flex gap-2">
               <Link to="/dashboard" className="flex-1" onClick={() => haptic.selection()}>
                 <Button variant="outline" size="sm" className="w-full touch-target">
@@ -277,14 +227,13 @@ function FarmCard({ farm }: { farm: typeof farms[0] }) {
         </Card>
       </motion.div>
 
-      {/* Satellite Viewer Modal */}
       <SatelliteViewer
         open={satelliteOpen}
         onOpenChange={setSatelliteOpen}
         farmName={farm.name}
-        latitude={farm.coordinates.lat}
-        longitude={farm.coordinates.lng}
-        ndviScore={farm.healthScore}
+        latitude={farm.location.latitude}
+        longitude={farm.location.longitude}
+        ndviScore={score}
       />
     </>
   );
@@ -297,7 +246,13 @@ function FarmCard({ farm }: { farm: typeof farms[0] }) {
 export default function Farms() {
   const { user } = useAuth();
   const haptic = useHaptic();
-  const isMobile = useIsMobile();
+  const farms = useQuery(api.farms.listUserFarms) ?? undefined;
+  const isLoading = farms === undefined;
+
+  const totalSize = farms?.reduce((sum, f) => sum + f.size, 0) ?? 0;
+  const avgHealth = farms && farms.length > 0
+    ? Math.round(farms.reduce((sum, f) => sum + (f.ndviScore ?? 85), 0) / farms.length)
+    : 0;
 
   return (
     <AppLayout>
@@ -329,40 +284,102 @@ export default function Farms() {
           transition={{ delay: 0.1 }}
           className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-5 sm:mb-6"
         >
-          {[
-            { label: "Total Farms", value: "4", icon: Map, color: "text-emerald-500" },
-            { label: "Total Acres", value: "220", icon: Navigation, color: "text-blue-500" },
-            { label: "Avg Health", value: "87%", icon: Activity, color: "text-green-500" },
-            { label: "Active Crops", value: "20", icon: Leaf, color: "text-amber-500" },
-          ].map((stat) => {
-            const Icon = stat.icon;
-            return (
-              <Card key={stat.label} className="border-border/50">
+          {isLoading ? (
+            Array.from({ length: 4 }).map((_, i) => (
+              <Card key={i} className="border-border/50">
+                <CardContent className="p-3 sm:p-4">
+                  <Skeleton className="h-4 w-20 mb-2" />
+                  <Skeleton className="h-6 w-12" />
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            <>
+              <Card className="border-border/50">
                 <CardContent className="p-3 sm:p-4">
                   <div className="flex items-center gap-2 sm:gap-3">
-                    <Icon className={`w-5 h-5 ${stat.color} shrink-0`} />
+                    <Map className="w-5 h-5 text-emerald-500 shrink-0" />
                     <div>
-                      <p className="text-lg sm:text-xl font-bold">{stat.value}</p>
-                      <p className="text-[10px] sm:text-xs text-muted-foreground">{stat.label}</p>
+                      <p className="text-lg sm:text-xl font-bold">{farms?.length ?? 0}</p>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground">Total Farms</p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
-            );
-          })}
+              <Card className="border-border/50">
+                <CardContent className="p-3 sm:p-4">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <Navigation className="w-5 h-5 text-blue-500 shrink-0" />
+                    <div>
+                      <p className="text-lg sm:text-xl font-bold">{totalSize}</p>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground">Total Size</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-3 sm:p-4">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <Activity className="w-5 h-5 text-green-500 shrink-0" />
+                    <div>
+                      <p className="text-lg sm:text-xl font-bold">{avgHealth}%</p>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground">Avg Health</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-3 sm:p-4">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <Leaf className="w-5 h-5 text-amber-500 shrink-0" />
+                    <div>
+                      <p className="text-lg sm:text-xl font-bold">{farms?.filter(f => f.status === "active").length ?? 0}</p>
+                      <p className="text-[10px] sm:text-xs text-muted-foreground">Active Farms</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </motion.div>
 
         {/* Farms Grid */}
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6"
-        >
-          {farms.map((farm) => (
-            <FarmCard key={farm.id} farm={farm} />
-          ))}
-        </motion.div>
+        {isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-96 rounded-lg" />
+            ))}
+          </div>
+        ) : farms && farms.length > 0 ? (
+          <motion.div
+            variants={containerVariants}
+            initial="hidden"
+            animate="visible"
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6"
+          >
+            {farms.map((farm, index) => (
+              <FarmCard key={farm._id} farm={farm} index={index} />
+            ))}
+          </motion.div>
+        ) : (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-center py-16"
+          >
+            <Map className="w-16 h-16 mx-auto mb-4 text-muted-foreground/50" />
+            <h3 className="text-lg font-semibold mb-2">No farms yet</h3>
+            <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
+              Get started by adding your first farm. You can track crops, livestock, weather, and more.
+            </p>
+            <Link to="/farms/new" onClick={() => haptic.medium()}>
+              <Button className="gradient-primary">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Your First Farm
+              </Button>
+            </Link>
+          </motion.div>
+        )}
       </div>
     </AppLayout>
   );

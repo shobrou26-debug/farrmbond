@@ -204,7 +204,7 @@ function HeroSection() {
           >
             <span className="flex items-center gap-1.5">
               <Check className="w-4 h-4 text-green-500" />
-              Free 14-day trial
+              Free 7-day trial
             </span>
             <span className="flex items-center gap-1.5">
               <Check className="w-4 h-4 text-green-500" />
@@ -367,7 +367,7 @@ const plans = [
   },
   {
     name: "Pro",
-    price: "29",
+    price: "5",
     period: "month",
     description: "For serious farmers who want to grow",
     features: [
@@ -381,23 +381,6 @@ const plans = [
     ],
     cta: "Start Pro Trial",
     popular: true,
-  },
-  {
-    name: "Enterprise",
-    price: "99",
-    period: "month",
-    description: "For agricultural organizations",
-    features: [
-      "Everything in Pro",
-      "Multi-user access",
-      "API access",
-      "Custom integrations",
-      "Dedicated support",
-      "Training sessions",
-      "SLA guarantee",
-    ],
-    cta: "Contact Sales",
-    popular: false,
   },
 ];
 

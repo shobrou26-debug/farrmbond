@@ -1,9 +1,13 @@
 import { motion } from "framer-motion";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
+import { useWeather } from "@/hooks/use-weather";
 import { useIsMobile, useHaptic } from "@/hooks/use-mobile";
 import {
   Leaf,
@@ -152,6 +156,14 @@ function StatCard({
 
 function WeatherWidget() {
   const haptic = useHaptic();
+  const { data: weather, isLoading, getWeatherDescription } = useWeather();
+
+  const current = weather?.current;
+  const temp = current ? Math.round(current.temperature) : null;
+  const humidity = current ? Math.round(current.humidity) : null;
+  const wind = current ? Math.round(current.windSpeed) : null;
+  const uv = current ? Math.round(current.uvIndex) : null;
+  const description = current ? getWeatherDescription(current.weatherCode) : null;
 
   return (
     <Card className="border-border/50 overflow-hidden">
@@ -159,28 +171,44 @@ function WeatherWidget() {
         <div className="flex items-center justify-between mb-3 sm:mb-4">
           <div>
             <p className="text-white/80 text-xs sm:text-sm">Current Weather</p>
-            <p className="text-2xl sm:text-3xl font-bold">24°C</p>
+            {isLoading ? (
+              <Skeleton className="h-8 w-20 bg-white/20" />
+            ) : (
+              <p className="text-2xl sm:text-3xl font-bold">{temp !== null ? `${temp}°C` : '--'}</p>
+            )}
           </div>
           <Sun className="w-10 h-10 sm:w-12 sm:h-12 text-yellow-300" />
         </div>
-        <p className="text-white/90 text-xs sm:text-sm">Partly Cloudy • Feels like 26°C</p>
+        <p className="text-white/90 text-xs sm:text-sm">{description || 'Weather data loading...'}</p>
       </div>
       <CardContent className="p-3 sm:p-4">
         <div className="grid grid-cols-3 gap-3 sm:gap-4 text-center">
           <div className="space-y-1">
             <Droplets className="w-4 h-4 mx-auto text-blue-400" />
             <p className="text-[10px] sm:text-xs text-muted-foreground">Humidity</p>
-            <p className="text-xs sm:text-sm font-semibold">65%</p>
+            {isLoading ? (
+              <Skeleton className="h-4 w-12 mx-auto" />
+            ) : (
+              <p className="text-xs sm:text-sm font-semibold">{humidity !== null ? `${humidity}%` : '--'}</p>
+            )}
           </div>
           <div className="space-y-1">
             <Wind className="w-4 h-4 mx-auto text-cyan-400" />
             <p className="text-[10px] sm:text-xs text-muted-foreground">Wind</p>
-            <p className="text-xs sm:text-sm font-semibold">12 km/h</p>
+            {isLoading ? (
+              <Skeleton className="h-4 w-12 mx-auto" />
+            ) : (
+              <p className="text-xs sm:text-sm font-semibold">{wind !== null ? `${wind} km/h` : '--'}</p>
+            )}
           </div>
           <div className="space-y-1">
             <Thermometer className="w-4 h-4 mx-auto text-orange-400" />
             <p className="text-[10px] sm:text-xs text-muted-foreground">UV Index</p>
-            <p className="text-xs sm:text-sm font-semibold">6</p>
+            {isLoading ? (
+              <Skeleton className="h-4 w-12 mx-auto" />
+            ) : (
+              <p className="text-xs sm:text-sm font-semibold">{uv !== null ? `${uv}` : '--'}</p>
+            )}
           </div>
         </div>
         <Link to="/weather" onClick={() => haptic.light()}>
@@ -245,46 +273,55 @@ function AIAssistantWidget() {
 // Recent Activity
 // ============================================================
 
-function RecentActivity() {
-  const activities = [
-    {
-      icon: CheckCircle2,
-      title: "Tomato crop marked as harvest ready",
-      time: "2 hours ago",
-      color: "text-green-500 bg-green-500/10",
-    },
-    {
-      icon: AlertTriangle,
-      title: "Low soil moisture detected in Plot A",
-      time: "5 hours ago",
-      color: "text-amber-500 bg-amber-500/10",
-    },
-    {
-      icon: DollarSign,
-      title: "Income recorded: $2,400 from maize sale",
-      time: "1 day ago",
-      color: "text-blue-500 bg-blue-500/10",
-    },
-    {
-      icon: Activity,
-      title: "Farm health score updated to 87%",
-      time: "2 days ago",
-      color: "text-purple-500 bg-purple-500/10",
-    },
-  ];
+function RecentActivity({ crops }: { crops: Array<{ name: string; status: string; updatedAt: number }> }) {
+  const recentCrops = crops
+    .filter((c) => c.status !== 'failed')
+    .slice(0, 4)
+    .map((crop, i) => {
+      const iconMap: Record<string, typeof CheckCircle2> = {
+        seedling: Sprout,
+        growing: Leaf,
+        flowering: Leaf,
+        fruiting: Leaf,
+        harvest_ready: CheckCircle2,
+        harvested: CheckCircle2,
+      };
+      const colorMap: Record<string, string> = {
+        seedling: 'text-green-500 bg-green-500/10',
+        growing: 'text-green-500 bg-green-500/10',
+        flowering: 'text-amber-500 bg-amber-500/10',
+        fruiting: 'text-amber-500 bg-amber-500/10',
+        harvest_ready: 'text-blue-500 bg-blue-500/10',
+        harvested: 'text-purple-500 bg-purple-500/10',
+      };
+      return {
+        icon: iconMap[crop.status] || Leaf,
+        title: `${crop.name} — ${crop.status.replace('_', ' ')}`,
+        time: `${Math.max(1, Math.floor((Date.now() - crop.updatedAt) / (1000 * 60 * 60)))}h ago`,
+        color: colorMap[crop.status] || 'text-green-500 bg-green-500/10',
+      };
+    });
+
+  if (recentCrops.length === 0) {
+    recentCrops.push(
+      { icon: Sprout, title: 'Add your first crop to get started', time: 'Just now', color: 'text-green-500 bg-green-500/10' },
+    );
+  }
 
   return (
     <Card className="border-border/50">
       <CardHeader className="pb-3 px-4 sm:px-6 pt-4 sm:pt-6">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm sm:text-base">Recent Activity</CardTitle>
-          <Button variant="ghost" size="sm" className="text-[10px] sm:text-xs text-muted-foreground touch-target">
-            View All <ArrowRight className="w-3 h-3 ml-1" />
-          </Button>
+          <Link to="/crops">
+            <Button variant="ghost" size="sm" className="text-[10px] sm:text-xs text-muted-foreground touch-target">
+              View All <ArrowRight className="w-3 h-3 ml-1" />
+            </Button>
+          </Link>
         </div>
       </CardHeader>
       <CardContent className="space-y-3 sm:space-y-4 px-4 sm:px-6 pb-4 sm:pb-6">
-        {activities.map((activity, i) => {
+        {recentCrops.map((activity, i) => {
           const Icon = activity.icon;
           return (
             <div key={i} className="flex items-start gap-3 touch-feedback">
@@ -307,14 +344,30 @@ function RecentActivity() {
 // Upcoming Tasks
 // ============================================================
 
-function UpcomingTasks() {
+function UpcomingTasks({ crops }: { crops: Array<{ name: string; status: string; expectedHarvestDate?: number }> }) {
   const haptic = useHaptic();
-  const tasks = [
-    { title: "Apply fertilizer to maize field", due: "Tomorrow", priority: "high" },
-    { title: "Harvest tomatoes from Plot B", due: "In 2 days", priority: "medium" },
-    { title: "Schedule vet visit for cattle", due: "In 3 days", priority: "low" },
-    { title: "Irrigate vegetable garden", due: "Today", priority: "high" },
-  ];
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  const tasks = crops
+    .filter((c) => c.expectedHarvestDate && c.expectedHarvestDate > now && c.status !== 'harvested' && c.status !== 'failed')
+    .sort((a, b) => (a.expectedHarvestDate || 0) - (b.expectedHarvestDate || 0))
+    .slice(0, 4)
+    .map((crop) => {
+      const daysUntil = Math.ceil(((crop.expectedHarvestDate || 0) - now) / dayMs);
+      let due: string;
+      let priority: string;
+      if (daysUntil <= 1) { due = 'Today'; priority = 'high'; }
+      else if (daysUntil <= 3) { due = `In ${daysUntil} days`; priority = 'medium'; }
+      else { due = `In ${daysUntil} days`; priority = 'low'; }
+      return { title: `Harvest ${crop.name}`, due, priority };
+    });
+
+  if (tasks.length === 0) {
+    tasks.push(
+      { title: 'No upcoming harvests scheduled', due: 'Add crops with harvest dates', priority: 'low' },
+    );
+  }
 
   const priorityColors = {
     high: "bg-red-500",
@@ -359,6 +412,20 @@ export default function Dashboard() {
   const isMobile = useIsMobile();
   const firstName = user?.name?.split(" ")[0] || "Farmer";
 
+  // Real Convex data
+  const farms = useQuery(api.farms.listUserFarms) ?? [];
+  const crops = useQuery(api.crops.listUserCrops) ?? [];
+  const livestock = useQuery(api.livestock.listUserLivestock) ?? [];
+  const isLoading = farms === undefined || crops === undefined || livestock === undefined;
+
+  const activeFarms = farms.length;
+  const activeCrops = crops.filter((c) => c.status !== 'harvested' && c.status !== 'failed').length;
+  const totalLivestock = livestock.reduce((sum, l) => sum + l.quantity, 0);
+
+  // Greeting based on time of day
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+
   return (
     <AppLayout>
       <div className="p-3 sm:p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
@@ -368,9 +435,8 @@ export default function Dashboard() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
           className="mb-5 sm:mb-6 md:mb-8"
-        >
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight">
-            Good morning, {firstName} 👋
+        >            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight">
+            {greeting}, {firstName} 👋
           </h1>
           <p className="text-xs sm:text-sm md:text-base text-muted-foreground mt-1">
             Here's what's happening on your farm today.
@@ -385,34 +451,43 @@ export default function Dashboard() {
         >
           {/* Stats Grid */}
           <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">
-            <StatCard
-              title="Active Farms"
-              value="3"
-              change="+1 this month"
-              icon={Map}
-              color="bg-emerald-500"
-            />
-            <StatCard
-              title="Active Crops"
-              value="12"
-              change="+3 this month"
-              icon={Leaf}
-              color="bg-green-500"
-            />
-            <StatCard
-              title="Livestock"
-              value="48"
-              change="+5 this month"
-              icon={Beef}
-              color="bg-amber-500"
-            />
-            <StatCard
-              title="Monthly Profit"
-              value="$4,250"
-              change="+12.5%"
-              icon={DollarSign}
-              color="bg-blue-500"
-            />
+            {isLoading ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <Card key={i} className="relative overflow-hidden border-border/50">
+                  <CardContent className="p-4 sm:p-5">
+                    <Skeleton className="h-4 w-24 mb-2" />
+                    <Skeleton className="h-8 w-16" />
+                  </CardContent>
+                </Card>
+              ))
+            ) : (
+              <>
+                <StatCard
+                  title="Active Farms"
+                  value={String(activeFarms)}
+                  icon={Map}
+                  color="bg-emerald-500"
+                />
+                <StatCard
+                  title="Active Crops"
+                  value={String(activeCrops)}
+                  icon={Leaf}
+                  color="bg-green-500"
+                />
+                <StatCard
+                  title="Livestock"
+                  value={String(totalLivestock)}
+                  icon={Beef}
+                  color="bg-amber-500"
+                />
+                <StatCard
+                  title="Farms"
+                  value={String(farms.length)}
+                  icon={DollarSign}
+                  color="bg-blue-500"
+                />
+              </>
+            )}
           </motion.div>
 
           {/* Quick Actions */}
@@ -437,53 +512,72 @@ export default function Dashboard() {
                 <CardHeader className="pb-3 px-4 sm:px-6 pt-4 sm:pt-6">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm sm:text-base">Farm Health Overview</CardTitle>
-                    <Badge variant="secondary" className="bg-green-500/10 text-green-600 border-green-500/20 text-[10px] sm:text-xs">
-                      <CheckCircle2 className="w-3 h-3 mr-1" />
-                      Healthy
-                    </Badge>
+                    {isLoading ? null : (
+                      <Badge variant="secondary" className="bg-green-500/10 text-green-600 border-green-500/20 text-[10px] sm:text-xs">
+                        <CheckCircle2 className="w-3 h-3 mr-1" />
+                        {farms.length} Active
+                      </Badge>
+                    )}
                   </div>
                 </CardHeader>
                 <CardContent className="px-4 sm:px-6 pb-4 sm:pb-6">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-                    {[
-                      { name: "Green Valley Farm", score: 92, acres: 45 },
-                      { name: "Sunrise Ranch", score: 78, acres: 120 },
-                      { name: "Riverside Fields", score: 85, acres: 30 },
-                    ].map((farm) => (
-                      <div key={farm.name} className="p-3 sm:p-4 rounded-xl bg-muted/30 space-y-2 sm:space-y-3">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs sm:text-sm font-medium truncate">{farm.name}</p>
-                          <span className="text-[10px] sm:text-xs text-muted-foreground shrink-0 ml-2">{farm.acres} ac</span>
-                        </div>
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between text-[10px] sm:text-xs">
-                            <span className="text-muted-foreground">Health Score</span>
-                            <span className="font-medium">{farm.score}%</span>
+                  {isLoading ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                      {Array.from({ length: 3 }).map((_, i) => (
+                        <Skeleton key={i} className="h-24 rounded-xl" />
+                      ))}
+                    </div>
+                  ) : farms.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Map className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                      <p className="text-sm">No farms yet</p>
+                      <Link to="/farms/new">
+                        <Button variant="outline" size="sm" className="mt-3">
+                          <Plus className="w-4 h-4 mr-1" /> Add Your First Farm
+                        </Button>
+                      </Link>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                      {farms.slice(0, 3).map((farm) => {
+                        const score = farm.ndviScore ?? 85;
+                        return (
+                          <div key={farm._id} className="p-3 sm:p-4 rounded-xl bg-muted/30 space-y-2 sm:space-y-3">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs sm:text-sm font-medium truncate">{farm.name}</p>
+                              <span className="text-[10px] sm:text-xs text-muted-foreground shrink-0 ml-2">{farm.size} {farm.sizeUnit === 'hectares' ? 'ha' : 'ac'}</span>
+                            </div>
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between text-[10px] sm:text-xs">
+                                <span className="text-muted-foreground">Health Score</span>
+                                <span className="font-medium">{score}%</span>
+                              </div>
+                              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                                <div
+                                  className="h-full rounded-full transition-all duration-500"
+                                  style={{
+                                    width: `${score}%`,
+                                    background: score >= 90
+                                      ? "linear-gradient(90deg, #22c55e, #16a34a)"
+                                      : score >= 70
+                                      ? "linear-gradient(90deg, #f59e0b, #d97706)"
+                                      : "linear-gradient(90deg, #ef4444, #dc2626)",
+                                  }}
+                                />
+                              </div>
+                            </div>
                           </div>
-                          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className="h-full rounded-full transition-all duration-500"
-                              style={{
-                                width: `${farm.score}%`,
-                                background: farm.score >= 90
-                                  ? "linear-gradient(90deg, #22c55e, #16a34a)"
-                                  : farm.score >= 70
-                                  ? "linear-gradient(90deg, #f59e0b, #d97706)"
-                                  : "linear-gradient(90deg, #ef4444, #dc2626)",
-                              }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
               {/* Recent Activity & Tasks */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                <RecentActivity />
-                <UpcomingTasks />
+                <RecentActivity crops={crops} />
+                <UpcomingTasks crops={crops} />
               </div>
             </motion.div>
 
