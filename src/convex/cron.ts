@@ -58,4 +58,15 @@ crons.interval(
   api.subscriptions.sendPaymentMethodReminders
 );
 
+/**
+ * Pre-fetch weather for all farm locations every 30 minutes.
+ * Ensures weather data is always fresh when users open the app.
+ * Deduplicates farm locations to minimize API calls.
+ */
+crons.interval(
+  "prefetch_farm_weather",
+  { minutes: 30 },
+  api.weather.prefetchAllFarmWeather
+);
+
 export default crons;

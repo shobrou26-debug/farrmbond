@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, mutation, action } from "./_generated/server";
+import { query, mutation, action, internalQuery } from "./_generated/server";
 import { api } from "./_generated/api";
 
 // ============================================================
@@ -10,10 +10,154 @@ import { api } from "./_generated/api";
 
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
-/**
- * Query: Get cached weather data for a location.
- * Returns null if no cache exists or cache is expired.
- */
+// ============================================================
+// Shared Helper: Fetch weather from Open-Meteo API
+// ============================================================
+
+interface ForecastDay {
+  date: number;
+  tempHigh: number;
+  tempLow: number;
+  precipitation: number;
+  humidity: number;
+  windSpeed: number;
+  condition: string;
+}
+
+interface WeatherAlert {
+  type: string;
+  severity: string;
+  message: string;
+  startTime: number;
+  endTime: number;
+}
+
+interface WeatherResult {
+  temperature: number;
+  humidity: number;
+  windSpeed: number;
+  windDirection: number;
+  precipitation: number;
+  uvIndex: number;
+  forecast: ForecastDay[];
+  alerts: WeatherAlert[];
+}
+
+async function fetchOpenMeteoWeather(latitude: number, longitude: number): Promise<WeatherResult> {
+  const params = new URLSearchParams({
+    latitude: latitude.toString(),
+    longitude: longitude.toString(),
+    current: [
+      "temperature_2m",
+      "relative_humidity_2m",
+      "apparent_temperature",
+      "precipitation",
+      "weather_code",
+      "wind_speed_10m",
+      "wind_direction_10m",
+      "uv_index",
+      "is_day",
+    ].join(","),
+    daily: [
+      "weather_code",
+      "temperature_2m_max",
+      "temperature_2m_min",
+      "precipitation_sum",
+      "precipitation_probability_max",
+      "wind_speed_10m_max",
+      "uv_index_max",
+      "sunrise",
+      "sunset",
+    ].join(","),
+    timezone: "auto",
+    forecast_days: "7",
+  });
+
+  const response = await fetch(
+    `https://api.open-meteo.com/v1/forecast?${params}`
+  );
+  if (!response.ok) {
+    throw new Error(`Open-Meteo API error: ${response.status}`);
+  }
+  const json = await response.json();
+
+  const temperature: number = json.current.temperature_2m;
+  const humidity: number = json.current.relative_humidity_2m;
+  const windSpeed: number = json.current.wind_speed_10m;
+  const windDirection: number = json.current.wind_direction_10m ?? 0;
+  const precipitation: number = json.current.precipitation;
+  const uvIndex: number = json.current.uv_index ?? 0;
+
+  const forecast: ForecastDay[] = json.daily.time.map((date: string, i: number) => {
+    const code: number = json.daily.weather_code[i];
+    const condition: string =
+      code === 0
+        ? "clear"
+        : code <= 3
+        ? "partly_cloudy"
+        : code === 45 || code === 48
+        ? "fog"
+        : code >= 51 && code <= 67
+        ? "rain"
+        : code >= 71 && code <= 77
+        ? "snow"
+        : code >= 80 && code <= 82
+        ? "rain_showers"
+        : code >= 95
+        ? "thunderstorm"
+        : "clear";
+
+    return {
+      date: Math.floor(new Date(date).getTime() / 1000) * 1000,
+      tempHigh: json.daily.temperature_2m_max[i],
+      tempLow: json.daily.temperature_2m_min[i],
+      precipitation: json.daily.precipitation_sum[i],
+      humidity: 50,
+      windSpeed: json.daily.wind_speed_10m_max[i],
+      condition,
+    };
+  });
+
+  const alerts: WeatherAlert[] = [];
+
+  const heavyRainDay = forecast.find((d: ForecastDay) => d.precipitation > 20);
+  if (heavyRainDay) {
+    alerts.push({
+      type: "heavy_rain",
+      severity: "high",
+      message: `${heavyRainDay.precipitation.toFixed(1)}mm of rain expected. Ensure drainage is clear.`,
+      startTime: heavyRainDay.date,
+      endTime: heavyRainDay.date + 24 * 60 * 60 * 1000,
+    });
+  }
+
+  if (uvIndex >= 8) {
+    alerts.push({
+      type: "uv",
+      severity: "medium",
+      message: `Very high UV index (${uvIndex}). Avoid midday field work.`,
+      startTime: Date.now(),
+      endTime: Date.now() + 6 * 60 * 60 * 1000,
+    });
+  }
+
+  return {
+    temperature,
+    humidity,
+    windSpeed,
+    windDirection,
+    precipitation,
+    uvIndex,
+    forecast,
+    alerts,
+  };
+}
+
+// ============================================================
+// Queries
+// ============================================================
+
+/** Get cached weather data for a location. Returns null if expired. */
 export const getCachedWeather = query({
   args: {
     latitude: v.number(),
@@ -33,19 +177,16 @@ export const getCachedWeather = query({
       .first();
 
     if (!cached) return null;
-
-    if (cached.expiresAt > now) {
-      return cached;
-    }
-
-    return null; // expired — caller should refetch
+    if (cached.expiresAt > now) return cached;
+    return null;
   },
 });
 
-/**
- * Mutation: Upsert weather data for a location.
- * Deletes old cache entries for the same location first.
- */
+// ============================================================
+// Mutations
+// ============================================================
+
+/** Upsert weather data for a location. */
 export const upsertWeather = mutation({
   args: {
     latitude: v.number(),
@@ -84,7 +225,6 @@ export const upsertWeather = mutation({
   handler: async (ctx, args) => {
     const now = Date.now();
 
-    // Delete old cache entries for this location
     const old = await ctx.db
       .query("weatherData")
       .withIndex("by_location", (q) =>
@@ -96,7 +236,6 @@ export const upsertWeather = mutation({
       await ctx.db.delete(doc._id);
     }
 
-    // Insert fresh cache
     const id = await ctx.db.insert("weatherData", {
       farmId: "weather_cache" as any,
       latitude: args.latitude,
@@ -117,10 +256,11 @@ export const upsertWeather = mutation({
   },
 });
 
-/**
- * Action: Fetch fresh weather from Open-Meteo and cache in Convex.
- * Runs server-side so the API call is not exposed to the browser.
- */
+// ============================================================
+// Actions
+// ============================================================
+
+/** Fetch fresh weather from Open-Meteo and cache in Convex. */
 export const fetchAndCacheWeather = action({
   args: {
     latitude: v.number(),
@@ -130,146 +270,64 @@ export const fetchAndCacheWeather = action({
     const latRounded = Math.round(args.latitude * 100) / 100;
     const lonRounded = Math.round(args.longitude * 100) / 100;
 
-    // --- Fetch current + hourly + daily forecast ---
-    const params = new URLSearchParams({
-      latitude: latRounded.toString(),
-      longitude: lonRounded.toString(),
-      current: [
-        "temperature_2m",
-        "relative_humidity_2m",
-        "apparent_temperature",
-        "precipitation",
-        "weather_code",
-        "wind_speed_10m",
-        "wind_direction_10m",
-        "uv_index",
-        "is_day",
-      ].join(","),
-      hourly: [
-        "temperature_2m",
-        "relative_humidity_2m",
-        "precipitation_probability",
-        "precipitation",
-        "weather_code",
-        "uv_index",
-        "wind_speed_10m",
-        "is_day",
-      ].join(","),
-      daily: [
-        "weather_code",
-        "temperature_2m_max",
-        "temperature_2m_min",
-        "precipitation_sum",
-        "precipitation_probability_max",
-        "wind_speed_10m_max",
-        "uv_index_max",
-        "sunrise",
-        "sunset",
-      ].join(","),
-      timezone: "auto",
-      forecast_days: "7",
-    });
+    const weatherData = await fetchOpenMeteoWeather(latRounded, lonRounded);
 
-    const response = await fetch(
-      `https://api.open-meteo.com/v1/forecast?${params}`
-    );
-    if (!response.ok) {
-      throw new Error(`Open-Meteo API error: ${response.status}`);
-    }
-    const json = await response.json();
-
-    // --- Process current weather ---
-    const temperature = json.current.temperature_2m;
-    const humidity = json.current.relative_humidity_2m;
-    const windSpeed = json.current.wind_speed_10m;
-    const windDirection = json.current.wind_direction_10m ?? 0;
-    const precipitation = json.current.precipitation;
-    const uvIndex = json.current.uv_index ?? 0;
-
-    // --- Process daily forecast ---
-    const forecast = json.daily.time.map((date: string, i: number) => {
-      const code = json.daily.weather_code[i];
-      const condition =
-        code === 0
-          ? "clear"
-          : code <= 3
-          ? "partly_cloudy"
-          : code === 45 || code === 48
-          ? "fog"
-          : code >= 51 && code <= 67
-          ? "rain"
-          : code >= 71 && code <= 77
-          ? "snow"
-          : code >= 80 && code <= 82
-          ? "rain_showers"
-          : code >= 95
-          ? "thunderstorm"
-          : "clear";
-
-      return {
-        date: Math.floor(new Date(date).getTime() / 1000) * 1000,
-        tempHigh: json.daily.temperature_2m_max[i],
-        tempLow: json.daily.temperature_2m_min[i],
-        precipitation: json.daily.precipitation_sum[i],
-        humidity: 50,
-        windSpeed: json.daily.wind_speed_10m_max[i],
-        condition,
-      };
-    });
-
-    // --- Generate alerts ---
-    const alerts: Array<{
-      type: string;
-      severity: string;
-      message: string;
-      startTime: number;
-      endTime: number;
-    }> = [];
-
-    const heavyRainDay = forecast.find((d: { precipitation: number }) => d.precipitation > 20);
-    if (heavyRainDay) {
-      alerts.push({
-        type: "heavy_rain",
-        severity: "high",
-        message: `${heavyRainDay.precipitation.toFixed(1)}mm of rain expected. Ensure drainage is clear.`,
-        startTime: heavyRainDay.date,
-        endTime: heavyRainDay.date + 24 * 60 * 60 * 1000,
-      });
-    }
-
-    if (uvIndex >= 8) {
-      alerts.push({
-        type: "uv",
-        severity: "medium",
-        message: `Very high UV index (${uvIndex}). Avoid midday field work.`,
-        startTime: Date.now(),
-        endTime: Date.now() + 6 * 60 * 60 * 1000,
-      });
-    }
-
-    // --- Cache via mutation ---
     await ctx.runMutation(api.weather.upsertWeather, {
       latitude: latRounded,
       longitude: lonRounded,
-      temperature,
-      humidity,
-      windSpeed,
-      windDirection,
-      precipitation,
-      uvIndex,
-      forecast,
-      alerts,
+      ...weatherData,
     });
 
-    return {
-      temperature,
-      humidity,
-      windSpeed,
-      windDirection,
-      precipitation,
-      uvIndex,
-      forecast,
-      alerts,
-    };
+    return weatherData;
+  },
+});
+
+/** Pre-fetch weather for all unique farm locations. Called by cron every 30 min. */
+export const prefetchAllFarmWeather = action({
+  args: {},
+  handler: async (ctx) => {
+    // Inline the farm location query directly to avoid circular reference
+    const farms = await ctx.runQuery(api.farms.listUserFarms);
+    
+    // Extract unique locations
+    const locationMap = new Map<string, { latitude: number; longitude: number }>();
+    for (const farm of farms) {
+      const lat = Math.round(farm.location.latitude * 100) / 100;
+      const lon = Math.round(farm.location.longitude * 100) / 100;
+      const key = `${lat},${lon}`;
+      if (!locationMap.has(key)) {
+        locationMap.set(key, { latitude: lat, longitude: lon });
+      }
+    }
+    const uniqueLocations = Array.from(locationMap.values());
+
+    console.log(`[Weather Cron] Pre-fetching weather for ${uniqueLocations.length} unique locations`);
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const loc of uniqueLocations) {
+      try {
+        const weatherData = await fetchOpenMeteoWeather(loc.latitude, loc.longitude);
+
+        await ctx.runMutation(api.weather.upsertWeather, {
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+          ...weatherData,
+        });
+
+        successCount++;
+        console.log(`[Weather Cron] Cached weather for ${loc.latitude}, ${loc.longitude}`);
+      } catch (error) {
+        errorCount++;
+        console.error(`[Weather Cron] Failed for ${loc.latitude}, ${loc.longitude}:`, error);
+      }
+
+      // Small delay to avoid rate-limiting Open-Meteo
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+
+    console.log(`[Weather Cron] Done: ${successCount} cached, ${errorCount} failed`);
+    return { successCount, errorCount, totalLocations: uniqueLocations.length };
   },
 });
