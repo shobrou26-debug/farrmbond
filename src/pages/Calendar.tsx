@@ -396,9 +396,11 @@ export default function Calendar() {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
-  // Real Convex data
-  const calendarEvents = useQuery(api.farmCalendar.listUserEvents);
-  const farms = useQuery(api.farms.listUserFarms);
+  // Real Convex data (paginated — extract .page from results)
+  const calendarEventsResult = useQuery(api.farmCalendar.listUserEvents, {});
+  const farmsResult = useQuery(api.farms.listUserFarms, {});
+  const calendarEvents = calendarEventsResult?.page ?? [];
+  const farms = farmsResult?.page ?? [];
   const completeEventMutation = useMutation(api.farmCalendar.completeEvent);
 
   // Real weather data

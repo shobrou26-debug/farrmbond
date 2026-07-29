@@ -17,17 +17,27 @@ import { ROLES } from "./schema";
 // Farm Queries
 // ============================================================
 
-/** Get all farms for the current user */
+/** Get all farms for the current user. Optional pagination for large datasets. */
 export const listUserFarms = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    paginationOpts: v.optional(v.object({
+      numItems: v.number(),
+      cursor: v.union(v.string(), v.null()),
+    })),
+  },
+  handler: async (ctx, args) => {
     const { userId } = await requireAuth(ctx);
-
-    return await ctx.db
+    const base = ctx.db
       .query("farms")
       .withIndex("by_user", (q) => q.eq("userId", userId))
-      .order("desc")
-      .collect();
+      .order("desc");
+
+    if (args.paginationOpts) {
+      return await base.paginate(args.paginationOpts);
+    }
+
+    const items = await base.collect();
+    return { page: items, isDone: true, continueCursor: null };
   },
 });
 

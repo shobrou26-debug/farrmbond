@@ -412,11 +412,14 @@ export default function Dashboard() {
   const isMobile = useIsMobile();
   const firstName = user?.name?.split(" ")[0] || "Farmer";
 
-  // Real Convex data
-  const farms = useQuery(api.farms.listUserFarms) ?? [];
-  const crops = useQuery(api.crops.listUserCrops) ?? [];
-  const livestock = useQuery(api.livestock.listUserLivestock) ?? [];
-  const isLoading = farms === undefined || crops === undefined || livestock === undefined;
+  // Real Convex data (paginated — extract .page from results)
+  const farmsResult = useQuery(api.farms.listUserFarms, {});
+  const cropsResult = useQuery(api.crops.listUserCrops, {});
+  const livestockResult = useQuery(api.livestock.listUserLivestock, {});
+  const farms = farmsResult?.page ?? [];
+  const crops = cropsResult?.page ?? [];
+  const livestock = livestockResult?.page ?? [];
+  const isLoading = farmsResult === undefined || cropsResult === undefined || livestockResult === undefined;
 
   const activeFarms = farms.length;
   const activeCrops = crops.filter((c) => c.status !== 'harvested' && c.status !== 'failed').length;

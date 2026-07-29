@@ -561,9 +561,10 @@ export default function DiseaseDetection() {
   // Real Convex data
   const detectDisease = useAction(api.aiAssistant.detectDisease);
   const saveDetectionMutation = useMutation(api.detectionResults.saveDetection);
-  const detectionHistory = useQuery(api.detectionResults.listUserDetections);
+  const detectionHistoryResult = useQuery(api.detectionResults.listUserDetections, {});
+  const detectionHistory = detectionHistoryResult?.page ?? [];
 
-  const history: DetectionResult[] = (detectionHistory || []).map((d) => ({
+  const history: DetectionResult[] = detectionHistory.map((d) => ({
     id: d._id,
     type: d.type,
     name: d.name,

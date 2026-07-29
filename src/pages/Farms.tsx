@@ -70,8 +70,10 @@ function FarmCard({ farm, index }: { farm: any; index: number }) {
   const haptic = useHaptic();
   const [satelliteOpen, setSatelliteOpen] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
-  const crops = useQuery(api.crops.listFarmCrops, { farmId: farm._id }) ?? [];
-  const livestock = useQuery(api.livestock.listFarmLivestock, { farmId: farm._id }) ?? [];
+  const cropsResult = useQuery(api.crops.listFarmCrops, { farmId: farm._id });
+  const livestockResult = useQuery(api.livestock.listFarmLivestock, { farmId: farm._id });
+  const crops = cropsResult?.page ?? [];
+  const livestock = livestockResult?.page ?? [];
 
   useSwipeGesture(cardRef, {
     onSwipeLeft: () => haptic.light(),
@@ -246,8 +248,9 @@ function FarmCard({ farm, index }: { farm: any; index: number }) {
 export default function Farms() {
   const { user } = useAuth();
   const haptic = useHaptic();
-  const farms = useQuery(api.farms.listUserFarms) ?? undefined;
-  const isLoading = farms === undefined;
+  const farmsResult = useQuery(api.farms.listUserFarms, {}) ?? undefined;
+  const farms = farmsResult?.page ?? [];
+  const isLoading = farmsResult === undefined;
 
   const totalSize = farms?.reduce((sum: number, f: { size: number }) => sum + f.size, 0) ?? 0;
   const avgHealth = farms && farms.length > 0

@@ -14,32 +14,53 @@ import {
 // Crop Queries
 // ============================================================
 
-/** Get all crops for the current user */
+/** Get all crops for the current user. Optional pagination for large datasets. */
 export const listUserCrops = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    paginationOpts: v.optional(v.object({
+      numItems: v.number(),
+      cursor: v.union(v.string(), v.null()),
+    })),
+  },
+  handler: async (ctx, args) => {
     const { userId } = await requireAuth(ctx);
-
-    return await ctx.db
+    const base = ctx.db
       .query("crops")
       .withIndex("by_user", (q) => q.eq("userId", userId))
-      .order("desc")
-      .collect();
+      .order("desc");
+
+    if (args.paginationOpts) {
+      return await base.paginate(args.paginationOpts);
+    }
+
+    const items = await base.collect();
+    return { page: items, isDone: true, continueCursor: null };
   },
 });
 
-/** Get crops for a specific farm */
+/** Get crops for a specific farm. Optional pagination. */
 export const listFarmCrops = query({
-  args: { farmId: v.id("farms") },
+  args: {
+    farmId: v.id("farms"),
+    paginationOpts: v.optional(v.object({
+      numItems: v.number(),
+      cursor: v.union(v.string(), v.null()),
+    })),
+  },
   handler: async (ctx, args) => {
     const { userId } = await requireAuth(ctx);
     await verifyFarmOwnership(ctx, args.farmId, userId);
-
-    return await ctx.db
+    const base = ctx.db
       .query("crops")
       .withIndex("by_farm", (q) => q.eq("farmId", args.farmId))
-      .order("desc")
-      .collect();
+      .order("desc");
+
+    if (args.paginationOpts) {
+      return await base.paginate(args.paginationOpts);
+    }
+
+    const items = await base.collect();
+    return { page: items, isDone: true, continueCursor: null };
   },
 });
 

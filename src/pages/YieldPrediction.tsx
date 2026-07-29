@@ -295,12 +295,15 @@ function EmptyState() {
 // ============================================================
 
 export default function YieldPrediction() {
-  // Real Convex data
-  const predictionsData = useQuery(api.yieldPredictions.listUserPredictions);
-  const farms = useQuery(api.farms.listUserFarms);
-  const crops = useQuery(api.crops.listUserCrops);
+  // Real Convex data (paginated — extract .page from results)
+  const predictionsResult = useQuery(api.yieldPredictions.listUserPredictions, {});
+  const farmsResult = useQuery(api.farms.listUserFarms, {});
+  const cropsResult = useQuery(api.crops.listUserCrops, {});
+  const predictionsData = predictionsResult?.page ?? [];
+  const farms = farmsResult?.page ?? [];
+  const crops = cropsResult?.page ?? [];
 
-  const isLoading = predictionsData === undefined;
+  const isLoading = predictionsResult === undefined;
 
   // Map Convex predictions to local format with enriched crop/farm data
   const predictions: YieldPredictionItem[] = useMemo(() => {
