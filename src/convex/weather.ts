@@ -14,6 +14,15 @@ const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 // Shared Helper: Fetch weather from Open-Meteo API
 // ============================================================
 
+interface SoilData {
+  temperature0cm: number;
+  temperature6cm: number;
+  moisture0to1cm: number;
+  moisture1to3cm: number;
+  moisture3to9cm: number;
+  et0FaoEvapotranspiration: number;
+}
+
 interface ForecastDay {
   date: number;
   tempHigh: number;
@@ -39,6 +48,7 @@ interface WeatherResult {
   windDirection: number;
   precipitation: number;
   uvIndex: number;
+  soil: SoilData;
   forecast: ForecastDay[];
   alerts: WeatherAlert[];
 }
@@ -68,6 +78,10 @@ async function fetchOpenMeteoWeather(latitude: number, longitude: number): Promi
       "uv_index_max",
       "sunrise",
       "sunset",
+    ].join(","),
+    hourly: [
+      "soil_temperature_0cm",
+      "soil_moisture_0_to_1cm",
     ].join(","),
     timezone: "auto",
     forecast_days: "7",
@@ -118,6 +132,31 @@ async function fetchOpenMeteoWeather(latitude: number, longitude: number): Promi
     };
   });
 
+  // Soil data from Open-Meteo hourly soil parameters (use first available)
+  let soil: SoilData = {
+    temperature0cm: 20,
+    temperature6cm: 18,
+    moisture0to1cm: 0.3,
+    moisture1to3cm: 0.35,
+    moisture3to9cm: 0.4,
+    et0FaoEvapotranspiration: 3,
+  };
+
+  if (json.hourly && json.hourly.soil_temperature_0cm && json.hourly.soil_moisture_0_to_1cm) {
+    // Get the current hour's soil data
+    const currentHour = new Date().getHours();
+    const soilTemp = json.hourly.soil_temperature_0cm[currentHour] ?? 20;
+    const soilMoisture = json.hourly.soil_moisture_0_to_1cm[currentHour] ?? 0.3;
+    soil = {
+      temperature0cm: soilTemp,
+      temperature6cm: soilTemp - 2, // Approximate: deeper soil is ~2°C cooler
+      moisture0to1cm: soilMoisture,
+      moisture1to3cm: Math.min(1, soilMoisture * 1.15), // Slightly more moisture deeper
+      moisture3to9cm: Math.min(1, soilMoisture * 1.3), // More moisture at depth
+      et0FaoEvapotranspiration: 3,
+    };
+  }
+
   const alerts: WeatherAlert[] = [];
 
   const heavyRainDay = forecast.find((d: ForecastDay) => d.precipitation > 20);
@@ -148,6 +187,7 @@ async function fetchOpenMeteoWeather(latitude: number, longitude: number): Promi
     windDirection,
     precipitation,
     uvIndex,
+    soil,
     forecast,
     alerts,
   };
@@ -221,6 +261,16 @@ export const upsertWeather = mutation({
         })
       )
     ),
+    soil: v.optional(
+      v.object({
+        temperature0cm: v.number(),
+        temperature6cm: v.number(),
+        moisture0to1cm: v.number(),
+        moisture1to3cm: v.number(),
+        moisture3to9cm: v.number(),
+        et0FaoEvapotranspiration: v.number(),
+      })
+    ),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -248,6 +298,7 @@ export const upsertWeather = mutation({
       uvIndex: args.uvIndex,
       forecast: args.forecast,
       alerts: args.alerts,
+      soil: args.soil,
       fetchedAt: now,
       expiresAt: now + CACHE_TTL_MS,
     });

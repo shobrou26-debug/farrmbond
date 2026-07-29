@@ -368,6 +368,16 @@ const schema = defineSchema(
         endTime: v.number(),
       }))),
       
+      // Soil data
+      soil: v.optional(v.object({
+        temperature0cm: v.number(),
+        temperature6cm: v.number(),
+        moisture0to1cm: v.number(),
+        moisture1to3cm: v.number(),
+        moisture3to9cm: v.number(),
+        et0FaoEvapotranspiration: v.number(),
+      })),
+      
       // Metadata
       fetchedAt: v.number(),
       expiresAt: v.number(),

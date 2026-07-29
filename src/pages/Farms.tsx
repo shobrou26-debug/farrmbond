@@ -207,7 +207,7 @@ function FarmCard({ farm, index }: { farm: any; index: number }) {
             </div>
 
             <div className="flex gap-2">
-              <Link to="/dashboard" className="flex-1" onClick={() => haptic.selection()}>
+              <Link to="/farms" className="flex-1" onClick={() => haptic.selection()}>
                 <Button variant="outline" size="sm" className="w-full touch-target">
                   <Eye className="w-4 h-4 mr-1" />
                   <span className="text-xs">View</span>

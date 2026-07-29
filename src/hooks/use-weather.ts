@@ -359,7 +359,14 @@ export function useWeather(options?: UseWeatherOptions): UseWeatherReturn {
       sunset: "",
     }));
 
-    const soil: SoilData = {
+    const soil: SoilData = cachedWeather.soil ? {
+      temperature0cm: cachedWeather.soil.temperature0cm,
+      temperature6cm: cachedWeather.soil.temperature6cm,
+      moisture0to1cm: cachedWeather.soil.moisture0to1cm,
+      moisture1to3cm: cachedWeather.soil.moisture1to3cm,
+      moisture3to9cm: cachedWeather.soil.moisture3to9cm,
+      et0FaoEvapotranspiration: cachedWeather.soil.et0FaoEvapotranspiration,
+    } : {
       temperature0cm: 20,
       temperature6cm: 18,
       moisture0to1cm: 0.3,

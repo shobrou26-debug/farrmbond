@@ -421,6 +421,7 @@ export default function Dashboard() {
   const activeFarms = farms.length;
   const activeCrops = crops.filter((c) => c.status !== 'harvested' && c.status !== 'failed').length;
   const totalLivestock = livestock.reduce((sum, l) => sum + l.quantity, 0);
+  const totalFarmSize = farms.reduce((sum, f) => sum + f.size, 0);
 
   // Greeting based on time of day
   const hour = new Date().getHours();
@@ -481,9 +482,9 @@ export default function Dashboard() {
                   color="bg-amber-500"
                 />
                 <StatCard
-                  title="Farms"
-                  value={String(farms.length)}
-                  icon={DollarSign}
+                  title="Total Area"
+                  value={`${totalFarmSize} ha`}
+                  icon={Sprout}
                   color="bg-blue-500"
                 />
               </>
