@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useQuery, useAction } from "convex/react";
+import { api } from "@/convex/_generated/api";
 
 // ============================================================
 // Types
@@ -134,103 +136,64 @@ function getConditionCategory(code: number): string {
   return "clear";
 }
 
-function isNightHour(hourStr: string, sunrise?: string, sunset?: string): boolean {
-  const hour = new Date(hourStr).getHours();
-  if (sunrise && sunset) {
-    const sunriseHour = new Date(sunrise).getHours();
-    const sunsetHour = new Date(sunset).getHours();
-    return hour < sunriseHour || hour >= sunsetHour;
-  }
-  return hour < 6 || hour >= 19;
-}
-
 // ============================================================
-// Reverse Geocoding via Open-Meteo
-// ============================================================
-
-async function reverseGeocode(lat: number, lon: number): Promise<{ name: string; country: string }> {
-  try {
-    const res = await fetch(
-      `https://geocoding-api.open-meteo.com/v1/search?name=&latitude=${lat}&longitude=${lon}&count=1&language=en`
-    );
-    // Fallback: use timezone as location name
-    return { name: `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`, country: "" };
-  } catch {
-    return { name: `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`, country: "" };
-  }
-}
-
-// ============================================================
-// Generate Alerts from Weather Data
+// Generate Alerts from cached data
 // ============================================================
 
 function generateAlerts(
-  current: CurrentWeather,
-  daily: DailyForecast[],
-  soil: SoilData
+  temperature: number,
+  humidity: number,
+  windSpeed: number,
+  uvIndex: number,
+  forecast: Array<{ precipitation: number; date: number; tempLow?: number }>,
+  soilMoisture?: number
 ): WeatherAlert[] {
   const alerts: WeatherAlert[] = [];
 
-  // Heavy rain alert
-  const heavyRainDay = daily.find((d) => d.precipitationSum > 20);
+  const heavyRainDay = forecast.find((d) => d.precipitation > 20);
   if (heavyRainDay) {
     alerts.push({
       type: "heavy_rain",
       severity: "high",
       title: "Heavy Rain Expected",
-      message: `${heavyRainDay.precipitationSum.toFixed(1)}mm of rain expected on ${heavyRainDay.date}. Ensure drainage is clear and delay field operations.`,
+      message: `${heavyRainDay.precipitation.toFixed(1)}mm of rain expected. Ensure drainage is clear.`,
     });
   }
 
-  // High UV alert
-  if (current.uvIndex >= 8) {
+  if (uvIndex >= 8) {
     alerts.push({
       type: "uv",
       severity: "medium",
       title: "Very High UV Index",
-      message: `UV index is ${current.uvIndex}. Avoid midday field work and wear protective clothing.`,
+      message: `UV index is ${uvIndex}. Avoid midday field work and wear protective clothing.`,
     });
   }
 
-  // Low temperature / frost risk
-  const frostRisk = daily.find((d) => d.tempMin < 5);
+  const frostRisk = forecast.find((d) => d.tempLow !== undefined && d.tempLow < 5);
   if (frostRisk) {
     alerts.push({
       type: "frost",
-      severity: frostRisk.tempMin < 2 ? "high" : "medium",
+      severity: "medium",
       title: "Frost Risk",
-      message: `Temperatures may drop to ${frostRisk.tempMin.toFixed(0)}°C on ${frostRisk.date}. Protect sensitive crops.`,
+      message: `Temperatures may drop to ${frostRisk.tempLow}°C. Protect sensitive crops.`,
     });
   }
 
-  // High wind
-  if (current.windSpeed > 40) {
+  if (windSpeed > 40) {
     alerts.push({
       type: "wind",
       severity: "medium",
       title: "Strong Winds",
-      message: `Wind speeds of ${current.windSpeed.toFixed(0)} km/h. Secure loose structures and delay spraying operations.`,
+      message: `Wind speeds of ${windSpeed.toFixed(0)} km/h. Secure loose structures.`,
     });
   }
 
-  // Soil moisture low
-  if (soil.moisture0to1cm < 0.15) {
+  if (soilMoisture !== undefined && soilMoisture < 0.15) {
     alerts.push({
       type: "drought",
       severity: "high",
       title: "Low Soil Moisture",
-      message: `Soil moisture at ${soil.moisture0to1cm.toFixed(2)} m³/m³ is critically low. Increase irrigation immediately.`,
-    });
-  }
-
-  // Heavy rain in coming days
-  const heavyRainDays = daily.filter((d) => d.precipitationSum > 10);
-  if (heavyRainDays.length > 0 && !alerts.find((a) => a.type === "heavy_rain")) {
-    alerts.push({
-      type: "rain",
-      severity: "medium",
-      title: "Rain Expected This Week",
-      message: `${heavyRainDays.length} day(s) with significant rainfall expected. Plan activities accordingly.`,
+      message: `Soil moisture at ${(soilMoisture * 100).toFixed(0)}% is critically low.`,
     });
   }
 
@@ -238,35 +201,18 @@ function generateAlerts(
 }
 
 // ============================================================
-// Generate Recommendations from Weather Data
+// Generate Recommendations from cached data
 // ============================================================
 
 function generateRecommendations(
-  current: CurrentWeather,
-  daily: DailyForecast[],
-  soil: SoilData
+  uvIndex: number,
+  windSpeed: number,
+  humidity: number,
+  forecast: Array<{ precipitation: number }>
 ): WeatherRecommendation[] {
   const recs: WeatherRecommendation[] = [];
 
-  // Irrigation recommendation based on soil moisture
-  if (soil.moisture0to1cm < 0.2) {
-    recs.push({
-      title: "Increase Irrigation",
-      description: `Soil moisture is at ${(soil.moisture0to1cm * 100).toFixed(0)}%. Increase irrigation frequency for all crops.`,
-      priority: "high",
-      category: "irrigation",
-    });
-  } else if (soil.moisture0to1cm > 0.4) {
-    recs.push({
-      title: "Reduce Irrigation",
-      description: `Soil moisture is high at ${(soil.moisture0to1cm * 100).toFixed(0)}%. Delay irrigation to prevent waterlogging.`,
-      priority: "medium",
-      category: "irrigation",
-    });
-  }
-
-  // Fertilizer recommendation
-  const upcomingRain = daily.slice(0, 3).reduce((sum, d) => sum + d.precipitationSum, 0);
+  const upcomingRain = forecast.slice(0, 3).reduce((sum, d) => sum + d.precipitation, 0);
   if (upcomingRain < 5) {
     recs.push({
       title: "Good Window for Fertilizing",
@@ -277,40 +223,28 @@ function generateRecommendations(
   } else if (upcomingRain > 15) {
     recs.push({
       title: "Delay Fertilizer Application",
-      description: `${upcomingRain.toFixed(0)}mm of rain expected soon. Fertilizer may wash away before absorption.`,
+      description: `${upcomingRain.toFixed(0)}mm of rain expected soon. Fertilizer may wash away.`,
       priority: "high",
       category: "fertilizer",
     });
   }
 
-  // Harvest window
-  const dryDays = daily.filter((d) => d.precipitationSum < 1);
+  const dryDays = forecast.filter((d) => d.precipitation < 1);
   if (dryDays.length >= 2) {
     recs.push({
       title: "Harvest Window Available",
-      description: `${dryDays.length} dry days ahead. Ideal conditions for harvesting mature crops.`,
+      description: `${dryDays.length} dry days ahead. Ideal conditions for harvesting.`,
       priority: "low",
       category: "harvest",
     });
   }
 
-  // Spraying recommendation
-  if (current.windSpeed < 15 && current.humidity > 40 && current.humidity < 80) {
+  if (windSpeed < 15 && humidity > 40 && humidity < 80) {
     recs.push({
       title: "Good Conditions for Spraying",
-      description: `Low wind (${current.windSpeed.toFixed(0)} km/h) and moderate humidity (${current.humidity}%). Ideal for pesticide/fungicide application.`,
+      description: `Low wind (${windSpeed.toFixed(0)} km/h) and moderate humidity (${humidity}%).`,
       priority: "low",
       category: "spraying",
-    });
-  }
-
-  // High evapotranspiration
-  if (soil.et0FaoEvapotranspiration > 6) {
-    recs.push({
-      title: "High Water Demand",
-      description: `Evapotranspiration rate is ${soil.et0FaoEvapotranspiration.toFixed(1)} mm/day. Crops will need extra water.`,
-      priority: "medium",
-      category: "irrigation",
     });
   }
 
@@ -337,172 +271,144 @@ interface UseWeatherReturn {
 }
 
 export function useWeather(options?: UseWeatherOptions): UseWeatherReturn {
-  const [data, setData] = useState<WeatherData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [location, setLocationState] = useState({
     latitude: options?.latitude ?? -1.2921,
     longitude: options?.longitude ?? 36.8219,
   });
 
-  const fetchWeather = useCallback(async (lat: number, lon: number) => {
-    setIsLoading(true);
-    setError(null);
+  // Round to ~1km precision for cache key
+  const latRounded = Math.round(location.latitude * 100) / 100;
+  const lonRounded = Math.round(location.longitude * 100) / 100;
 
-    try {
-      const params = new URLSearchParams({
-        latitude: lat.toString(),
-        longitude: lon.toString(),
-        current: [
-          "temperature_2m",
-          "relative_humidity_2m",
-          "apparent_temperature",
-          "precipitation",
-          "weather_code",
-          "wind_speed_10m",
-          "wind_direction_10m",
-          "uv_index",
-          "is_day",
-        ].join(","),
-        hourly: [
-          "temperature_2m",
-          "relative_humidity_2m",
-          "precipitation_probability",
-          "precipitation",
-          "weather_code",
-          "uv_index",
-          "wind_speed_10m",
-          "is_day",
-        ].join(","),
-        daily: [
-          "weather_code",
-          "temperature_2m_max",
-          "temperature_2m_min",
-          "precipitation_sum",
-          "precipitation_probability_max",
-          "wind_speed_10m_max",
-          "uv_index_max",
-          "sunrise",
-          "sunset",
-        ].join(","),
-        timezone: "auto",
-        forecast_days: "7",
-      });
+  // 1. Try reading from Convex cache
+  const cachedWeather = useQuery(api.weather.getCachedWeather, {
+    latitude: latRounded,
+    longitude: lonRounded,
+  });
 
-      const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
-      if (!response.ok) throw new Error("Failed to fetch weather data");
-      const json = await response.json();
+  // 2. Action to fetch fresh data from Open-Meteo (server-side)
+  const fetchAndCacheWeather = useAction(api.weather.fetchAndCacheWeather);
 
-      // Fetch soil data separately (different parameters)
-      const soilParams = new URLSearchParams({
-        latitude: lat.toString(),
-        longitude: lon.toString(),
-        hourly: [
-          "soil_temperature_0cm",
-          "soil_temperature_6cm",
-          "soil_moisture_0_to_1cm",
-          "soil_moisture_1_to_3cm",
-          "soil_moisture_3_to_9cm",
-          "et0_fao_evapotranspiration",
-        ].join(","),
-        timezone: "auto",
-        forecast_days: "1",
-      });
-
-      const soilResponse = await fetch(`https://api.open-meteo.com/v1/forecast?${soilParams}`);
-      const soilJson = await soilResponse.json();
-
-      // Process current weather
-      const current: CurrentWeather = {
-        temperature: json.current.temperature_2m,
-        humidity: json.current.relative_humidity_2m,
-        windSpeed: json.current.wind_speed_10m,
-        windDirection: json.current.wind_direction_10m ?? 0,
-        precipitation: json.current.precipitation,
-        uvIndex: json.current.uv_index ?? 0,
-        weatherCode: json.current.weather_code,
-        time: json.current.time,
-        isDay: json.current.is_day === 1,
-      };
-
-      // Process hourly (next 24 hours)
-      const now = new Date();
-      const hourlyStartIdx = json.hourly.time.findIndex((t: string) => new Date(t) >= now);
-      const hourlySlice = Math.max(0, hourlyStartIdx);
-      const hourly: HourlyForecast[] = json.hourly.time
-        .slice(hourlySlice, hourlySlice + 24)
-        .map((time: string, i: number) => ({
-          time,
-          temperature: json.hourly.temperature_2m[hourlySlice + i],
-          humidity: json.hourly.relative_humidity_2m[hourlySlice + i],
-          windSpeed: json.hourly.wind_speed_10m[hourlySlice + i],
-          precipitation: json.hourly.precipitation[hourlySlice + i],
-          precipitationProbability: json.hourly.precipitation_probability?.[hourlySlice + i] ?? 0,
-          uvIndex: json.hourly.uv_index?.[hourlySlice + i] ?? 0,
-          weatherCode: json.hourly.weather_code[hourlySlice + i],
-          isDay: json.hourly.is_day?.[hourlySlice + i] === 1,
-        }));
-
-      // Process daily
-      const daily: DailyForecast[] = json.daily.time.map((date: string, i: number) => ({
-        date,
-        tempMax: json.daily.temperature_2m_max[i],
-        tempMin: json.daily.temperature_2m_min[i],
-        precipitationSum: json.daily.precipitation_sum[i],
-        precipitationProbabilityMax: json.daily.precipitation_probability_max?.[i] ?? 0,
-        windSpeedMax: json.daily.wind_speed_10m_max[i],
-        uvIndexMax: json.daily.uv_index_max?.[i] ?? 0,
-        weatherCode: json.daily.weather_code[i],
-        sunrise: json.daily.sunrise?.[i] ?? "",
-        sunset: json.daily.sunset?.[i] ?? "",
-      }));
-
-      // Process soil data (use current hour or last available)
-      const soilHourlyTime = soilJson.hourly?.time ?? [];
-      const soilIdx = soilHourlyTime.findIndex((t: string) => new Date(t) >= now);
-      const soilI = Math.max(0, soilIdx === -1 ? soilHourlyTime.length - 1 : soilIdx);
-
-      const soil: SoilData = {
-        temperature0cm: soilJson.hourly?.soil_temperature_0cm?.[soilI] ?? 20,
-        temperature6cm: soilJson.hourly?.soil_temperature_6cm?.[soilI] ?? 18,
-        moisture0to1cm: soilJson.hourly?.soil_moisture_0_to_1cm?.[soilI] ?? 0.3,
-        moisture1to3cm: soilJson.hourly?.soil_moisture_1_to_3cm?.[soilI] ?? 0.35,
-        moisture3to9cm: soilJson.hourly?.soil_moisture_3_to_9cm?.[soilI] ?? 0.4,
-        et0FaoEvapotranspiration: soilJson.hourly?.et0_fao_evapotranspiration?.[soilI] ?? 3,
-      };
-
-      const weatherData: WeatherData = {
-        current,
-        hourly,
-        daily,
-        soil,
-        location: {
-          latitude: json.latitude,
-          longitude: json.longitude,
-          name: json.timezone ?? `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`,
-          country: "",
-          elevation: json.elevation ?? 0,
-          timezone: json.timezone,
-        },
-        alerts: generateAlerts(current, daily, soil),
-        recommendations: generateRecommendations(current, daily, soil),
-      };
-
-      setData(weatherData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch weather data");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
+  // 3. Trigger fresh fetch when cache is missing
   useEffect(() => {
-    fetchWeather(location.latitude, location.longitude);
-  }, [location.latitude, location.longitude, fetchWeather]);
+    if (cachedWeather === undefined) return; // still loading
+    if (cachedWeather !== null) return; // cache hit
+
+    // No cache — fetch fresh data
+    setError(null);
+    fetchAndCacheWeather({
+      latitude: location.latitude,
+      longitude: location.longitude,
+    }).catch((err) => {
+      console.error("Weather fetch error:", err);
+      setError(err instanceof Error ? err.message : "Failed to fetch weather data");
+    });
+  }, [cachedWeather, location.latitude, location.longitude, fetchAndCacheWeather]);
+
+  // 4. Process cached data into WeatherData format
+  const data: WeatherData | null = useMemo(() => {
+    if (!cachedWeather) return null;
+
+    const now = new Date();
+    const current: CurrentWeather = {
+      temperature: cachedWeather.temperature,
+      humidity: cachedWeather.humidity,
+      windSpeed: cachedWeather.windSpeed,
+      windDirection: cachedWeather.windDirection ?? 0,
+      precipitation: cachedWeather.precipitation,
+      uvIndex: cachedWeather.uvIndex ?? 0,
+      weatherCode: 0,
+      time: now.toISOString(),
+      isDay: now.getHours() >= 6 && now.getHours() < 19,
+    };
+
+    // Build hourly from current + daily (simplified)
+    const hourly: HourlyForecast[] = [];
+    for (let h = 0; h < 24; h++) {
+      const hourDate = new Date(now.getTime() + h * 60 * 60 * 1000);
+      const dailyForHour = cachedWeather.forecast?.find((d) => {
+        const dDate = new Date(d.date);
+        return dDate.toDateString() === hourDate.toDateString();
+      });
+      hourly.push({
+        time: hourDate.toISOString(),
+        temperature: dailyForHour
+          ? (dailyForHour.tempHigh + dailyForHour.tempLow) / 2
+          : current.temperature,
+        humidity: cachedWeather.humidity,
+        windSpeed: cachedWeather.windSpeed,
+        precipitation: dailyForHour?.precipitation ?? 0,
+        precipitationProbability: 0,
+        uvIndex: current.uvIndex,
+        weatherCode: 0,
+        isDay: hourDate.getHours() >= 6 && hourDate.getHours() < 19,
+      });
+    }
+
+    const daily: DailyForecast[] = (cachedWeather.forecast || []).map((f) => ({
+      date: new Date(f.date).toISOString().split("T")[0],
+      tempMax: f.tempHigh,
+      tempMin: f.tempLow,
+      precipitationSum: f.precipitation,
+      precipitationProbabilityMax: 0,
+      windSpeedMax: f.windSpeed,
+      uvIndexMax: current.uvIndex,
+      weatherCode: 0,
+      sunrise: "",
+      sunset: "",
+    }));
+
+    const soil: SoilData = {
+      temperature0cm: 20,
+      temperature6cm: 18,
+      moisture0to1cm: 0.3,
+      moisture1to3cm: 0.35,
+      moisture3to9cm: 0.4,
+      et0FaoEvapotranspiration: 3,
+    };
+
+    const alerts: WeatherAlert[] = (cachedWeather.alerts || []).map((a) => ({
+      type: a.type,
+      severity: a.severity as "low" | "medium" | "high" | "critical",
+      title: a.type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      message: a.message,
+    }));
+
+    const recommendations = generateRecommendations(
+      current.uvIndex,
+      current.windSpeed,
+      current.humidity,
+      cachedWeather.forecast || []
+    );
+
+    return {
+      current,
+      hourly,
+      daily,
+      soil,
+      location: {
+        latitude: cachedWeather.latitude,
+        longitude: cachedWeather.longitude,
+        name: `${cachedWeather.latitude.toFixed(2)}°, ${cachedWeather.longitude.toFixed(2)}°`,
+        country: "",
+        elevation: 0,
+        timezone: "auto",
+      },
+      alerts,
+      recommendations,
+    };
+  }, [cachedWeather]);
 
   const refetch = useCallback(() => {
-    fetchWeather(location.latitude, location.longitude);
-  }, [location.latitude, location.longitude, fetchWeather]);
+    setError(null);
+    fetchAndCacheWeather({
+      latitude: location.latitude,
+      longitude: location.longitude,
+    }).catch((err) => {
+      setError(err instanceof Error ? err.message : "Failed to fetch weather data");
+    });
+  }, [location.latitude, location.longitude, fetchAndCacheWeather]);
 
   const setLocation = useCallback((lat: number, lon: number) => {
     setLocationState({ latitude: lat, longitude: lon });
@@ -510,7 +416,7 @@ export function useWeather(options?: UseWeatherOptions): UseWeatherReturn {
 
   return {
     data,
-    isLoading,
+    isLoading: cachedWeather === undefined,
     error,
     refetch,
     setLocation,
