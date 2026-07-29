@@ -1,9 +1,12 @@
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Calendar as CalendarIcon,
   Plus,
@@ -23,7 +26,9 @@ import {
   Bell,
   Filter,
   X,
+  Loader2,
 } from "lucide-react";
+import { useWeather } from "@/hooks/use-weather";
 
 // ============================================================
 // Types
@@ -32,28 +37,18 @@ import {
 type EventType = "planting" | "harvesting" | "fertilizing" | "pest_control" | "irrigation" | "vaccination" | "other";
 
 interface CalendarEvent {
-  id: string;
+  _id: string;
   title: string;
-  date: Date;
-  endDate?: Date;
-  type: EventType;
+  startDate: number;
+  endDate?: number;
+  eventType: EventType;
   description?: string;
-  farm?: string;
-  crop?: string;
+  farmId: string;
+  farmName?: string;
+  cropId?: string;
   priority: "high" | "medium" | "low";
   isCompleted: boolean;
-  weatherDependent: boolean;
-  reminder?: number; // days before
-}
-
-interface WeatherForecast {
-  date: Date;
-  tempHigh: number;
-  tempLow: number;
-  condition: "sunny" | "cloudy" | "rainy" | "stormy";
-  precipitation: number;
-  isGoodForPlanting: boolean;
-  isGoodForHarvesting: boolean;
+  reminderDaysBefore?: number;
 }
 
 // ============================================================
@@ -71,21 +66,6 @@ const eventTypeConfig: Record<EventType, { label: string; icon: typeof Sprout; c
 };
 
 // ============================================================
-// Mock Data
-// ============================================================
-
-const mockEvents: CalendarEvent[] = [
-  { id: "1", title: "Plant Maize (H614)", date: new Date(2026, 6, 28), type: "planting", farm: "Green Valley Farm", crop: "Maize", priority: "high", isCompleted: false, weatherDependent: true, reminder: 3 },
-  { id: "2", title: "Harvest Tomatoes", date: new Date(2026, 6, 25), endDate: new Date(2026, 6, 27), type: "harvesting", farm: "Green Valley Farm", crop: "Tomatoes", priority: "high", isCompleted: false, weatherDependent: true },
-  { id: "3", title: "Apply NPK Fertilizer", date: new Date(2026, 6, 30), type: "fertilizing", farm: "All Farms", priority: "medium", isCompleted: false, weatherDependent: true },
-  { id: "4", title: "Pest Control - Aphids", date: new Date(2026, 7, 2), type: "pest_control", farm: "Sunrise Ranch", crop: "Vegetables", priority: "high", isCompleted: false, weatherDependent: true },
-  { id: "5", title: "Irrigate Vegetable Garden", date: new Date(2026, 6, 26), type: "irrigation", farm: "Riverside Fields", priority: "medium", isCompleted: false, weatherDependent: false },
-  { id: "6", title: "Cattle Vaccination", date: new Date(2026, 7, 5), type: "vaccination", farm: "Sunrise Ranch", priority: "medium", isCompleted: false, weatherDependent: false, reminder: 7 },
-  { id: "7", title: "Plant Beans (Rose Coco)", date: new Date(2026, 7, 10), type: "planting", farm: "Green Valley Farm", crop: "Beans", priority: "medium", isCompleted: false, weatherDependent: true, reminder: 5 },
-  { id: "8", title: "Harvest Kale", date: new Date(2026, 7, 1), type: "harvesting", farm: "Riverside Fields", crop: "Kale", priority: "low", isCompleted: true, weatherDependent: false },
-];
-
-// ============================================================
 // Calendar Helpers
 // ============================================================
 
@@ -97,34 +77,11 @@ function getFirstDayOfMonth(year: number, month: number) {
   return new Date(year, month, 1).getDay();
 }
 
-function generateWeatherForecast(year: number, month: number): WeatherForecast[] {
-  const daysInMonth = getDaysInMonth(year, month);
-  const forecasts: WeatherForecast[] = [];
-
-  for (let day = 1; day <= daysInMonth; day++) {
-    const date = new Date(year, month, day);
-    const dayOfWeek = date.getDay();
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-
-    // Simulate weather patterns
-    const conditions: ("sunny" | "cloudy" | "rainy" | "stormy")[] = ["sunny", "cloudy", "rainy", "sunny", "sunny"];
-    const condition = conditions[day % conditions.length];
-    const tempHigh = 22 + Math.floor(Math.random() * 10);
-    const tempLow = 14 + Math.floor(Math.random() * 6);
-    const precipitation = condition === "rainy" ? 5 + Math.floor(Math.random() * 15) : condition === "stormy" ? 20 + Math.floor(Math.random() * 20) : 0;
-
-    forecasts.push({
-      date,
-      tempHigh,
-      tempLow,
-      condition,
-      precipitation,
-      isGoodForPlanting: condition !== "rainy" && condition !== "stormy" && tempHigh > 18,
-      isGoodForHarvesting: condition !== "rainy" && condition !== "stormy",
-    });
-  }
-
-  return forecasts;
+function getWeatherCondition(tempHigh: number, humidity: number): "sunny" | "cloudy" | "rainy" | "stormy" {
+  if (humidity > 80) return "rainy";
+  if (humidity > 60) return "cloudy";
+  if (tempHigh > 35) return "stormy";
+  return "sunny";
 }
 
 // ============================================================
@@ -135,7 +92,6 @@ function MiniCalendar({
   year,
   month,
   events,
-  weather,
   selectedDate,
   onSelectDate,
   onPrevMonth,
@@ -144,7 +100,6 @@ function MiniCalendar({
   year: number;
   month: number;
   events: CalendarEvent[];
-  weather: WeatherForecast[];
   selectedDate: Date | null;
   onSelectDate: (date: Date) => void;
   onPrevMonth: () => void;
@@ -157,15 +112,10 @@ function MiniCalendar({
   const monthName = new Date(year, month).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   const getEventsForDay = (day: number) => {
-    const date = new Date(year, month, day);
     return events.filter((e) => {
-      const eventDate = new Date(e.date);
+      const eventDate = new Date(e.startDate);
       return eventDate.getDate() === day && eventDate.getMonth() === month && eventDate.getFullYear() === year;
     });
-  };
-
-  const getWeatherForDay = (day: number) => {
-    return weather.find((w) => w.date.getDate() === day);
   };
 
   return (
@@ -182,7 +132,6 @@ function MiniCalendar({
         </div>
       </CardHeader>
       <CardContent>
-        {/* Day headers */}
         <div className="grid grid-cols-7 gap-1 mb-2">
           {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
             <div key={day} className="text-center text-xs font-medium text-muted-foreground py-1">
@@ -191,22 +140,18 @@ function MiniCalendar({
           ))}
         </div>
 
-        {/* Calendar days */}
         <div className="grid grid-cols-7 gap-1">
-          {/* Empty cells for days before month starts */}
           {Array.from({ length: firstDay }).map((_, i) => (
             <div key={`empty-${i}`} className="aspect-square" />
           ))}
 
-          {/* Days of the month */}
           {Array.from({ length: daysInMonth }).map((_, i) => {
             const day = i + 1;
             const date = new Date(year, month, day);
             const isToday = date.toDateString() === today.toDateString();
             const isSelected = selectedDate?.toDateString() === date.toDateString();
             const dayEvents = getEventsForDay(day);
-            const dayWeather = getWeatherForDay(day);
-            const hasHighPriority = dayEvents.some((e) => e.priority === "high" && !e.isCompleted);
+            const hasHighPriority = dayEvents.some((e) => e.eventType === "pest_control" && !e.isCompleted);
 
             return (
               <button
@@ -222,14 +167,6 @@ function MiniCalendar({
               >
                 <span className={`text-xs ${isSelected ? "text-primary-foreground" : ""}`}>{day}</span>
 
-                {/* Weather indicator */}
-                {dayWeather && (
-                  <span className="text-[8px] leading-none mt-0.5">
-                    {dayWeather.condition === "sunny" ? "☀️" : dayWeather.condition === "rainy" ? "🌧️" : dayWeather.condition === "cloudy" ? "☁️" : "⛈️"}
-                  </span>
-                )}
-
-                {/* Event dots */}
                 {dayEvents.length > 0 && (
                   <div className="flex gap-0.5 mt-0.5">
                     {dayEvents.slice(0, 3).map((event, idx) => (
@@ -238,7 +175,7 @@ function MiniCalendar({
                         className={`w-1 h-1 rounded-full ${
                           event.isCompleted
                             ? "bg-green-400"
-                            : event.priority === "high"
+                            : event.eventType === "pest_control"
                             ? "bg-red-400"
                             : "bg-primary"
                         }`}
@@ -247,7 +184,6 @@ function MiniCalendar({
                   </div>
                 )}
 
-                {/* High priority indicator */}
                 {hasHighPriority && (
                   <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-red-500 rounded-full" />
                 )}
@@ -274,8 +210,8 @@ function EventList({
   onComplete: (id: string) => void;
 }) {
   const filteredEvents = selectedDate
-    ? events.filter((e) => new Date(e.date).toDateString() === selectedDate.toDateString())
-    : events.filter((e) => !e.isCompleted).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    ? events.filter((e) => new Date(e.startDate).toDateString() === selectedDate.toDateString())
+    : events.filter((e) => !e.isCompleted).sort((a, b) => a.startDate - b.startDate);
 
   return (
     <Card className="border-border/50">
@@ -291,16 +227,17 @@ function EventList({
           <div className="text-center py-8 text-muted-foreground">
             <CalendarIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
             <p className="text-sm">No events scheduled</p>
+            <p className="text-xs mt-1">Create your first calendar event to get started</p>
           </div>
         ) : (
           filteredEvents.map((event) => {
-            const config = eventTypeConfig[event.type];
+            const config = eventTypeConfig[event.eventType] || eventTypeConfig.other;
             const Icon = config.icon;
-            const isOverdue = !event.isCompleted && new Date(event.date) < new Date();
+            const isOverdue = !event.isCompleted && new Date(event.startDate) < new Date();
 
             return (
               <motion.div
-                key={event.id}
+                key={event._id}
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 className={`flex items-start gap-3 p-3 rounded-xl border transition-colors ${
@@ -319,22 +256,10 @@ function EventList({
                     <h4 className={`text-sm font-medium ${event.isCompleted ? "line-through" : ""}`}>
                       {event.title}
                     </h4>
-                    {event.weatherDependent && (
-                      <Badge variant="outline" className="text-[10px]">
-                        <Cloud className="w-2.5 h-2.5 mr-0.5" />
-                        Weather
-                      </Badge>
-                    )}
                   </div>
                   <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                     <Clock className="w-3 h-3" />
-                    {event.date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                    {event.farm && (
-                      <>
-                        <span>•</span>
-                        <span>{event.farm}</span>
-                      </>
-                    )}
+                    {new Date(event.startDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                   </div>
                   {isOverdue && (
                     <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
@@ -348,7 +273,7 @@ function EventList({
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 shrink-0"
-                    onClick={() => onComplete(event.id)}
+                    onClick={() => onComplete(event._id)}
                   >
                     <CheckCircle2 className="w-4 h-4 text-green-500" />
                   </Button>
@@ -366,13 +291,15 @@ function EventList({
 // Weather Recommendations
 // ============================================================
 
-function WeatherRecommendations({ weather }: { weather: WeatherForecast[] }) {
+function WeatherRecommendations({ weather }: { weather: ReturnType<typeof useWeather> }) {
+  const forecast = (weather.data?.daily || []).map((d) => ({ date: d.date, tempHigh: d.tempMax, humidity: 50, precipitation: d.precipitationSum }));
   const today = new Date();
-  const upcomingForecast = weather.slice(today.getDate() - 1, today.getDate() + 6);
 
-  const goodPlantingDays = upcomingForecast.filter((w) => w.isGoodForPlanting);
-  const goodHarvestDays = upcomingForecast.filter((w) => w.isGoodForHarvesting);
-  const rainyDays = upcomingForecast.filter((w) => w.condition === "rainy" || w.condition === "stormy");
+  const upcomingForecast = forecast;
+
+  const goodPlantingDays = upcomingForecast.filter((w: { tempHigh: number; humidity: number }) => w.humidity < 70 && w.tempHigh > 18);
+  const goodHarvestDays = upcomingForecast.filter((w: { humidity: number }) => w.humidity < 60);
+  const rainyDays = upcomingForecast.filter((w: { humidity: number }) => w.humidity > 75);
 
   return (
     <Card className="border-border/50">
@@ -383,7 +310,6 @@ function WeatherRecommendations({ weather }: { weather: WeatherForecast[] }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Planting Window */}
         <div className="p-3 rounded-xl bg-green-500/5 border border-green-500/20">
           <div className="flex items-center gap-2 mb-2">
             <Sprout className="w-4 h-4 text-green-600" />
@@ -391,9 +317,9 @@ function WeatherRecommendations({ weather }: { weather: WeatherForecast[] }) {
           </div>
           {goodPlantingDays.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {goodPlantingDays.map((w, i) => (
+              {goodPlantingDays.map((_: unknown, i: number) => (
                 <Badge key={i} variant="secondary" className="bg-green-500/10 text-green-700">
-                  {w.date.toLocaleDateString("en-US", { weekday: "short", day: "numeric" })}
+                  {new Date(today.getTime() + (i + 1) * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", { weekday: "short", day: "numeric" })}
                 </Badge>
               ))}
             </div>
@@ -402,7 +328,6 @@ function WeatherRecommendations({ weather }: { weather: WeatherForecast[] }) {
           )}
         </div>
 
-        {/* Harvest Window */}
         <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/20">
           <div className="flex items-center gap-2 mb-2">
             <Scissors className="w-4 h-4 text-amber-600" />
@@ -410,9 +335,9 @@ function WeatherRecommendations({ weather }: { weather: WeatherForecast[] }) {
           </div>
           {goodHarvestDays.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {goodHarvestDays.map((w, i) => (
+              {goodHarvestDays.map((_: unknown, i: number) => (
                 <Badge key={i} variant="secondary" className="bg-amber-500/10 text-amber-700">
-                  {w.date.toLocaleDateString("en-US", { weekday: "short", day: "numeric" })}
+                  {new Date(today.getTime() + (i + 1) * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", { weekday: "short", day: "numeric" })}
                 </Badge>
               ))}
             </div>
@@ -421,7 +346,6 @@ function WeatherRecommendations({ weather }: { weather: WeatherForecast[] }) {
           )}
         </div>
 
-        {/* Rain Alert */}
         {rainyDays.length > 0 && (
           <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/20">
             <div className="flex items-center gap-2 mb-2">
@@ -434,23 +358,27 @@ function WeatherRecommendations({ weather }: { weather: WeatherForecast[] }) {
           </div>
         )}
 
-        {/* 7-Day Forecast */}
-        <div>
-          <h4 className="text-sm font-semibold mb-2">7-Day Forecast</h4>
-          <div className="grid grid-cols-7 gap-1">
-            {upcomingForecast.map((w, i) => (
-              <div key={i} className="text-center p-1 rounded-lg bg-muted/30">
-                <p className="text-[10px] text-muted-foreground">
-                  {w.date.toLocaleDateString("en-US", { weekday: "short" })}
-                </p>
-                <p className="text-sm my-0.5">
-                  {w.condition === "sunny" ? "☀️" : w.condition === "rainy" ? "🌧️" : w.condition === "cloudy" ? "☁️" : "⛈️"}
-                </p>
-                <p className="text-[10px] font-medium">{w.tempHigh}°</p>
-              </div>
-            ))}
+        {upcomingForecast.length > 0 && (
+          <div>
+            <h4 className="text-sm font-semibold mb-2">7-Day Forecast</h4>
+            <div className="grid grid-cols-7 gap-1">
+              {upcomingForecast.map((w: { humidity: number; tempHigh: number }, i: number) => {
+                const condition = getWeatherCondition(w.tempHigh, w.humidity);
+                return (
+                  <div key={i} className="text-center p-1 rounded-lg bg-muted/30">
+                    <p className="text-[10px] text-muted-foreground">
+                      {new Date(today.getTime() + (i + 1) * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", { weekday: "short" })}
+                    </p>
+                    <p className="text-sm my-0.5">
+                      {condition === "sunny" ? "☀️" : condition === "rainy" ? "🌧️" : condition === "cloudy" ? "☁️" : "⛈️"}
+                    </p>
+                    <p className="text-[10px] font-medium">{Math.round(w.tempHigh)}°</p>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -463,13 +391,38 @@ function WeatherRecommendations({ weather }: { weather: WeatherForecast[] }) {
 export default function Calendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [events, setEvents] = useState<CalendarEvent[]>(mockEvents);
   const [filterType, setFilterType] = useState<EventType | "all">("all");
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
-  const weather = useMemo(() => generateWeatherForecast(year, month), [year, month]);
+  // Real Convex data
+  const calendarEvents = useQuery(api.farmCalendar.listUserEvents);
+  const farms = useQuery(api.farms.listUserFarms);
+  const completeEventMutation = useMutation(api.farmCalendar.completeEvent);
+
+  // Real weather data
+  const weather = useWeather();
+
+  // Map Convex events to local format
+  const events: CalendarEvent[] = useMemo(() => {
+    if (!calendarEvents) return [];
+    return calendarEvents.map((e) => ({
+      _id: e._id,
+      title: e.title,
+      startDate: e.startDate,
+      endDate: e.endDate,
+      eventType: e.eventType as EventType,
+      description: e.description,
+      farmId: e.farmId,
+      cropId: e.cropId,
+      priority: e.eventType === "pest_control" ? "high" : e.eventType === "planting" ? "high" : "medium",
+      isCompleted: e.isCompleted,
+      reminderDaysBefore: e.reminderDaysBefore,
+    }));
+  }, [calendarEvents]);
+
+  const filteredEvents = filterType === "all" ? events : events.filter((e) => e.eventType === filterType);
 
   const handlePrevMonth = () => {
     setCurrentDate(new Date(year, month - 1));
@@ -479,11 +432,15 @@ export default function Calendar() {
     setCurrentDate(new Date(year, month + 1));
   };
 
-  const handleCompleteEvent = (id: string) => {
-    setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, isCompleted: true } : e)));
+  const handleCompleteEvent = async (id: string) => {
+    try {
+      await completeEventMutation({ eventId: id as any });
+    } catch (error) {
+      console.error("Failed to complete event:", error);
+    }
   };
 
-  const filteredEvents = filterType === "all" ? events : events.filter((e) => e.type === filterType);
+  const isLoading = calendarEvents === undefined;
 
   return (
     <AppLayout>
@@ -495,10 +452,6 @@ export default function Calendar() {
               <h1 className="text-3xl font-bold tracking-tight">Farm Calendar</h1>
               <p className="text-muted-foreground mt-1">Plan and track your farming activities with weather insights</p>
             </div>
-            <Button className="gradient-primary">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Event
-            </Button>
           </div>
         </motion.div>
 
@@ -533,37 +486,56 @@ export default function Calendar() {
 
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: Calendar + Events */}
           <div className="lg:col-span-2 space-y-6">
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.2 }}>
-              <MiniCalendar
-                year={year}
-                month={month}
-                events={filteredEvents}
-                weather={weather}
-                selectedDate={selectedDate}
-                onSelectDate={setSelectedDate}
-                onPrevMonth={handlePrevMonth}
-                onNextMonth={handleNextMonth}
-              />
+              {isLoading ? (
+                <Card className="border-border/50">
+                  <CardContent className="p-6 space-y-4">
+                    <Skeleton className="h-8 w-48" />
+                    <div className="grid grid-cols-7 gap-1">
+                      {Array.from({ length: 35 }).map((_, i) => (
+                        <Skeleton key={i} className="aspect-square" />
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <MiniCalendar
+                  year={year}
+                  month={month}
+                  events={filteredEvents}
+                  selectedDate={selectedDate}
+                  onSelectDate={setSelectedDate}
+                  onPrevMonth={handlePrevMonth}
+                  onNextMonth={handleNextMonth}
+                />
+              )}
             </motion.div>
 
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.3 }}>
-              <EventList
-                events={filteredEvents}
-                selectedDate={selectedDate}
-                onComplete={handleCompleteEvent}
-              />
+              {isLoading ? (
+                <Card className="border-border/50">
+                  <CardContent className="p-6 space-y-3">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <Skeleton key={i} className="h-16 w-full" />
+                    ))}
+                  </CardContent>
+                </Card>
+              ) : (
+                <EventList
+                  events={filteredEvents}
+                  selectedDate={selectedDate}
+                  onComplete={handleCompleteEvent}
+                />
+              )}
             </motion.div>
           </div>
 
-          {/* Right: Weather & Recommendations */}
           <div className="space-y-6">
             <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.4 }}>
               <WeatherRecommendations weather={weather} />
             </motion.div>
 
-            {/* Quick Stats */}
             <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.5 }}>
               <Card className="border-border/50">
                 <CardHeader className="pb-3">
@@ -575,20 +547,14 @@ export default function Calendar() {
                     <Badge variant="secondary">{events.filter((e) => !e.isCompleted).length}</Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Completed This Month</span>
+                    <span className="text-sm text-muted-foreground">Completed</span>
                     <Badge variant="secondary" className="bg-green-500/10 text-green-600">
                       {events.filter((e) => e.isCompleted).length}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Weather-Dependent</span>
-                    <Badge variant="secondary">{events.filter((e) => e.weatherDependent && !e.isCompleted).length}</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">High Priority</span>
-                    <Badge variant="secondary" className="bg-red-500/10 text-red-600">
-                      {events.filter((e) => e.priority === "high" && !e.isCompleted).length}
-                    </Badge>
+                    <span className="text-sm text-muted-foreground">Total Events</span>
+                    <Badge variant="secondary">{events.length}</Badge>
                   </div>
                 </CardContent>
               </Card>

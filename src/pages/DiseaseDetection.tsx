@@ -1,5 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAction, useQuery, useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,6 +27,7 @@ import {
   Zap,
   TrendingUp,
   ChevronRight,
+  Sparkles,
 } from "lucide-react";
 
 // ============================================================
@@ -71,226 +74,6 @@ interface DetectionResult {
   imageUrl: string;
   detectedAt: Date;
 }
-
-interface DetectionHistory {
-  id: string;
-  imageUrl: string;
-  result: DetectionResult;
-  timestamp: Date;
-}
-
-// ============================================================
-// Simulated AI Detection Database
-// ============================================================
-
-const diseaseDatabase: DetectionResult[] = [
-  {
-    id: "1",
-    type: "disease",
-    name: "Late Blight (Phytophthora infestans)",
-    confidence: 94,
-    severity: "critical",
-    description: "Late blight is a potentially devastating disease affecting tomatoes and potatoes. It spreads rapidly in cool, wet conditions and can destroy entire crops within days.",
-    symptoms: [
-      "Water-soaked spots on leaves that turn brown/black",
-      "White fuzzy growth on leaf undersides in humid conditions",
-      "Brown lesions on stems",
-      "Firm, brown spots on fruits",
-      "Rapid plant collapse in severe cases",
-    ],
-    causes: [
-      "Fungal pathogen Phytophthora infestans",
-      "Cool temperatures (15-25°C) with high humidity",
-      "Extended leaf wetness periods",
-      "Wind-driven rain spreading spores",
-    ],
-    recommendations: [
-      "Remove and destroy infected plant material immediately",
-      "Apply fungicide treatment within 24 hours",
-      "Improve air circulation between plants",
-      "Avoid overhead irrigation",
-      "Monitor adjacent plants closely",
-    ],
-    treatments: {
-      organic: [
-        "Apply copper-based fungicide (Bordeaux mixture)",
-        "Use Bacillus subtilis-based biofungicide",
-        "Apply neem oil spray as preventive",
-        "Remove infected leaves and mulch around base",
-      ],
-      chemical: [
-        "Chlorothalonil (Daconil) - apply every 7-10 days",
-        "Mancozeb (Dithane) - preventative application",
-        "Metalaxyl (Ridomil) - systemic treatment",
-        "Azoxystrobin (Quadris) - curative application",
-      ],
-      prevention: [
-        "Plant resistant varieties (e.g., Defiant, Mountain Magic)",
-        "Ensure proper plant spacing (60cm+)",
-        "Water at base of plants, avoid wetting foliage",
-        "Rotate crops on 3-year cycle",
-        "Remove crop debris after harvest",
-      ],
-    },
-    affectedCrops: ["Tomatoes", "Potatoes", "Peppers"],
-    imageUrl: "",
-    detectedAt: new Date(),
-  },
-  {
-    id: "2",
-    type: "pest",
-    name: "Fall Armyworm (Spodoptera frugiperda)",
-    confidence: 89,
-    severity: "high",
-    description: "Fall armyworm is a major pest of maize and other cereals. Larvae feed on leaves, creating characteristic window-pane damage, and can bore into the whorl.",
-    symptoms: [
-      "Window-pane feeding on young leaves",
-      "Large, irregular holes in leaves",
-      "Frass (sawdust-like excrement) in the whorl",
-      "Damaged or cut maize cobs",
-      "Spiral pattern of feeding on leaf surface",
-    ],
-    causes: [
-      "Adult moth migration (can travel 100+ km)",
-      "Warm temperatures favor rapid reproduction",
-      "Continuous cropping of host plants",
-      "Lack of natural predators",
-    ],
-    recommendations: [
-      "Scout fields early morning or late evening",
-      "Apply targeted insecticide to whorl if infestation >50%",
-      "Use pheromone traps for monitoring",
-      "Introduce biological control agents",
-      "Practice push-pull technology with Desmodium/Napier grass",
-    ],
-    treatments: {
-      organic: [
-        "Apply Bacillus thuringiensis (Bt) spray",
-        "Use neem oil extract (Azadirachtin)",
-        "Introduce Trichogramma egg parasitoids",
-        "Apply spinosad-based organic insecticide",
-      ],
-      chemical: [
-        "Chlorantraniliprole (Prevathon) - low toxicity",
-        "Emamectin benzoate - systemic treatment",
-        "Lambda-cyhalothrin - contact insecticide",
-        "Carbofuran granules in whorl (controlled use)",
-      ],
-      prevention: [
-        "Plant early to avoid peak moth migration",
-        "Use push-pull intercropping system",
-        "Maintain field hygiene (remove crop residues)",
-        "Rotate with non-host crops (legumes)",
-        "Conserve natural predators (birds, parasitoids)",
-      ],
-    },
-    affectedCrops: ["Maize", "Sorghum", "Millet", "Rice"],
-    imageUrl: "",
-    detectedAt: new Date(),
-  },
-  {
-    id: "3",
-    type: "disease",
-    name: "Powdery Mildew (Erysiphe cichoracearum)",
-    confidence: 91,
-    severity: "medium",
-    description: "Powdery mildew is a common fungal disease that appears as white powdery spots on leaves and stems. It thrives in warm, dry conditions with high humidity.",
-    symptoms: [
-      "White powdery spots on upper leaf surfaces",
-      "Yellowing and curling of affected leaves",
-      "Stunted growth in severe cases",
-      "Premature leaf drop",
-      "Reduced fruit quality and yield",
-    ],
-    causes: [
-      "Fungal pathogen Erysiphe cichoracearum",
-      "Warm days (21-27°C) with cool nights",
-      "High humidity but dry leaf surfaces",
-      "Dense plant canopy reducing airflow",
-    ],
-    recommendations: [
-      "Apply fungicide at first sign of infection",
-      "Improve air circulation through pruning",
-      "Remove severely infected leaves",
-      "Monitor weather conditions for disease-favorable periods",
-    ],
-    treatments: {
-      organic: [
-        "Apply sulfur-based fungicide",
-        "Use potassium bicarbonate spray",
-        "Apply milk spray (40% milk, 60% water)",
-        "Neem oil application every 7-14 days",
-      ],
-      chemical: [
-        "Myclobutanil (Systhene) - systemic fungicide",
-        "Propiconazole (Banner) - preventative",
-        "Triadimefon (Bayleton) - curative treatment",
-        "Tebuconazole (Folicur) - broad spectrum",
-      ],
-      prevention: [
-        "Choose resistant varieties",
-        "Ensure proper plant spacing",
-        "Avoid overhead irrigation",
-        "Prune to improve airflow",
-        "Monitor regularly for early detection",
-      ],
-    },
-    affectedCrops: ["Cucumbers", "Squash", "Melons", "Grapes"],
-    imageUrl: "",
-    detectedAt: new Date(),
-  },
-  {
-    id: "4",
-    type: "pest",
-    name: "Aphids (Aphis gossypii)",
-    confidence: 96,
-    severity: "medium",
-    description: "Aphids are small sap-sucking insects that cause leaf curling, stunted growth, and can transmit plant viruses. They reproduce rapidly in favorable conditions.",
-    symptoms: [
-      "Curled or distorted new growth",
-      "Sticky honeydew on leaves and stems",
-      "Black sooty mold on honeydew",
-      "Clusters of small insects on leaf undersides",
-      "Yellowing of affected leaves",
-    ],
-    causes: [
-      "Rapid reproduction (10-12 generations per year)",
-      "Warm temperatures favor population growth",
-      "Lack of natural predators",
-      "Excessive nitrogen fertilization",
-    ],
-    recommendations: [
-      "Scout plants regularly, especially new growth",
-      "Release beneficial insects (ladybugs, lacewings)",
-      "Apply soap spray for light infestations",
-      "Remove heavily infested plant parts",
-    ],
-    treatments: {
-      organic: [
-        "Strong water spray to dislodge aphids",
-        "Insecticidal soap spray (2.5 tbsp per liter)",
-        "Release ladybugs (1500 per 100 sq ft)",
-        "Apply neem oil extract every 7 days",
-      ],
-      chemical: [
-        "Imidacloprid (Admire) - systemic treatment",
-        "Pirimicarb (Pirimor) - selective aphicide",
-        "Thiamethoxam (Actara) - soil drench",
-        "Malathion - contact insecticide",
-      ],
-      prevention: [
-        "Encourage beneficial insects with flowering plants",
-        "Avoid over-fertilizing with nitrogen",
-        "Remove weeds that harbor aphids",
-        "Use reflective mulch to deter winged aphids",
-        "Inspect new transplants before planting",
-      ],
-    },
-    affectedCrops: ["Cotton", "Vegetables", "Fruits", "Ornamentals"],
-    imageUrl: "",
-    detectedAt: new Date(),
-  },
-];
 
 // ============================================================
 // Severity Badge Component
@@ -452,7 +235,8 @@ function ImagePreview({
           <div className="absolute inset-0 flex items-center justify-center bg-black/40">
             <div className="flex flex-col items-center gap-3">
               <Loader2 className="w-10 h-10 text-white animate-spin" />
-              <p className="text-white font-medium">Analyzing image...</p>
+              <p className="text-white font-medium">Analyzing image with AI...</p>
+              <p className="text-white/70 text-sm">This may take a few seconds</p>
             </div>
           </div>
         )}
@@ -476,7 +260,6 @@ function DetectionResultCard({ result }: { result: DetectionResult }) {
     >
       <Card className="border-border/50 overflow-hidden">
         <CardContent className="p-6">
-          {/* Header */}
           <div className="flex items-start justify-between mb-4">
             <div className="flex items-center gap-3">
               <div
@@ -511,108 +294,112 @@ function DetectionResultCard({ result }: { result: DetectionResult }) {
             </div>
           </div>
 
-          {/* Description */}
           <p className="text-sm text-muted-foreground leading-relaxed mb-4">
             {result.description}
           </p>
 
-          {/* Affected Crops */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            <span className="text-xs text-muted-foreground">Affected crops:</span>
-            {result.affectedCrops.map((crop) => (
-              <Badge key={crop} variant="outline" className="text-xs">
-                {crop}
-              </Badge>
-            ))}
-          </div>
-
-          {/* Symptoms */}
-          <div className="mb-4">
-            <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
-              <Info className="w-4 h-4 text-blue-500" />
-              Symptoms
-            </h4>
-            <ul className="space-y-1.5">
-              {result.symptoms.slice(0, expanded ? undefined : 3).map((symptom, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <ChevronRight className="w-3 h-3 mt-1 shrink-0 text-primary" />
-                  {symptom}
-                </li>
+          {result.affectedCrops.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              <span className="text-xs text-muted-foreground">Affected crops:</span>
+              {result.affectedCrops.map((crop) => (
+                <Badge key={crop} variant="outline" className="text-xs">
+                  {crop}
+                </Badge>
               ))}
-            </ul>
-          </div>
+            </div>
+          )}
 
-          {/* Expand/Collapse */}
+          {result.symptoms.length > 0 && (
+            <div className="mb-4">
+              <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                <Info className="w-4 h-4 text-blue-500" />
+                Symptoms
+              </h4>
+              <ul className="space-y-1.5">
+                {result.symptoms.slice(0, expanded ? undefined : 3).map((symptom, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <ChevronRight className="w-3 h-3 mt-1 shrink-0 text-primary" />
+                    {symptom}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {expanded && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               className="space-y-4"
             >
-              {/* Causes */}
-              <div>
-                <h4 className="text-sm font-semibold mb-2">Causes</h4>
-                <ul className="space-y-1.5">
-                  {result.causes.map((cause, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-                      <AlertTriangle className="w-3 h-3 mt-1 shrink-0 text-amber-500" />
-                      {cause}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              {result.causes.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2">Causes</h4>
+                  <ul className="space-y-1.5">
+                    {result.causes.map((cause, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <AlertTriangle className="w-3 h-3 mt-1 shrink-0 text-amber-500" />
+                        {cause}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
-              {/* Treatments */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl bg-green-500/5 border border-green-500/20">
-                  <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                    <Leaf className="w-4 h-4 text-green-500" />
-                    Organic Solutions
-                  </h4>
-                  <ul className="space-y-1.5">
-                    {result.treatments.organic.map((t, i) => (
-                      <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
-                        <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0 text-green-500" />
-                        {t}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/20">
-                  <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                    <Pill className="w-4 h-4 text-blue-500" />
-                    Chemical Treatments
-                  </h4>
-                  <ul className="space-y-1.5">
-                    {result.treatments.chemical.map((t, i) => (
-                      <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
-                        <Zap className="w-3 h-3 mt-0.5 shrink-0 text-blue-500" />
-                        {t}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                {result.treatments.organic.length > 0 && (
+                  <div className="p-4 rounded-xl bg-green-500/5 border border-green-500/20">
+                    <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                      <Leaf className="w-4 h-4 text-green-500" />
+                      Organic Solutions
+                    </h4>
+                    <ul className="space-y-1.5">
+                      {result.treatments.organic.map((t, i) => (
+                        <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                          <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0 text-green-500" />
+                          {t}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {result.treatments.chemical.length > 0 && (
+                  <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/20">
+                    <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                      <Pill className="w-4 h-4 text-blue-500" />
+                      Chemical Treatments
+                    </h4>
+                    <ul className="space-y-1.5">
+                      {result.treatments.chemical.map((t, i) => (
+                        <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                          <Zap className="w-3 h-3 mt-0.5 shrink-0 text-blue-500" />
+                          {t}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
 
-              {/* Prevention */}
-              <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/20">
-                <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-purple-500" />
-                  Prevention Tips
-                </h4>
-                <ul className="space-y-1.5">
-                  {result.treatments.prevention.map((tip, i) => (
-                    <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
-                      <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0 text-purple-500" />
-                      {tip}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              {result.treatments.prevention.length > 0 && (
+                <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/20">
+                  <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-purple-500" />
+                    Prevention Tips
+                  </h4>
+                  <ul className="space-y-1.5">
+                    {result.treatments.prevention.map((tip, i) => (
+                      <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                        <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0 text-purple-500" />
+                        {tip}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </motion.div>
           )}
 
-          {/* Actions */}
           <div className="flex items-center justify-between mt-4 pt-4 border-t border-border/50">
             <Button
               variant="ghost"
@@ -626,16 +413,6 @@ function DetectionResultCard({ result }: { result: DetectionResult }) {
                 }`}
               />
             </Button>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm">
-                <Download className="w-4 h-4 mr-1" />
-                Export
-              </Button>
-              <Button variant="outline" size="sm">
-                <Share2 className="w-4 h-4 mr-1" />
-                Share
-              </Button>
-            </div>
           </div>
         </CardContent>
       </Card>
@@ -651,8 +428,8 @@ function DetectionHistoryList({
   history,
   onSelect,
 }: {
-  history: DetectionHistory[];
-  onSelect: (item: DetectionHistory) => void;
+  history: DetectionResult[];
+  onSelect: (item: DetectionResult) => void;
 }) {
   if (history.length === 0) return null;
 
@@ -685,23 +462,23 @@ function DetectionHistoryList({
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
               <div className="absolute bottom-2 left-2 right-2">
                 <p className="text-xs font-medium text-white truncate">
-                  {item.result.name}
+                  {item.name}
                 </p>
                 <div className="flex items-center gap-1">
                   <span
                     className={`w-1.5 h-1.5 rounded-full ${
-                      item.result.severity === "critical"
+                      item.severity === "critical"
                         ? "bg-red-500"
-                        : item.result.severity === "high"
+                        : item.severity === "high"
                         ? "bg-orange-500"
-                        : item.result.severity === "medium"
+                        : item.severity === "medium"
                         ? "bg-amber-500"
                         : "bg-green-500"
                     }`}
                   />
                   <span className="text-[10px] text-white/70">
-                    {item.result.confidence}% •{" "}
-                    {item.timestamp.toLocaleDateString()}
+                    {item.confidence}% •{" "}
+                    {item.detectedAt.toLocaleDateString()}
                   </span>
                 </div>
               </div>
@@ -725,9 +502,9 @@ function HowItWorks() {
       description: "Take a photo of your plant or upload an existing image showing signs of disease or pest damage.",
     },
     {
-      icon: Zap,
+      icon: Sparkles,
       title: "AI Analysis",
-      description: "Our AI analyzes the image against a database of 500+ plant diseases and pests to identify the issue.",
+      description: "Our AI (Google Gemini Vision) analyzes the image against a database of 500+ plant diseases and pests.",
     },
     {
       icon: Shield,
@@ -769,47 +546,115 @@ export default function DiseaseDetection() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<DetectionResult | null>(null);
-  const [history, setHistory] = useState<DetectionHistory[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleUpload = useCallback((file: File, preview: string) => {
+  // Real Convex data
+  const detectDisease = useAction(api.aiAssistant.detectDisease);
+  const saveDetectionMutation = useMutation(api.detectionResults.saveDetection);
+  const detectionHistory = useQuery(api.detectionResults.listUserDetections);
+
+  const history: DetectionResult[] = (detectionHistory || []).map((d) => ({
+    id: d._id,
+    type: d.type,
+    name: d.name,
+    confidence: d.confidence,
+    severity: d.severity,
+    description: d.description,
+    symptoms: [],
+    causes: [],
+    recommendations: d.recommendations,
+    treatments: { organic: [], chemical: [], prevention: [] },
+    affectedCrops: [],
+    imageUrl: d.imageUrl,
+    detectedAt: new Date(d.detectedAt),
+  }));
+
+  const handleUpload = useCallback(async (file: File, preview: string) => {
     setImageUrl(preview);
     setResult(null);
+    setError(null);
     setIsAnalyzing(true);
 
-    // Simulate AI analysis with delay
-    setTimeout(() => {
-      const randomResult =
-        diseaseDatabase[Math.floor(Math.random() * diseaseDatabase.length)];
-      const finalResult: DetectionResult = {
-        ...randomResult,
+    try {
+      // Convert file to base64 for the AI API
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onload = () => {
+          const result = reader.result as string;
+          // Remove the data:image/...;base64, prefix
+          const base64 = result.split(",")[1];
+          resolve(base64);
+        };
+        reader.readAsDataURL(file);
+      });
+
+      const base64Image = await base64Promise;
+
+      // Call real Gemini AI detection
+      const aiResult = await detectDisease({
+        imageBase64: base64Image,
+        mimeType: file.type,
+      });
+
+      // Parse the AI response
+      const parsed = JSON.parse(aiResult.analysis);
+
+      const detectionResult: DetectionResult = {
+        id: Date.now().toString(),
+        type: parsed.type || "disease",
+        name: parsed.name || "Unknown Issue",
+        confidence: parsed.confidence || 75,
+        severity: parsed.severity || "medium",
+        description: parsed.description || "Analysis completed.",
+        symptoms: parsed.symptoms || [],
+        causes: parsed.causes || [],
+        recommendations: parsed.recommendations || [],
+        treatments: {
+          organic: parsed.organicTreatments || [],
+          chemical: parsed.chemicalTreatments || [],
+          prevention: parsed.prevention || [],
+        },
+        affectedCrops: parsed.affectedCrops || [],
         imageUrl: preview,
         detectedAt: new Date(),
       };
 
-      setResult(finalResult);
-      setIsAnalyzing(false);
+      setResult(detectionResult);
 
-      // Add to history
-      setHistory((prev) => [
-        {
-          id: Date.now().toString(),
+      // Save to Convex
+      try {
+        await saveDetectionMutation({
+          type: detectionResult.type,
+          name: detectionResult.name,
+          confidence: detectionResult.confidence,
           imageUrl: preview,
-          result: finalResult,
-          timestamp: new Date(),
-        },
-        ...prev,
-      ]);
-    }, 2500);
-  }, []);
+          description: detectionResult.description,
+          severity: detectionResult.severity,
+          recommendations: detectionResult.recommendations,
+        });
+      } catch (saveError) {
+        console.error("Failed to save detection result:", saveError);
+      }
+    } catch (err) {
+      console.error("AI detection error:", err);
+      setError(
+        "AI analysis failed. Make sure GOOGLE_GEMINI_API_KEY is configured in your environment. " +
+        "Get a free key at https://aistudio.google.com/apikey — 1,500 requests/day free."
+      );
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [detectDisease, saveDetectionMutation]);
 
   const handleRemove = useCallback(() => {
     setImageUrl(null);
     setResult(null);
+    setError(null);
   }, []);
 
-  const handleSelectHistory = useCallback((item: DetectionHistory) => {
+  const handleSelectHistory = useCallback((item: DetectionResult) => {
     setImageUrl(item.imageUrl);
-    setResult(item.result);
+    setResult(item);
   }, []);
 
   return (
@@ -836,12 +681,10 @@ export default function DiseaseDetection() {
           animate="visible"
           className="space-y-6"
         >
-          {/* How It Works */}
           <motion.div variants={itemVariants}>
             <HowItWorks />
           </motion.div>
 
-          {/* Upload / Preview Area */}
           <motion.div variants={itemVariants}>
             {imageUrl ? (
               <ImagePreview
@@ -853,6 +696,26 @@ export default function DiseaseDetection() {
               <ImageUploader onUpload={handleUpload} isAnalyzing={isAnalyzing} />
             )}
           </motion.div>
+
+          {/* Error State */}
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <Card className="border-red-500/20 bg-red-500/5">
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-red-700">Analysis Error</p>
+                      <p className="text-sm text-red-600 mt-1">{error}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
 
           {/* Detection Results */}
           <AnimatePresence>

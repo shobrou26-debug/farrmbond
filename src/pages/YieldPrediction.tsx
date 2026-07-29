@@ -1,12 +1,14 @@
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   TrendingUp,
-  TrendingDown,
   Target,
   Leaf,
   Calendar,
@@ -14,22 +16,23 @@ import {
   Droplets,
   Sun,
   BarChart3,
-  AlertTriangle,
   CheckCircle2,
-  RefreshCw,
   Download,
-  Filter,
-  ArrowUpRight,
-  ArrowDownRight,
   Zap,
-  Info,
+  Inbox,
 } from "lucide-react";
 
 // ============================================================
 // Types
 // ============================================================
 
-interface YieldPrediction {
+interface YieldFactor {
+  name: string;
+  impact: number;
+  description: string;
+}
+
+interface YieldPredictionItem {
   id: string;
   cropName: string;
   variety: string;
@@ -41,127 +44,10 @@ interface YieldPrediction {
   unit: string;
   confidence: number;
   factors: YieldFactor[];
-  weatherImpact: WeatherImpact;
+  weatherImpact: number;
   recommendations: string[];
   status: "excellent" | "good" | "average" | "poor";
 }
-
-interface YieldFactor {
-  name: string;
-  impact: number; // -100 to 100
-  description: string;
-}
-
-interface WeatherImpact {
-  temperature: number;
-  rainfall: number;
-  humidity: number;
-  sunlight: number;
-  overall: number;
-}
-
-// ============================================================
-// Mock Data
-// ============================================================
-
-const mockPredictions: YieldPrediction[] = [
-  {
-    id: "1",
-    cropName: "Maize",
-    variety: "H614",
-    farm: "Sunrise Ranch",
-    plantingDate: "2026-04-01",
-    expectedHarvest: "2026-08-15",
-    predictedYield: 7800,
-    targetYield: 8000,
-    unit: "kg",
-    confidence: 87,
-    factors: [
-      { name: "Soil Quality", impact: 75, description: "Rich volcanic soil with excellent drainage" },
-      { name: "Rainfall", impact: 65, description: "Adequate rainfall during growing season" },
-      { name: "Fertilizer", impact: 80, description: "Optimal NPK application at key stages" },
-      { name: "Pest Pressure", impact: 45, description: "Moderate fall armyworm activity detected" },
-      { name: "Seed Quality", impact: 90, description: "Certified hybrid seed with high germination rate" },
-    ],
-    weatherImpact: {
-      temperature: 72,
-      rainfall: 68,
-      humidity: 65,
-      sunlight: 78,
-      overall: 71,
-    },
-    recommendations: [
-      "Apply additional nitrogen fertilizer in 2 weeks",
-      "Monitor for fall armyworm in whorl stage",
-      "Ensure adequate drainage before expected heavy rains",
-    ],
-    status: "good",
-  },
-  {
-    id: "2",
-    cropName: "Tomatoes",
-    variety: "Roma VF",
-    farm: "Green Valley Farm",
-    plantingDate: "2026-03-15",
-    expectedHarvest: "2026-07-20",
-    predictedYield: 2650,
-    targetYield: 2500,
-    unit: "kg",
-    confidence: 92,
-    factors: [
-      { name: "Soil Quality", impact: 85, description: "Well-amended loamy soil" },
-      { name: "Water Management", impact: 88, description: "Drip irrigation maintaining optimal moisture" },
-      { name: "Disease Control", impact: 70, description: "Early blight detected but managed" },
-      { name: "Pollination", impact: 82, description: "Good natural pollination conditions" },
-      { name: "Fertilizer", impact: 85, description: "Balanced feeding program on track" },
-    ],
-    weatherImpact: {
-      temperature: 80,
-      rainfall: 62,
-      humidity: 58,
-      sunlight: 85,
-      overall: 71,
-    },
-    recommendations: [
-      "Continue current irrigation schedule",
-      "Apply calcium supplement to prevent blossom end rot",
-      "Harvest first truss within 5 days for peak quality",
-    ],
-    status: "excellent",
-  },
-  {
-    id: "3",
-    cropName: "Beans",
-    variety: "Rose Coco",
-    farm: "Riverside Fields",
-    plantingDate: "2026-05-01",
-    expectedHarvest: "2026-08-10",
-    predictedYield: 1050,
-    targetYield: 1200,
-    unit: "kg",
-    confidence: 78,
-    factors: [
-      { name: "Soil Quality", impact: 65, description: "Moderate soil fertility, needs phosphorus" },
-      { name: "Rainfall", impact: 55, description: "Below average rainfall during vegetative stage" },
-      { name: "Pest Pressure", impact: 40, description: "Bean fly damage in early stages" },
-      { name: "Seed Quality", impact: 80, description: "Good quality seed with inoculant" },
-      { name: "Weed Competition", impact: 60, description: "Moderate weed pressure controlled" },
-    ],
-    weatherImpact: {
-      temperature: 68,
-      rainfall: 52,
-      humidity: 60,
-      sunlight: 70,
-      overall: 63,
-    },
-    recommendations: [
-      "Apply foliar phosphorus to boost pod filling",
-      "Increase irrigation frequency during dry spells",
-      "Consider intercropping with maize for better land use",
-    ],
-    status: "average",
-  },
-];
 
 // ============================================================
 // Yield Status Config
@@ -174,6 +60,14 @@ const statusConfig: Record<string, { label: string; color: string; bgColor: stri
   poor: { label: "Poor", color: "text-red-600", bgColor: "bg-red-500/10" },
 };
 
+function getStatus(yield_: number, target: number): "excellent" | "good" | "average" | "poor" {
+  const ratio = yield_ / target;
+  if (ratio >= 1.1) return "excellent";
+  if (ratio >= 0.9) return "good";
+  if (ratio >= 0.7) return "average";
+  return "poor";
+}
+
 // ============================================================
 // Yield Prediction Card
 // ============================================================
@@ -183,7 +77,7 @@ function YieldPredictionCard({
   isSelected,
   onSelect,
 }: {
-  prediction: YieldPrediction;
+  prediction: YieldPredictionItem;
   isSelected: boolean;
   onSelect: () => void;
 }) {
@@ -212,7 +106,6 @@ function YieldPredictionCard({
           <Badge className={`${config.bgColor} ${config.color}`}>{config.label}</Badge>
         </div>
 
-        {/* Yield Progress */}
         <div className="mb-4">
           <div className="flex items-center justify-between text-sm mb-1">
             <span className="text-muted-foreground">Predicted Yield</span>
@@ -232,7 +125,6 @@ function YieldPredictionCard({
           </div>
         </div>
 
-        {/* Confidence & Weather */}
         <div className="grid grid-cols-2 gap-3">
           <div className="p-2 rounded-lg bg-muted/30 text-center">
             <p className="text-xs text-muted-foreground">Confidence</p>
@@ -241,9 +133,9 @@ function YieldPredictionCard({
           <div className="p-2 rounded-lg bg-muted/30 text-center">
             <p className="text-xs text-muted-foreground">Weather Impact</p>
             <p className={`text-lg font-bold ${
-              prediction.weatherImpact.overall >= 70 ? "text-green-600" : "text-amber-600"
+              prediction.weatherImpact >= 70 ? "text-green-600" : "text-amber-600"
             }`}>
-              {prediction.weatherImpact.overall}%
+              {prediction.weatherImpact}%
             </p>
           </div>
         </div>
@@ -301,14 +193,7 @@ function FactorAnalysis({ factors }: { factors: YieldFactor[] }) {
 // Weather Impact Panel
 // ============================================================
 
-function WeatherImpactPanel({ impact }: { impact: WeatherImpact }) {
-  const metrics = [
-    { label: "Temperature", value: impact.temperature, icon: Sun, color: "text-orange-500" },
-    { label: "Rainfall", value: impact.rainfall, icon: Droplets, color: "text-blue-500" },
-    { label: "Humidity", value: impact.humidity, icon: Droplets, color: "text-cyan-500" },
-    { label: "Sunlight", value: impact.sunlight, icon: Sun, color: "text-yellow-500" },
-  ];
-
+function WeatherImpactPanel({ impact }: { impact: number }) {
   return (
     <Card className="border-border/50">
       <CardHeader className="pb-3">
@@ -329,29 +214,31 @@ function WeatherImpactPanel({ impact }: { impact: WeatherImpact }) {
                 stroke="currentColor"
                 strokeWidth="8"
                 fill="none"
-                className={impact.overall >= 70 ? "text-green-500" : "text-amber-500"}
-                strokeDasharray={`${(impact.overall / 100) * 251} 251`}
+                className={impact >= 70 ? "text-green-500" : "text-amber-500"}
+                strokeDasharray={`${(impact / 100) * 251} 251`}
                 strokeLinecap="round"
               />
             </svg>
-            <span className="absolute text-2xl font-bold">{impact.overall}%</span>
+            <span className="absolute text-2xl font-bold">{impact}%</span>
           </div>
           <p className="text-sm text-muted-foreground mt-2">Overall Weather Score</p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          {metrics.map((metric, i) => {
-            const Icon = metric.icon;
-            return (
-              <div key={i} className="flex items-center gap-2 p-2 rounded-lg bg-muted/30">
-                <Icon className={`w-4 h-4 ${metric.color}`} />
-                <div className="flex-1">
-                  <p className="text-[10px] text-muted-foreground">{metric.label}</p>
-                  <p className="text-sm font-medium">{metric.value}%</p>
-                </div>
-              </div>
-            );
-          })}
+          <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/30">
+            <Sun className="w-4 h-4 text-orange-500" />
+            <div className="flex-1">
+              <p className="text-[10px] text-muted-foreground">Temperature</p>
+              <p className="text-sm font-medium">Good</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/30">
+            <Droplets className="w-4 h-4 text-blue-500" />
+            <div className="flex-1">
+              <p className="text-[10px] text-muted-foreground">Rainfall</p>
+              <p className="text-sm font-medium">Adequate</p>
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -384,22 +271,89 @@ function RecommendationsPanel({ recommendations }: { recommendations: string[] }
 }
 
 // ============================================================
+// Empty State
+// ============================================================
+
+function EmptyState() {
+  return (
+    <Card className="border-border/50">
+      <CardContent className="p-12 text-center">
+        <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-muted mx-auto mb-4">
+          <Inbox className="w-8 h-8 text-muted-foreground" />
+        </div>
+        <h3 className="text-lg font-semibold mb-2">No Predictions Yet</h3>
+        <p className="text-sm text-muted-foreground max-w-md mx-auto">
+          Add crops to your farms and AI will automatically generate yield predictions based on your data, soil conditions, and weather patterns.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================
 // Main Yield Prediction Page
 // ============================================================
 
 export default function YieldPrediction() {
-  const [predictions] = useState(mockPredictions);
-  const [selectedId, setSelectedId] = useState<string | null>(predictions[0]?.id || null);
+  // Real Convex data
+  const predictionsData = useQuery(api.yieldPredictions.listUserPredictions);
+  const farms = useQuery(api.farms.listUserFarms);
+  const crops = useQuery(api.crops.listUserCrops);
+
+  const isLoading = predictionsData === undefined;
+
+  // Map Convex predictions to local format with enriched crop/farm data
+  const predictions: YieldPredictionItem[] = useMemo(() => {
+    if (!predictionsData || !crops || !farms) return [];
+    return predictionsData.map((p) => {
+      const crop = crops.find((c) => c._id === p.cropId);
+      const farm = farms.find((f) => f._id === p.farmId);
+      const targetYield = crop?.expectedYield || p.predictedYield * 1.1;
+      const status = getStatus(p.predictedYield, targetYield);
+      return {
+        id: p._id,
+        cropName: crop?.name || "Unknown Crop",
+        variety: crop?.variety || "",
+        farm: farm?.name || "Unknown Farm",
+        plantingDate: new Date(crop?.plantingDate || 0).toISOString().split("T")[0],
+        expectedHarvest: crop?.expectedHarvestDate
+          ? new Date(crop.expectedHarvestDate).toISOString().split("T")[0]
+          : "",
+        predictedYield: p.predictedYield,
+        targetYield,
+        unit: p.unit,
+        confidence: p.confidence,
+        factors: p.factors.map((f) => ({
+          name: f.name,
+          impact: Math.round((f.impact + 100) / 2), // Convert -100..100 to 0..100
+          description: f.description,
+        })),
+        weatherImpact: p.weatherImpact || 70,
+        recommendations: p.factors
+          .filter((f) => f.impact < 50)
+          .map((f) => `Improve ${f.name.toLowerCase()}: ${f.description}`),
+        status,
+      };
+    });
+  }, [predictionsData, crops, farms]);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const selectedPrediction = useMemo(
     () => predictions.find((p) => p.id === selectedId) || predictions[0],
     [predictions, selectedId]
   );
 
+  // Summary stats
+  const totalPredicted = predictions.reduce((sum, p) => sum + p.predictedYield, 0);
+  const totalTarget = predictions.reduce((sum, p) => sum + p.targetYield, 0);
+  const avgConfidence = predictions.length > 0
+    ? Math.round(predictions.reduce((sum, p) => sum + p.confidence, 0) / predictions.length)
+    : 0;
+
   return (
     <AppLayout>
       <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
-        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -413,16 +367,6 @@ export default function YieldPrediction() {
                 AI-powered crop yield forecasting based on historical data and weather patterns
               </p>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline">
-                <Download className="w-4 h-4 mr-2" />
-                Export Report
-              </Button>
-              <Button className="gradient-primary">
-                <Target className="w-4 h-4 mr-2" />
-                New Prediction
-              </Button>
-            </div>
           </div>
         </motion.div>
 
@@ -433,84 +377,113 @@ export default function YieldPrediction() {
           className="space-y-6"
         >
           {/* Summary Stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card className="border-border/50">
-              <CardContent className="p-5 flex items-center gap-4">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-green-500">
-                  <TrendingUp className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Total Predicted</p>
-                  <p className="text-2xl font-bold">11,500 kg</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="border-border/50">
-              <CardContent className="p-5 flex items-center gap-4">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-blue-500">
-                  <Target className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Target Yield</p>
-                  <p className="text-2xl font-bold">11,700 kg</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="border-border/50">
-              <CardContent className="p-5 flex items-center gap-4">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-primary">
-                  <Zap className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Avg Confidence</p>
-                  <p className="text-2xl font-bold">86%</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="border-border/50">
-              <CardContent className="p-5 flex items-center gap-4">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-amber-500">
-                  <Calendar className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Days to Harvest</p>
-                  <p className="text-2xl font-bold">42</p>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          {isLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Card key={i} className="border-border/50">
+                  <CardContent className="p-5">
+                    <Skeleton className="h-12 w-full" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card className="border-border/50">
+                <CardContent className="p-5 flex items-center gap-4">
+                  <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-green-500">
+                    <TrendingUp className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Total Predicted</p>
+                    <p className="text-2xl font-bold">{totalPredicted.toLocaleString()} kg</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-5 flex items-center gap-4">
+                  <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-blue-500">
+                    <Target className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Target Yield</p>
+                    <p className="text-2xl font-bold">{totalTarget.toLocaleString()} kg</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-5 flex items-center gap-4">
+                  <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-primary">
+                    <Zap className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Avg Confidence</p>
+                    <p className="text-2xl font-bold">{avgConfidence}%</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="border-border/50">
+                <CardContent className="p-5 flex items-center gap-4">
+                  <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-amber-500">
+                    <Calendar className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Active Crops</p>
+                    <p className="text-2xl font-bold">{predictions.length}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
-          {/* Main Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left: Crop Predictions */}
-            <div className="lg:col-span-2 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Crop Predictions</h2>
-                <Badge variant="secondary">{predictions.length} Active</Badge>
+          {/* Main Content */}
+          {isLoading ? (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 space-y-4">
+                <Skeleton className="h-8 w-48" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="h-64 w-full" />
+                  ))}
+                </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {predictions.map((prediction) => (
-                  <YieldPredictionCard
-                    key={prediction.id}
-                    prediction={prediction}
-                    isSelected={selectedId === prediction.id}
-                    onSelect={() => setSelectedId(prediction.id)}
-                  />
-                ))}
+              <div className="space-y-6">
+                <Skeleton className="h-64 w-full" />
+                <Skeleton className="h-48 w-full" />
               </div>
             </div>
+          ) : predictions.length === 0 ? (
+            <EmptyState />
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Crop Predictions</h2>
+                  <Badge variant="secondary">{predictions.length} Active</Badge>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {predictions.map((prediction) => (
+                    <YieldPredictionCard
+                      key={prediction.id}
+                      prediction={prediction}
+                      isSelected={selectedId === prediction.id || (!selectedId && prediction.id === predictions[0]?.id)}
+                      onSelect={() => setSelectedId(prediction.id)}
+                    />
+                  ))}
+                </div>
+              </div>
 
-            {/* Right: Analysis Panels */}
-            <div className="space-y-6">
-              {selectedPrediction && (
-                <>
-                  <WeatherImpactPanel impact={selectedPrediction.weatherImpact} />
-                  <FactorAnalysis factors={selectedPrediction.factors} />
-                  <RecommendationsPanel recommendations={selectedPrediction.recommendations} />
-                </>
-              )}
+              <div className="space-y-6">
+                {selectedPrediction && (
+                  <>
+                    <WeatherImpactPanel impact={selectedPrediction.weatherImpact} />
+                    <FactorAnalysis factors={selectedPrediction.factors} />
+                    <RecommendationsPanel recommendations={selectedPrediction.recommendations} />
+                  </>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </motion.div>
       </div>
     </AppLayout>
