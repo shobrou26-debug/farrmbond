@@ -217,6 +217,126 @@ const getDaysUntilDate = (timestamp?: number) => {
 };
 
 // ============================================================
+// ============================================================
+// Quick Add Health Record Modal
+// ============================================================
+function AddHealthRecordModal({
+  animal,
+  isOpen,
+  onClose,
+  onSubmit,
+}: {
+  animal: LivestockDoc | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (livestockId: string, data: { description: string; treatment: string; cost?: number }) => Promise<void>;
+}) {
+  const [description, setDescription] = useState("");
+  const [treatment, setTreatment] = useState("");
+  const [cost, setCost] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!animal || !description.trim() || !treatment.trim()) return;
+    setIsSubmitting(true);
+    try {
+      await onSubmit(animal._id, {
+        description: description.trim(),
+        treatment: treatment.trim(),
+        cost: cost ? parseFloat(cost) : undefined,
+      });
+      setDescription("");
+      setTreatment("");
+      setCost("");
+      onClose();
+    } catch (error) {
+      console.error("Failed to add health record:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (!isOpen || !animal) return null;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileText className="w-5 h-5 text-emerald-600" />
+            Add Health Record — {animal.name}
+          </DialogTitle>
+          <DialogDescription>
+            Record a new health event, treatment, or checkup for this animal.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <Label htmlFor="hr-desc">Description *</Label>
+            <Input
+              id="hr-desc"
+              placeholder="e.g. Routine checkup, Lameness, Deworming"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              required
+              maxLength={200}
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label htmlFor="hr-treatment">Treatment *</Label>
+            <Textarea
+              id="hr-treatment"
+              placeholder="Describe the treatment given, medications, dosage..."
+              value={treatment}
+              onChange={(e) => setTreatment(e.target.value)}
+              required
+              maxLength={500}
+              rows={3}
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label htmlFor="hr-cost">Cost (optional)</Label>
+            <Input
+              id="hr-cost"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0.00"
+              value={cost}
+              onChange={(e) => setCost(e.target.value)}
+              className="mt-1"
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={isSubmitting || !description.trim() || !treatment.trim()}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <FileText className="w-4 h-4 mr-2" />
+                  Add Record
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
 // Enhanced Add Livestock Modal (Multi-Step)
 // ============================================================
 function AddLivestockModal({
@@ -844,6 +964,7 @@ export default function Livestock() {
   const [showAlerts, setShowAlerts] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
 
+  const [animalForHealthRecord, setAnimalForHealthRecord] = useState<LivestockDoc | null>(null);
   // Convex data
   const { results: livestock, isLoading, sentinelRef, canLoadMore, loadMore } =
     usePaginatedQuery(api.livestock.listUserLivestock);
@@ -851,6 +972,7 @@ export default function Livestock() {
   const createLivestock = useMutation(api.livestock.createLivestock);
   const deleteLivestock = useMutation(api.livestock.deleteLivestock);
   const updateLivestock = useMutation(api.livestock.updateLivestock);
+  const addHealthRecord = useMutation(api.livestock.addHealthRecord);
 
   // Map farmId to farm name
   const farmMap = useMemo(() => {
@@ -932,6 +1054,13 @@ export default function Livestock() {
       await updateLivestock({ livestockId: livestockId as any, status });
     } catch (error) {
       console.error("Failed to update status:", error);
+  const handleAddHealthRecord = async (livestockId: string, data: { description: string; treatment: string; cost?: number }) => {
+    try {
+      await addHealthRecord({ livestockId: livestockId as any, ...data });
+    } catch (error) {
+      console.error("Failed to add health record:", error);
+    }
+  };
     }
   };
 
@@ -1208,6 +1337,10 @@ export default function Livestock() {
                                   <DropdownMenuItem onClick={() => handleUpdateStatus(animal._id, "sick")}>
                                     <Stethoscope className="w-4 h-4 mr-2" />
                                     Mark Sick
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => setAnimalForHealthRecord(animal)}>
+                                    <FileText className="w-4 h-4 mr-2" />
+                                    Add Health Record
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
                                     className="text-destructive"
