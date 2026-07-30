@@ -51,6 +51,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { VaccinationScheduleTab } from "@/components/VaccinationSchedule";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
   DialogContent,
@@ -972,7 +973,7 @@ export default function Livestock() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [selectedAnimal, setSelectedAnimal] = useState<LivestockDoc | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "health" | "vaccinations" | "alerts">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "health" | "vaccinations" | "coverage" | "alerts">("overview");
   const [showAlerts, setShowAlerts] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -986,6 +987,7 @@ export default function Livestock() {
   const updateLivestock = useMutation(api.livestock.updateLivestock);
   const addHealthRecord = useMutation(api.livestock.addHealthRecord);
   const scheduleVaccination = useMutation(api.livestock.scheduleVaccination);
+  const vaccineCoverage = useQuery(api.livestock.getVaccineCoverage);
   const completeVaccination = useMutation(api.livestock.completeVaccination);
 
   // Map farmId to farm name
@@ -1239,6 +1241,7 @@ export default function Livestock() {
                   { id: "overview" as const, label: "Overview", icon: Beef },
                   { id: "health" as const, label: "Health Records", icon: Heart },
                   { id: "vaccinations" as const, label: "Vaccinations", icon: Syringe },
+                  { id: "coverage" as const, label: "Coverage", icon: TrendingUp },
                   { id: "alerts" as const, label: "Disease Alerts", icon: AlertTriangle },
                 ].map((tab) => (
                   <button
@@ -1549,6 +1552,114 @@ export default function Livestock() {
             )}
 
             {/* Disease Alerts Tab */}
+
+            {/* Vaccine Coverage Rates Tab */}
+            {activeTab === "coverage" && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="space-y-6"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-lg font-semibold">Vaccine Coverage Rates</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Coverage calculated from the last 90 days of vaccination records
+                  </p>
+                </div>
+
+                {!vaccineCoverage ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : vaccineCoverage.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Shield className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
+                    <h3 className="text-lg font-medium">No livestock found</h3>
+                    <p className="text-muted-foreground mt-1">
+                      Add livestock and record vaccinations to see coverage rates
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-8">
+                    {vaccineCoverage.map((typeData: any) => (
+                      <Card key={typeData.animalType} className="border-border/50">
+                        <CardHeader className="pb-4">
+                          <CardTitle className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10">
+                                <Beef className="w-5 h-5 text-primary" />
+                              </div>
+                              <div>
+                                <h3 className="text-lg font-bold">{typeData.animalType}</h3>
+                                <p className="text-sm text-muted-foreground">
+                                  {typeData.totalAnimals} animals in herd
+                                </p>
+                              </div>
+                            </div>
+                            {/* Overall coverage badge */}
+                            {(() => {
+                              const avgPct = typeData.coverage.length > 0
+                                ? Math.round(typeData.coverage.reduce((sum: number, c: any) => sum + c.percentage, 0) / typeData.coverage.length)
+                                : 0;
+                              const color = avgPct >= 80 ? "bg-green-100 text-green-700" : avgPct >= 50 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700";
+                              return (
+                                <Badge className={`${color} text-sm px-3 py-1`}>
+                                  {avgPct}% avg coverage
+                                </Badge>
+                              );
+                            })()}
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-4">
+                            {typeData.coverage.map((vax: any) => {
+                              const pctColor = vax.percentage >= 80
+                                ? "text-green-600"
+                                : vax.percentage >= 50
+                                ? "text-amber-600"
+                                : "text-red-600";
+                              const barBg = vax.percentage >= 80
+                                ? "bg-gradient-to-r from-green-500 to-emerald-500"
+                                : vax.percentage >= 50
+                                ? "bg-gradient-to-r from-amber-500 to-orange-500"
+                                : "bg-gradient-to-r from-red-500 to-rose-500";
+                              const dotColor = vax.percentage >= 80
+                                ? "bg-green-500"
+                                : vax.percentage >= 50
+                                ? "bg-amber-500"
+                                : "bg-red-500";
+
+                              return (
+                                <div key={vax.name} className="space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <div className={`w-2 h-2 rounded-full ${dotColor}`} />
+                                      <span className="text-sm font-medium">{vax.name}</span>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                      <span className="text-xs text-muted-foreground">
+                                        {vax.vaccinated}/{vax.total} animals
+                                      </span>
+                                      <span className={`text-sm font-bold ${pctColor} min-w-[3rem] text-right`}>
+                                        {vax.percentage}%
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <Progress
+                                    value={vax.percentage}
+                                    className="h-2.5"
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </motion.div>
+            )}
             {activeTab === "alerts" && (
               <motion.div
                 initial={{ opacity: 0 }}
