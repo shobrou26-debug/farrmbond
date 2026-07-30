@@ -316,6 +316,7 @@ const schema = defineSchema(
         description: v.string(),
         treatment: v.string(),
         cost: v.optional(v.number()),
+        vaccineType: v.optional(v.string()), // e.g. "FMD", "Anthrax", "Brucellosis"
       }))),
       
       // Images

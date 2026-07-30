@@ -75,6 +75,12 @@ interface VaccinationScheduleTabProps {
   completeVaccination: (args: any) => Promise<any>;
 }
 
+const VACCINE_TYPES = [
+  "FMD", "Anthrax", "Brucellosis", "Rift Valley Fever",
+  "Newcastle Disease", "Gumboro", "Rabies", "Blackleg",
+  "PPR", "CBPP", "Pasteurellosis", "Trypanosomiasis",
+];
+
 const PIE_COLORS = [
   "#16a34a", "#2563eb", "#d97706", "#dc2626", "#7c3aed",
   "#0891b2", "#c026d3", "#65a30d", "#e11d48", "#0d9488",
@@ -91,6 +97,7 @@ export function VaccinationScheduleTab({
   const [scheduleDate, setScheduleDate] = useState("");
   const [completeNotes, setCompleteNotes] = useState("");
   const [completeCost, setCompleteCost] = useState("");
+  const [completeVaccineType, setCompleteVaccineType] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // History filters
@@ -108,6 +115,7 @@ export function VaccinationScheduleTab({
   });
 
   const costAnalytics = useQuery(api.livestock.getVaccinationCostAnalytics);
+  const vaccineCoverage = useQuery(api.livestock.getVaccineCoverage);
 
   const now = Date.now();
   const upcomingVaccinations = livestock
@@ -149,11 +157,13 @@ export function VaccinationScheduleTab({
         livestockId: animalToComplete._id,
         notes: completeNotes || undefined,
         cost: completeCost ? parseFloat(completeCost) : undefined,
+        vaccineType: completeVaccineType || undefined,
       });
       toast.success(`Vaccination completed for ${animalToComplete.name}`);
       setAnimalToComplete(null);
       setCompleteNotes("");
       setCompleteCost("");
+      setCompleteVaccineType("");
     } catch (error) {
       console.error("Failed to complete vaccination:", error);
       toast.error("Failed to complete vaccination");
@@ -874,6 +884,21 @@ export function VaccinationScheduleTab({
               />
             </div>
             <div>
+              <Label htmlFor="complete-vaccine-type">Vaccine Type *</Label>
+              <Select value={completeVaccineType} onValueChange={setCompleteVaccineType}>
+                <SelectTrigger id="complete-vaccine-type" className="mt-1">
+                  <SelectValue placeholder="Select vaccine type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {VACCINE_TYPES.map((vax) => (
+                    <SelectItem key={vax} value={vax}>
+                      {vax}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
               <Label htmlFor="complete-cost">Cost (optional)</Label>
               <Input
                 id="complete-cost"
@@ -893,7 +918,7 @@ export function VaccinationScheduleTab({
             </Button>
             <Button
               onClick={handleComplete}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !completeVaccineType}
               className="bg-emerald-600 hover:bg-emerald-700"
             >
               {isSubmitting ? (

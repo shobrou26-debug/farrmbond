@@ -162,6 +162,7 @@ export const addHealthRecord = mutation({
     description: v.string(),
     treatment: v.string(),
     cost: v.optional(v.number()),
+    vaccineType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { userId } = await requireAuth(ctx);
@@ -184,6 +185,7 @@ export const addHealthRecord = mutation({
           description,
           treatment,
           cost: args.cost,
+          vaccineType: args.vaccineType,
         },
       ],
       lastCheckup: now,
@@ -418,6 +420,7 @@ export const completeVaccination = mutation({
     livestockId: v.id("livestock"),
     notes: v.optional(v.string()),
     cost: v.optional(v.number()),
+    vaccineType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { userId } = await requireAuth(ctx);
@@ -434,6 +437,7 @@ export const completeVaccination = mutation({
       description: args.notes || `Vaccination completed`,
       treatment: "Vaccination",
       cost: args.cost,
+      vaccineType: args.vaccineType,
     };
 
     // Default next vaccination in 90 days
@@ -544,6 +548,7 @@ export const getVaccinationHistory = query({
       description: string;
       treatment: string;
       cost?: number;
+      vaccineType?: string;
     }> = [];
 
     for (const animal of livestock) {
@@ -572,6 +577,7 @@ export const getVaccinationHistory = query({
           description: record.description,
           treatment: record.treatment,
           cost: record.cost,
+          vaccineType: record.vaccineType,
         });
       }
 
@@ -594,6 +600,7 @@ export const getVaccinationHistory = query({
             date: animal.lastVaccination,
             description: "Vaccination completed",
             treatment: "Vaccination",
+            vaccineType: undefined,
           });
         }
       }
@@ -695,5 +702,89 @@ export const getVaccinationCostAnalytics = query({
       byFarm,
       monthlySpending,
     };
+  },
+});
+
+// ============================================================
+// Vaccine Coverage Rates
+// ============================================================
+
+/** Get vaccine coverage rates per herd/animal type */
+export const getVaccineCoverage = query({
+  args: {},
+  handler: async (ctx) => {
+    const { userId } = await requireAuth(ctx);
+
+    const livestock = await ctx.db
+      .query("livestock")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    const now = Date.now();
+    const ninetyDaysAgo = now - 90 * 24 * 60 * 60 * 1000;
+
+    // Common vaccine types to track
+    const vaccineTypes = [
+      "FMD", "Anthrax", "Brucellosis", "Rift Valley Fever",
+      "Newcastle Disease", "Gumboro", "Rabies", "Blackleg",
+      "PPR", "CBPP", "Pasteurellosis", "Trypanosomiasis",
+    ];
+
+    // Group animals by type
+    const animalsByType: Record<string, typeof livestock> = {};
+    for (const animal of livestock) {
+      if (animal.status === "quarantine") continue;
+      if (!animalsByType[animal.type]) animalsByType[animal.type] = [];
+      animalsByType[animal.type].push(animal);
+    }
+
+    // Calculate coverage for each animal type
+    const coverage = Object.entries(animalsByType).map(([type, animals]) => {
+      const totalAnimals = animals.reduce((sum, a) => sum + a.quantity, 0);
+
+      // Track which vaccine types have been given recently
+      const vaccineCoverage: Record<string, { vaccinated: number; total: number; lastDate?: number }> = {};
+      for (const vax of vaccineTypes) {
+        vaccineCoverage[vax] = { vaccinated: 0, total: totalAnimals };
+      }
+
+      for (const animal of animals) {
+        const history = animal.medicalHistory || [];
+        for (const record of history) {
+          if (record.date < ninetyDaysAgo) continue;
+          const isVaccine = record.vaccineType && vaccineTypes.includes(record.vaccineType);
+          if (isVaccine && record.vaccineType) {
+            const entry = vaccineCoverage[record.vaccineType];
+            if (entry) {
+              entry.vaccinated += animal.quantity;
+              if (!entry.lastDate || record.date > entry.lastDate) {
+                entry.lastDate = record.date;
+              }
+            }
+          }
+        }
+      }
+
+      // Calculate percentages
+      const coverageData = Object.entries(vaccineCoverage)
+        .map(([name, data]) => ({
+          name,
+          vaccinated: Math.min(data.vaccinated, totalAnimals),
+          total: totalAnimals,
+          percentage: totalAnimals > 0
+            ? Math.min(100, Math.round((data.vaccinated / totalAnimals) * 100))
+            : 0,
+          lastDate: data.lastDate,
+        }))
+        .sort((a, b) => b.percentage - a.percentage);
+
+      return {
+        animalType: type,
+        totalAnimals,
+        coverage: coverageData,
+      };
+    });
+
+    return coverage;
   },
 });
