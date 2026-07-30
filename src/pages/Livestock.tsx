@@ -52,6 +52,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { VaccinationScheduleTab } from "@/components/VaccinationSchedule";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import {
   Dialog,
   DialogContent,
@@ -991,6 +992,7 @@ export default function Livestock() {
   const scheduleVaccination = useMutation(api.livestock.scheduleVaccination);
   const vaccineCoverage = useQuery(api.livestock.getVaccineCoverage, { farmId: coverageFarmFilter === "all" ? undefined : coverageFarmFilter, daysBack: coverageTimeRange });
   const coverageAlerts = useQuery(api.livestock.getCoverageAlerts, { farmId: coverageFarmFilter === "all" ? undefined : coverageFarmFilter });
+  const coverageTrends = useQuery(api.livestock.getCoverageTrends, { farmId: coverageFarmFilter === "all" ? undefined : coverageFarmFilter });
   const completeVaccination = useMutation(api.livestock.completeVaccination);
 
   // Map farmId to farm name
@@ -1684,6 +1686,34 @@ export default function Livestock() {
                       </Card>
                     ))}
                   </motion.div>
+                    )}
+
+                    {/* Coverage Trends Chart */}
+                    {coverageTrends && coverageTrends.months.length > 0 && coverageTrends.vaccineNames.length > 0 && (
+                      <Card className="border-border/50">
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <TrendingUp className="w-5 h-5 text-primary" />
+                            Coverage Trends (Last 12 Months)
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="h-[350px] w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={coverageTrends.months} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                                <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                                <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} tickFormatter={(v) => `${v}%`} />
+                                <Tooltip formatter={(value: number) => [`${value}%`, '']} contentStyle={{ borderRadius: '8px', border: '1px solid hsl(var(--border))', background: 'hsl(var(--background))' }} />
+                                <Legend wrapperStyle={{ fontSize: '12px' }} />
+                                {coverageTrends.vaccineNames.map((vax: string, idx: number) => (
+                                  <Line key={vax} type="monotone" dataKey={vax} stroke={["#16a34a", "#2563eb", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#be185d", "#65a30d", "#c2410c", "#4f46e5", "#0d9488", "#9333ea"][idx % 12]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                                ))}
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </CardContent>
+                      </Card>
                     )}
 
                     <div className="space-y-8">

@@ -1060,3 +1060,87 @@ export const sendLowCoverageAlerts = mutation({
     return { sent, skipped, total: users.length };
   },
 });
+
+// ============================================================
+// Coverage Trends (Monthly historical data)
+// ============================================================
+
+/** Get monthly vaccine coverage trends for the last 12 months */
+export const getCoverageTrends = query({
+  args: {
+    farmId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+
+    const livestock = await ctx.db
+      .query("livestock")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    const filteredLivestock = args.farmId
+      ? livestock.filter((l) => l.farmId === args.farmId)
+      : livestock;
+
+    if (filteredLivestock.length === 0) return { months: [], vaccineNames: [] };
+
+    const now = Date.now();
+    const vaccineTypes = [
+      "FMD", "Anthrax", "Brucellosis", "Rift Valley Fever",
+      "Newcastle Disease", "Gumboro", "Rabies", "Blackleg",
+      "PPR", "CBPP", "Pasteurellosis", "Trypanosomiasis",
+    ];
+
+    // Group by animal type
+    const animalsByType: Record<string, typeof filteredLivestock> = {};
+    for (const animal of filteredLivestock) {
+      if (animal.status === "quarantine") continue;
+      if (!animalsByType[animal.type]) animalsByType[animal.type] = [];
+      animalsByType[animal.type].push(animal);
+    }
+
+    // Build monthly buckets for the last 12 months
+    const months: Array<Record<string, string | number>> = [];
+    for (let i = 11; i >= 0; i--) {
+      const monthStart = new Date(now);
+      monthStart.setMonth(monthStart.getMonth() - i, 1);
+      monthStart.setHours(0, 0, 0, 0);
+      const monthEnd = new Date(monthStart);
+      monthEnd.setMonth(monthEnd.getMonth() + 1);
+      monthEnd.setHours(0, 0, 0, 0);
+
+      const label = monthStart.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+      const bucket: Record<string, string | number> = { month: label };
+
+      // For each vaccine type, calculate coverage up to the end of this month
+      const cutoff = monthEnd.getTime();
+      for (const vax of vaccineTypes) {
+        let totalAnimals = 0;
+        let vaccinated = 0;
+        for (const [, animals] of Object.entries(animalsByType)) {
+          const total = animals.reduce((sum, a) => sum + a.quantity, 0);
+          totalAnimals += total;
+          for (const animal of animals) {
+            for (const record of (animal.medicalHistory || [])) {
+              if (record.date > cutoff) continue;
+              if (record.date < cutoff - 365 * 24 * 60 * 60 * 1000) continue;
+              if (record.vaccineType === vax) {
+                vaccinated += animal.quantity;
+              }
+            }
+          }
+        }
+        const pct = totalAnimals > 0 ? Math.min(100, Math.round((vaccinated / totalAnimals) * 100)) : 0;
+        bucket[vax] = pct;
+      }
+      months.push(bucket);
+    }
+
+    // Find which vaccine types actually have data
+    const vaccineNames = vaccineTypes.filter((vax) =>
+      months.some((m) => (m[vax] as number) > 0)
+    );
+
+    return { months, vaccineNames };
+  },
+});
