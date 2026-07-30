@@ -972,6 +972,7 @@ export default function Livestock() {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
+  const [coverageFarmFilter, setCoverageFarmFilter] = useState<string>("all");
   const [selectedAnimal, setSelectedAnimal] = useState<LivestockDoc | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "health" | "vaccinations" | "coverage" | "alerts">("overview");
   const [showAlerts, setShowAlerts] = useState(false);
@@ -987,7 +988,7 @@ export default function Livestock() {
   const updateLivestock = useMutation(api.livestock.updateLivestock);
   const addHealthRecord = useMutation(api.livestock.addHealthRecord);
   const scheduleVaccination = useMutation(api.livestock.scheduleVaccination);
-  const vaccineCoverage = useQuery(api.livestock.getVaccineCoverage);
+  const vaccineCoverage = useQuery(api.livestock.getVaccineCoverage, { farmId: coverageFarmFilter === "all" ? undefined : coverageFarmFilter });
   const completeVaccination = useMutation(api.livestock.completeVaccination);
 
   // Map farmId to farm name
@@ -1560,11 +1561,28 @@ export default function Livestock() {
                 animate={{ opacity: 1 }}
                 className="space-y-6"
               >
-                <div className="flex items-center justify-between mb-2">
-                  <h2 className="text-lg font-semibold">Vaccine Coverage Rates</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Coverage calculated from the last 90 days of vaccination records
-                  </p>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
+                  <div>
+                    <h2 className="text-lg font-semibold">Vaccine Coverage Rates</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Coverage calculated from the last 90 days of vaccination records
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-muted-foreground">Farm:</label>
+                    <select
+                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm min-w-[180px]"
+                      value={coverageFarmFilter}
+                      onChange={(e) => setCoverageFarmFilter(e.target.value)}
+                    >
+                      <option value="all">All Farms</option>
+                      {farms?.page?.map((farm: any) => (
+                        <option key={farm._id} value={farm._id}>
+                          {farm.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 {!vaccineCoverage ? (

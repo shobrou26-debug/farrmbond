@@ -320,7 +320,7 @@ export const getUpcomingVaccinations = query({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
 
-    // Get farm names
+    // Filter by farm if specified
     const farmIds = [...new Set(livestock.map((l) => l.farmId))];
     const farms = await Promise.all(farmIds.map((id) => ctx.db.get(id)));
     const farmMap = new Map(farms.filter(Boolean).map((f) => [f!._id, f!.name]));
@@ -757,14 +757,21 @@ export const getVaccinationCostAnalytics = query({
 
 /** Get vaccine coverage rates per herd/animal type */
 export const getVaccineCoverage = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    farmId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
     const { userId } = await requireAuth(ctx);
 
     const livestock = await ctx.db
       .query("livestock")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
+
+    // Filter by farm if specified
+    const filteredLivestock = args.farmId
+      ? livestock.filter((l) => l.farmId === args.farmId)
+      : livestock;
 
     const now = Date.now();
     const ninetyDaysAgo = now - 90 * 24 * 60 * 60 * 1000;
@@ -777,8 +784,8 @@ export const getVaccineCoverage = query({
     ];
 
     // Group animals by type
-    const animalsByType: Record<string, typeof livestock> = {};
-    for (const animal of livestock) {
+    const animalsByType: Record<string, typeof filteredLivestock> = {};
+    for (const animal of filteredLivestock) {
       if (animal.status === "quarantine") continue;
       if (!animalsByType[animal.type]) animalsByType[animal.type] = [];
       animalsByType[animal.type].push(animal);

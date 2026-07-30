@@ -115,7 +115,7 @@ export function VaccinationScheduleTab({
   });
 
   const costAnalytics = useQuery(api.livestock.getVaccinationCostAnalytics);
-  const vaccineCoverage = useQuery(api.livestock.getVaccineCoverage);
+  const vaccineCoverage = useQuery(api.livestock.getVaccineCoverage, {});
 
   const now = Date.now();
   const upcomingVaccinations = livestock
