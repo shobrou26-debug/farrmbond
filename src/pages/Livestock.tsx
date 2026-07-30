@@ -990,6 +990,7 @@ export default function Livestock() {
   const addHealthRecord = useMutation(api.livestock.addHealthRecord);
   const scheduleVaccination = useMutation(api.livestock.scheduleVaccination);
   const vaccineCoverage = useQuery(api.livestock.getVaccineCoverage, { farmId: coverageFarmFilter === "all" ? undefined : coverageFarmFilter, daysBack: coverageTimeRange });
+  const coverageAlerts = useQuery(api.livestock.getCoverageAlerts, { farmId: coverageFarmFilter === "all" ? undefined : coverageFarmFilter });
   const completeVaccination = useMutation(api.livestock.completeVaccination);
 
   // Map farmId to farm name
@@ -1509,7 +1510,8 @@ export default function Livestock() {
                     <p className="text-muted-foreground mt-1">Health records will appear here once you add medical history to your livestock</p>
                   </div>
                 ) : (
-                  livestock
+                  <>
+                  {livestock
                     .filter((a: LivestockDoc) => a.medicalHistory && a.medicalHistory.length > 0)
                     .flatMap((animal: LivestockDoc) =>
                       (animal.medicalHistory || []).map((record, idx) => (
@@ -1538,7 +1540,8 @@ export default function Livestock() {
                           </CardContent>
                         </Card>
                       ))
-                    )
+                    )}
+                  </>
                 )}
               </motion.div>
             )}
@@ -1614,7 +1617,76 @@ export default function Livestock() {
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-8">
+                  <>
+                    {/* Low Coverage Alerts */}
+                    {coverageAlerts && coverageAlerts.alerts.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="space-y-3"
+                  >
+                    {/* Alert Summary */}
+                    <div className="flex items-center gap-2 p-4 rounded-xl bg-amber-500/5 border border-amber-500/20">
+                      <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+                      <div className="flex-1">
+                        <h4 className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                          {coverageAlerts.summary.total} vaccine{coverageAlerts.summary.total !== 1 ? 's' : ''} below 50% coverage
+                        </h4>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {coverageAlerts.summary.critical > 0 && <span className="text-red-600 font-medium">{coverageAlerts.summary.critical} critical</span>}
+                          {coverageAlerts.summary.critical > 0 && coverageAlerts.summary.high > 0 && ', '}
+                          {coverageAlerts.summary.high > 0 && <span className="text-orange-600 font-medium">{coverageAlerts.summary.high} high priority</span>}
+                          {coverageAlerts.summary.critical > 0 && coverageAlerts.summary.high === 0 && coverageAlerts.summary.medium > 0 && ', '}
+                          {coverageAlerts.summary.high === 0 && coverageAlerts.summary.medium > 0 && <span className="text-amber-600 font-medium">{coverageAlerts.summary.medium} medium priority</span>}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Individual Alert Cards */}
+                    {coverageAlerts.alerts.map((alert: any, idx: number) => (
+                      <Card key={`${alert.vaccineName}-${alert.animalType}-${idx}`} className={`border ${
+                        alert.severity === 'critical'
+                          ? 'border-red-500/30 bg-red-500/5'
+                          : 'border-amber-500/30 bg-amber-500/5'
+                      }`}>
+                        <CardContent className="p-4">
+                          <div className="flex items-start gap-3">
+                            <div className={`flex items-center justify-center w-10 h-10 rounded-xl shrink-0 ${
+                              alert.severity === 'critical'
+                                ? 'bg-red-100 text-red-600'
+                                : 'bg-amber-100 text-amber-600'
+                            }`}>
+                              <Shield className="w-5 h-5" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h5 className="font-semibold text-sm">{alert.vaccineName}</h5>
+                                <Badge variant="secondary" className="text-xs">
+                                  {alert.animalType}
+                                </Badge>
+                                <Badge className={`text-xs ${
+                                  alert.severity === 'critical'
+                                    ? 'bg-red-100 text-red-700 border-red-200'
+                                    : 'bg-amber-100 text-amber-700 border-amber-200'
+                                }`}>
+                                  {alert.percentage}% coverage
+                                </Badge>
+                              </div>
+                              <div className="text-xs text-muted-foreground mb-2">
+                                {alert.vaccinated}/{alert.total} animals vaccinated • Recommended: {alert.interval}
+                              </div>
+                              <div className="p-2.5 rounded-lg bg-background/80 text-xs leading-relaxed">
+                                <span className="font-medium">Recommendation:</span> {alert.recommendation}
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </motion.div>
+                    )}
+
+                    <div className="space-y-8">
                     {vaccineCoverage.map((typeData: any) => (
                       <Card key={typeData.animalType} className="border-border/50">
                         <CardHeader className="pb-4">
@@ -1690,7 +1762,8 @@ export default function Livestock() {
                         </CardContent>
                       </Card>
                     ))}
-                  </div>
+                    </div>
+                  </>
                 )}
               </motion.div>
             )}

@@ -843,3 +843,127 @@ export const getVaccineCoverage = query({
     return coverage;
   },
 });
+
+// ============================================================
+// Vaccine Coverage Alerts
+// ============================================================
+
+const COVERAGE_RECOMMENDATIONS: Record<string, { urgency: string; recommendation: string; interval: string }> = {
+  "FMD": { urgency: "critical", recommendation: "Schedule immediate FMD vaccination campaign. Quarantine new animals and report suspected cases to local veterinary authorities.", interval: "Every 6 months" },
+  "Anthrax": { urgency: "high", recommendation: "Prioritize Anthrax vaccination for all susceptible animals. Contact your county veterinarian for vaccine supply.", interval: "Annually" },
+  "Brucellosis": { urgency: "high", recommendation: "Vaccinate all female calves before first breeding. Test and cull positive animals to control spread.", interval: "Annually" },
+  "Rift Valley Fever": { urgency: "medium", recommendation: "Vaccinate before the rainy season when mosquito vectors are most active. Protect pregnant animals especially.", interval: "Annually" },
+  "Newcastle Disease": { urgency: "critical", recommendation: "Immediately vaccinate all poultry flocks. Isolate sick birds and disinfect coops.", interval: "Every 4 months" },
+  "Gumboro": { urgency: "high", recommendation: "Vaccinate chicks at the recommended age. Ensure cold chain storage for vaccines.", interval: "Every 3 months" },
+  "Rabies": { urgency: "critical", recommendation: "Vaccinate all dogs and at-risk livestock immediately. Report any suspected rabies cases.", interval: "Annually" },
+  "Blackleg": { urgency: "medium", recommendation: "Vaccinate young cattle before the wet season. Avoid grazing on damp, marshy pastures.", interval: "Annually" },
+  "PPR": { urgency: "high", recommendation: "Vaccinate all goats and sheep. Maintain flock isolation during outbreaks.", interval: "Annually" },
+  "CBPP": { urgency: "medium", recommendation: "Vaccinate cattle in endemic areas. Isolate infected animals and treat with antibiotics.", interval: "Annually" },
+  "Pasteurellosis": { urgency: "medium", recommendation: "Vaccinate before transport or periods of stress. Ensure adequate ventilation in housing.", interval: "Every 6 months" },
+  "Trypanosomiasis": { urgency: "medium", recommendation: "Implement tsetse fly control measures. Vaccinate in endemic areas and treat affected animals.", interval: "Every 6 months" },
+};
+
+/** Get proactive alerts for vaccines below 50% coverage */
+export const getCoverageAlerts = query({
+  args: {
+    farmId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+
+    const livestock = await ctx.db
+      .query("livestock")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    // Filter by farm if specified
+    const filteredLivestock = args.farmId
+      ? livestock.filter((l) => l.farmId === args.farmId)
+      : livestock;
+
+    if (filteredLivestock.length === 0) return { alerts: [], summary: { total: 0, critical: 0, high: 0, medium: 0 } };
+
+    const now = Date.now();
+    const cutoffDays = 90;
+    const cutoffDate = now - cutoffDays * 24 * 60 * 60 * 1000;
+
+    const vaccineTypes = [
+      "FMD", "Anthrax", "Brucellosis", "Rift Valley Fever",
+      "Newcastle Disease", "Gumboro", "Rabies", "Blackleg",
+      "PPR", "CBPP", "Pasteurellosis", "Trypanosomiasis",
+    ];
+
+    // Group animals by type
+    const animalsByType: Record<string, typeof filteredLivestock> = {};
+    for (const animal of filteredLivestock) {
+      if (animal.status === "quarantine") continue;
+      if (!animalsByType[animal.type]) animalsByType[animal.type] = [];
+      animalsByType[animal.type].push(animal);
+    }
+
+    const alerts: Array<{
+      vaccineName: string;
+      animalType: string;
+      percentage: number;
+      vaccinated: number;
+      total: number;
+      urgency: string;
+      recommendation: string;
+      interval: string;
+      severity: "critical" | "warning" | "info";
+    }> = [];
+
+    for (const [type, animals] of Object.entries(animalsByType)) {
+      const totalAnimals = animals.reduce((sum, a) => sum + a.quantity, 0);
+      const vaccineCoverage: Record<string, { vaccinated: number; total: number }> = {};
+      for (const vax of vaccineTypes) {
+        vaccineCoverage[vax] = { vaccinated: 0, total: totalAnimals };
+      }
+      for (const animal of animals) {
+        const history = animal.medicalHistory || [];
+        for (const record of history) {
+          if (record.date < cutoffDate) continue;
+          if (record.vaccineType && vaccineTypes.includes(record.vaccineType)) {
+            const entry = vaccineCoverage[record.vaccineType];
+            if (entry) entry.vaccinated += animal.quantity;
+          }
+        }
+      }
+
+      for (const [vaxName, data] of Object.entries(vaccineCoverage)) {
+        const pct = totalAnimals > 0
+          ? Math.min(100, Math.round((data.vaccinated / totalAnimals) * 100))
+          : 0;
+        if (pct < 50) {
+          const rec = COVERAGE_RECOMMENDATIONS[vaxName];
+          alerts.push({
+            vaccineName: vaxName,
+            animalType: type,
+            percentage: pct,
+            vaccinated: Math.min(data.vaccinated, totalAnimals),
+            total: totalAnimals,
+            urgency: rec?.urgency || "medium",
+            recommendation: rec?.recommendation || "Schedule vaccination as soon as possible.",
+            interval: rec?.interval || "As recommended by veterinarian",
+            severity: pct === 0 ? "critical" : pct < 25 ? "critical" : "warning",
+          });
+        }
+      }
+    }
+
+    // Sort by severity then percentage
+    alerts.sort((a, b) => {
+      const sevOrder = { critical: 0, warning: 1, info: 2 };
+      return (sevOrder[a.severity] - sevOrder[b.severity]) || (a.percentage - b.percentage);
+    });
+
+    const summary = {
+      total: alerts.length,
+      critical: alerts.filter((a) => a.severity === "critical").length,
+      high: alerts.filter((a) => a.urgency === "high").length,
+      medium: alerts.filter((a) => a.urgency === "medium").length,
+    };
+
+    return { alerts, summary };
+  },
+});
