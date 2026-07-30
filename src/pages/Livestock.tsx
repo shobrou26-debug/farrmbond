@@ -48,6 +48,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Loader2 } from "lucide-react";
 
 // ============================================================
 // Types
@@ -1054,13 +1065,14 @@ export default function Livestock() {
       await updateLivestock({ livestockId: livestockId as any, status });
     } catch (error) {
       console.error("Failed to update status:", error);
+    }
+  };
+
   const handleAddHealthRecord = async (livestockId: string, data: { description: string; treatment: string; cost?: number }) => {
     try {
       await addHealthRecord({ livestockId: livestockId as any, ...data });
     } catch (error) {
       console.error("Failed to add health record:", error);
-    }
-  };
     }
   };
 
@@ -1698,6 +1710,14 @@ export default function Livestock() {
             isCreating={false}
           />
         </AnimatePresence>
+
+        {/* Add Health Record Modal */}
+        <AddHealthRecordModal
+          animal={animalForHealthRecord}
+          isOpen={animalForHealthRecord !== null}
+          onClose={() => setAnimalForHealthRecord(null)}
+          onSubmit={handleAddHealthRecord}
+        />
       </div>
     </AppLayout>
   );
