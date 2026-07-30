@@ -189,6 +189,7 @@ export const sendVaccinationReminder = action({
     farmName: v.string(),
     daysUntilDue: v.number(),
     scheduledDate: v.number(),
+    vaccineType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     if (!BREVO_API_KEY) return { sent: false, reason: "API key not configured" };

@@ -11,6 +11,24 @@ import {
   sanitizeInput,
 } from "./authHelpers";
 
+// Vaccine type intervals (days between vaccinations)
+const VACCINE_INTERVALS: Record<string, number> = {
+  "FMD": 180,                    // Foot and Mouth Disease - every 6 months
+  "Anthrax": 365,               // Anthrax - annually
+  "Brucellosis": 365,           // Brucellosis - annually
+  "Rift Valley Fever": 365,     // RVF - annually
+  "Newcastle Disease": 120,      // Newcastle - every 4 months
+  "Gumboro": 90,                // Gumboro (IBD) - every 3 months
+  "Rabies": 365,                // Rabies - annually
+  "Blackleg": 365,              // Blackleg - annually
+  "PPR": 365,                   // PPR - annually
+  "CBPP": 365,                  // CBPP - annually
+  "Pasteurellosis": 180,        // Pasteurellosis - every 6 months
+  "Trypanosomiasis": 180,       // Trypanosomiasis - every 6 months
+};
+
+const DEFAULT_VACCINE_INTERVAL = 90; // 3 months for unknown vaccines
+
 // ============================================================
 // Livestock Queries
 // ============================================================
@@ -440,12 +458,15 @@ export const completeVaccination = mutation({
       vaccineType: args.vaccineType,
     };
 
-    // Default next vaccination in 90 days
-    const defaultNextDate = now + 90 * 24 * 60 * 60 * 1000;
+    // Use vaccine-type-specific interval for next vaccination
+    const intervalDays = args.vaccineType && VACCINE_INTERVALS[args.vaccineType]
+      ? VACCINE_INTERVALS[args.vaccineType]
+      : DEFAULT_VACCINE_INTERVAL;
+    const nextVaccinationDate = now + intervalDays * 24 * 60 * 60 * 1000;
 
     await ctx.db.patch(args.livestockId, {
       lastVaccination: now,
-      nextVaccination: livestock.nextVaccination ? defaultNextDate : undefined,
+      nextVaccination: nextVaccinationDate,
       medicalHistory: [...existingHistory, vaccinationRecord],
       updatedAt: now,
     });
@@ -494,6 +515,13 @@ export const sendVaccinationReminders = mutation({
         (animal.nextVaccination! - now) / (24 * 60 * 60 * 1000)
       );
 
+      // Determine vaccine type from medical history
+      const history = animal.medicalHistory || [];
+      const lastVaccine = history
+        .filter((h) => h.vaccineType && h.treatment.toLowerCase().includes("vaccin"))
+        .sort((a, b) => b.date - a.date)[0];
+      const vaccineType = lastVaccine?.vaccineType || "unknown";
+
       // Send reminder email via scheduler
       await ctx.scheduler.runAfter(0, api.emails.sendVaccinationReminder, {
         userId: animal.userId,
@@ -504,6 +532,7 @@ export const sendVaccinationReminders = mutation({
         farmName: farm?.name || "Unknown Farm",
         daysUntilDue,
         scheduledDate: animal.nextVaccination!,
+        vaccineType,
       });
 
       sent++;
