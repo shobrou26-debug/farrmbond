@@ -973,6 +973,7 @@ export default function Livestock() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [coverageFarmFilter, setCoverageFarmFilter] = useState<string>("all");
+  const [coverageTimeRange, setCoverageTimeRange] = useState<number>(90);
   const [selectedAnimal, setSelectedAnimal] = useState<LivestockDoc | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "health" | "vaccinations" | "coverage" | "alerts">("overview");
   const [showAlerts, setShowAlerts] = useState(false);
@@ -988,7 +989,7 @@ export default function Livestock() {
   const updateLivestock = useMutation(api.livestock.updateLivestock);
   const addHealthRecord = useMutation(api.livestock.addHealthRecord);
   const scheduleVaccination = useMutation(api.livestock.scheduleVaccination);
-  const vaccineCoverage = useQuery(api.livestock.getVaccineCoverage, { farmId: coverageFarmFilter === "all" ? undefined : coverageFarmFilter });
+  const vaccineCoverage = useQuery(api.livestock.getVaccineCoverage, { farmId: coverageFarmFilter === "all" ? undefined : coverageFarmFilter, daysBack: coverageTimeRange });
   const completeVaccination = useMutation(api.livestock.completeVaccination);
 
   // Map farmId to farm name
@@ -1565,23 +1566,38 @@ export default function Livestock() {
                   <div>
                     <h2 className="text-lg font-semibold">Vaccine Coverage Rates</h2>
                     <p className="text-sm text-muted-foreground">
-                      Coverage calculated from the last 90 days of vaccination records
+                      Coverage calculated from the last {coverageTimeRange === 30 ? '30 days' : coverageTimeRange === 90 ? '90 days' : coverageTimeRange === 180 ? '6 months' : '1 year'} of vaccination records
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm font-medium text-muted-foreground">Farm:</label>
-                    <select
-                      className="h-9 rounded-lg border border-input bg-background px-3 text-sm min-w-[180px]"
-                      value={coverageFarmFilter}
-                      onChange={(e) => setCoverageFarmFilter(e.target.value)}
-                    >
-                      <option value="all">All Farms</option>
-                      {farms?.page?.map((farm: any) => (
-                        <option key={farm._id} value={farm._id}>
-                          {farm.name}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium text-muted-foreground">Farm:</label>
+                      <select
+                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm min-w-[180px]"
+                        value={coverageFarmFilter}
+                        onChange={(e) => setCoverageFarmFilter(e.target.value)}
+                      >
+                        <option value="all">All Farms</option>
+                        {farms?.page?.map((farm: any) => (
+                          <option key={farm._id} value={farm._id}>
+                            {farm.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium text-muted-foreground">Period:</label>
+                      <select
+                        className="h-9 rounded-lg border border-input bg-background px-3 text-sm"
+                        value={coverageTimeRange}
+                        onChange={(e) => setCoverageTimeRange(Number(e.target.value))}
+                      >
+                        <option value={30}>Last 30 days</option>
+                        <option value={90}>Last 90 days</option>
+                        <option value={180}>Last 6 months</option>
+                        <option value={365}>Last 1 year</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
 

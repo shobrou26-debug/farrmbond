@@ -759,6 +759,7 @@ export const getVaccinationCostAnalytics = query({
 export const getVaccineCoverage = query({
   args: {
     farmId: v.optional(v.string()),
+    daysBack: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const { userId } = await requireAuth(ctx);
@@ -774,7 +775,8 @@ export const getVaccineCoverage = query({
       : livestock;
 
     const now = Date.now();
-    const ninetyDaysAgo = now - 90 * 24 * 60 * 60 * 1000;
+    const cutoffDays = args.daysBack || 90;
+    const cutoffDate = now - cutoffDays * 24 * 60 * 60 * 1000;
 
     // Common vaccine types to track
     const vaccineTypes = [
@@ -804,7 +806,7 @@ export const getVaccineCoverage = query({
       for (const animal of animals) {
         const history = animal.medicalHistory || [];
         for (const record of history) {
-          if (record.date < ninetyDaysAgo) continue;
+          if (record.date < cutoffDate) continue;
           const isVaccine = record.vaccineType && vaccineTypes.includes(record.vaccineType);
           if (isVaccine && record.vaccineType) {
             const entry = vaccineCoverage[record.vaccineType];
