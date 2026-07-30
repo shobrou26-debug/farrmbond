@@ -49,6 +49,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
+import { VaccinationScheduleTab } from "@/components/VaccinationSchedule";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -971,7 +972,7 @@ export default function Livestock() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [selectedAnimal, setSelectedAnimal] = useState<LivestockDoc | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "health" | "alerts">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "health" | "vaccinations" | "alerts">("overview");
   const [showAlerts, setShowAlerts] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -984,6 +985,8 @@ export default function Livestock() {
   const deleteLivestock = useMutation(api.livestock.deleteLivestock);
   const updateLivestock = useMutation(api.livestock.updateLivestock);
   const addHealthRecord = useMutation(api.livestock.addHealthRecord);
+  const scheduleVaccination = useMutation(api.livestock.scheduleVaccination);
+  const completeVaccination = useMutation(api.livestock.completeVaccination);
 
   // Map farmId to farm name
   const farmMap = useMemo(() => {
@@ -1235,6 +1238,7 @@ export default function Livestock() {
                 {[
                   { id: "overview" as const, label: "Overview", icon: Beef },
                   { id: "health" as const, label: "Health Records", icon: Heart },
+                  { id: "vaccinations" as const, label: "Vaccinations", icon: Syringe },
                   { id: "alerts" as const, label: "Disease Alerts", icon: AlertTriangle },
                 ].map((tab) => (
                   <button
@@ -1532,6 +1536,16 @@ export default function Livestock() {
                     )
                 )}
               </motion.div>
+            )}
+
+
+            {/* Vaccination Schedule Tab */}
+            {activeTab === "vaccinations" && (
+              <VaccinationScheduleTab
+                livestock={livestock}
+                scheduleVaccination={scheduleVaccination}
+                completeVaccination={completeVaccination}
+              />
             )}
 
             {/* Disease Alerts Tab */}

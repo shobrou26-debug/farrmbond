@@ -70,3 +70,13 @@ crons.interval(
 );
 
 export default crons;
+
+/**
+ * Send vaccination reminders daily.
+ * Checks all livestock with upcoming vaccinations and sends email reminders.
+ */
+crons.interval(
+  "vaccination_reminders",
+  { hours: 24 },
+  api.livestock.sendVaccinationReminders
+);

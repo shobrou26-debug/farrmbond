@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
+import { api } from "./_generated/api";
 import {
   requireAuth,
   verifyLivestockOwnership,
@@ -276,5 +277,234 @@ export const deleteLivestock = mutation({
     });
 
     return true;
+  },
+});
+
+// ============================================================
+// Vaccination Scheduling
+// ============================================================
+
+/** Get upcoming vaccinations for all user livestock */
+export const getUpcomingVaccinations = query({
+  args: {
+    daysAhead: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    const daysAhead = args.daysAhead || 30;
+    const now = Date.now();
+    const cutoff = now + daysAhead * 24 * 60 * 60 * 1000;
+
+    const livestock = await ctx.db
+      .query("livestock")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    // Get farm names
+    const farmIds = [...new Set(livestock.map((l) => l.farmId))];
+    const farms = await Promise.all(farmIds.map((id) => ctx.db.get(id)));
+    const farmMap = new Map(farms.filter(Boolean).map((f) => [f!._id, f!.name]));
+
+    const upcoming = livestock
+      .filter((l) => l.nextVaccination && l.nextVaccination <= cutoff)
+      .map((l) => ({
+        ...l,
+        farmName: farmMap.get(l.farmId) || "Unknown Farm",
+        daysUntilDue: Math.ceil((l.nextVaccination! - now) / (24 * 60 * 60 * 1000)),
+        isOverdue: l.nextVaccination! < now,
+      }))
+      .sort((a, b) => a.nextVaccination! - b.nextVaccination!);
+
+    return upcoming;
+  },
+});
+
+/** Get vaccination schedule for a specific farm */
+export const getVaccinationSchedule = query({
+  args: {
+    farmId: v.optional(v.id("farms")),
+    daysAhead: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    const daysAhead = args.daysAhead || 90;
+    const now = Date.now();
+    const cutoff = now + daysAhead * 24 * 60 * 60 * 1000;
+
+    let base = ctx.db
+      .query("livestock")
+      .withIndex("by_user", (q) => q.eq("userId", userId));
+
+    if (args.farmId) {
+      await verifyFarmOwnership(ctx, args.farmId, userId);
+      base = ctx.db
+        .query("livestock")
+        .withIndex("by_farm", (q) => q.eq("farmId", args.farmId!));
+    }
+
+    const livestock = await base.collect();
+
+    // Build schedule events
+    const events: Array<{
+      livestockId: string;
+      livestockName: string;
+      livestockType: string;
+      farmId: string;
+      farmName: string;
+      nextVaccination: number;
+      lastVaccination: number | undefined;
+      daysUntilDue: number;
+      isOverdue: boolean;
+      quantity: number;
+      unit: string;
+    }> = [];
+
+    for (const l of livestock) {
+      if (l.nextVaccination && l.nextVaccination <= cutoff) {
+        const farm = await ctx.db.get(l.farmId);
+        events.push({
+          livestockId: l._id,
+          livestockName: l.name,
+          livestockType: l.type,
+          farmId: l.farmId,
+          farmName: farm?.name || "Unknown Farm",
+          nextVaccination: l.nextVaccination,
+          lastVaccination: l.lastVaccination,
+          daysUntilDue: Math.ceil((l.nextVaccination - now) / (24 * 60 * 60 * 1000)),
+          isOverdue: l.nextVaccination < now,
+          quantity: l.quantity,
+          unit: l.unit,
+        });
+      }
+    }
+
+    return events.sort((a, b) => a.nextVaccination - b.nextVaccination);
+  },
+});
+
+/** Schedule a vaccination for livestock */
+export const scheduleVaccination = mutation({
+  args: {
+    livestockId: v.id("livestock"),
+    scheduledDate: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    await verifyLivestockOwnership(ctx, args.livestockId, userId);
+
+    const now = Date.now();
+
+    await ctx.db.patch(args.livestockId, {
+      nextVaccination: args.scheduledDate,
+      updatedAt: now,
+    });
+
+    // Audit log
+    await createAuditLog(ctx, {
+      userId,
+      action: "livestock_vaccination_scheduled",
+      resource: "livestock",
+      resourceId: args.livestockId,
+      changes: { scheduledDate: args.scheduledDate },
+    });
+
+    return args.livestockId;
+  },
+});
+
+/** Mark a vaccination as completed */
+export const completeVaccination = mutation({
+  args: {
+    livestockId: v.id("livestock"),
+    notes: v.optional(v.string()),
+    cost: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    await verifyLivestockOwnership(ctx, args.livestockId, userId);
+
+    const now = Date.now();
+    const livestock = await ctx.db.get(args.livestockId);
+    if (!livestock) throw new Error("Livestock not found");
+
+    // Add health record for vaccination
+    const existingHistory = livestock.medicalHistory || [];
+    const vaccinationRecord = {
+      date: now,
+      description: args.notes || `Vaccination completed`,
+      treatment: "Vaccination",
+      cost: args.cost,
+    };
+
+    // Default next vaccination in 90 days
+    const defaultNextDate = now + 90 * 24 * 60 * 60 * 1000;
+
+    await ctx.db.patch(args.livestockId, {
+      lastVaccination: now,
+      nextVaccination: livestock.nextVaccination ? defaultNextDate : undefined,
+      medicalHistory: [...existingHistory, vaccinationRecord],
+      updatedAt: now,
+    });
+
+    // Audit log
+    await createAuditLog(ctx, {
+      userId,
+      action: "livestock_vaccination_completed",
+      resource: "livestock",
+      resourceId: args.livestockId,
+      changes: { completedAt: now },
+    });
+
+    return args.livestockId;
+  },
+});
+
+/**
+ * Send vaccination reminders for upcoming/overdue vaccinations.
+ * Called by cron job daily.
+ */
+export const sendVaccinationReminders = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const reminderWindow = 3 * 24 * 60 * 60 * 1000; // 3 days
+    const cutoff = now + reminderWindow;
+
+    // Get all livestock with upcoming vaccinations
+    const allLivestock = await ctx.db.query("livestock").collect();
+    const dueSoon = allLivestock.filter(
+      (l) => l.nextVaccination && l.nextVaccination <= cutoff
+    );
+
+    if (dueSoon.length === 0) return { sent: 0 };
+
+    let sent = 0;
+    for (const animal of dueSoon) {
+      // Get user info
+      const user = await ctx.db.get(animal.userId);
+      if (!user || !user.email) continue;
+
+      // Get farm info
+      const farm = await ctx.db.get(animal.farmId);
+      const daysUntilDue = Math.ceil(
+        (animal.nextVaccination! - now) / (24 * 60 * 60 * 1000)
+      );
+
+      // Send reminder email via scheduler
+      await ctx.scheduler.runAfter(0, api.emails.sendVaccinationReminder, {
+        userId: animal.userId,
+        email: user.email,
+        name: user.name || "there",
+        livestockName: animal.name,
+        livestockType: animal.type,
+        farmName: farm?.name || "Unknown Farm",
+        daysUntilDue,
+        scheduledDate: animal.nextVaccination!,
+      });
+
+      sent++;
+    }
+
+    return { sent };
   },
 });

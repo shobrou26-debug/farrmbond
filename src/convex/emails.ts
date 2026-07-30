@@ -175,3 +175,29 @@ async function sendEmail(to: string, subject: string, html: string) {
     return { sent: false, reason: String(error) };
   }
 }
+
+/**
+ * Send vaccination reminder email
+ */
+export const sendVaccinationReminder = action({
+  args: {
+    userId: v.id("users"),
+    email: v.string(),
+    name: v.string(),
+    livestockName: v.string(),
+    livestockType: v.string(),
+    farmName: v.string(),
+    daysUntilDue: v.number(),
+    scheduledDate: v.number(),
+  },
+  handler: async (ctx, args) => {
+    if (!BREVO_API_KEY) return { sent: false, reason: "API key not configured" };
+    const dateStr = new Date(args.scheduledDate).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+    const dashboardUrl = `${APP_URL}/livestock`;
+    const isOverdue = args.daysUntilDue < 0;
+    const urgencyText = isOverdue ? `${Math.abs(args.daysUntilDue)} days overdue` : `in ${args.daysUntilDue} day${args.daysUntilDue === 1 ? '' : 's'}`;
+    const urgencyColor = isOverdue ? '#dc2626' : args.daysUntilDue <= 2 ? '#f59e0b' : '#16a34a';
+    const htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;background:#f7faf7}.container{background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,.1)}.header{background:linear-gradient(135deg,${urgencyColor},${urgencyColor}dd);padding:32px;text-align:center}.header h1{color:#fff;margin:0;font-size:24px}.content{padding:32px}.badge{display:inline-block;background:${urgencyColor}20;color:${urgencyColor};padding:8px 16px;border-radius:20px;font-weight:600;font-size:14px;margin:16px 0}.info-box{background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:20px;margin:24px 0}.info-box h3{margin-top:0;color:#166534;font-size:16px}.info-box ul{margin:8px 0 0 0;padding-left:20px}.info-box li{margin-bottom:6px;font-size:14px}.cta-button{display:inline-block;background:#16a34a;color:#fff!important;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;margin:24px 0}.footer{background:#f8fafc;padding:24px;text-align:center;color:#64748b;font-size:14px}.footer a{color:#16a34a}</style></head><body><div class="container"><div class="header"><h1>💉 Vaccination Reminder</h1></div><div class="content"><h2>${isOverdue ? '⚠️ Vaccination Overdue' : '⏰ Vaccination Due Soon'}</h2><p>Hi ${args.name || "there"},</p><div class="badge">📅 ${urgencyText}</div><div class="info-box"><h3>Animal Details</h3><ul><li><strong>Name:</strong> ${args.livestockName}</li><li><strong>Type:</strong> ${args.livestockType}</li><li><strong>Farm:</strong> ${args.farmName}</li><li><strong>Scheduled Date:</strong> ${dateStr}</li></ul></div><p>Please ensure this animal receives its vaccination on time to maintain herd health and prevent disease outbreaks.</p><a href="${dashboardUrl}" class="cta-button">Open Livestock Dashboard</a><p>Happy farming! 🚜<br>The FarmBond Team</p></div><div class="footer"><p>FarmBond — AI-Powered Smart Farming</p><p><a href="${APP_URL}/privacy">Privacy Policy</a> | <a href="${APP_URL}/settings?tab=notifications">Unsubscribe</a></p></div></div></body></html>`;
+    return sendEmail(args.email, `${isOverdue ? '⚠️' : '💉'} Vaccination ${isOverdue ? 'Overdue' : 'Reminder'}: ${args.livestockName} — ${urgencyText}`, htmlContent);
+  },
+});
