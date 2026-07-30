@@ -6,8 +6,12 @@ import {
   CheckCircle2,
   AlertTriangle,
   Clock,
-  ChevronRight,
+  History,
+  Filter,
+  Download,
   Loader2,
+  FileText,
+  Search,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,7 +26,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 
 interface LivestockDoc {
   _id: string;
@@ -37,6 +50,18 @@ interface LivestockDoc {
   lastVaccination?: number;
 }
 
+interface VaccinationHistoryRecord {
+  livestockId: string;
+  livestockName: string;
+  livestockType: string;
+  farmId: string;
+  farmName: string;
+  date: number;
+  description: string;
+  treatment: string;
+  cost?: number;
+}
+
 interface VaccinationScheduleTabProps {
   livestock: LivestockDoc[];
   scheduleVaccination: (args: any) => Promise<any>;
@@ -48,12 +73,28 @@ export function VaccinationScheduleTab({
   scheduleVaccination,
   completeVaccination,
 }: VaccinationScheduleTabProps) {
+  const [activeSubTab, setActiveSubTab] = useState<"schedule" | "history">("schedule");
   const [animalToSchedule, setAnimalToSchedule] = useState<LivestockDoc | null>(null);
   const [animalToComplete, setAnimalToComplete] = useState<LivestockDoc | null>(null);
   const [scheduleDate, setScheduleDate] = useState("");
   const [completeNotes, setCompleteNotes] = useState("");
   const [completeCost, setCompleteCost] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // History filters
+  const [historyStartDate, setHistoryStartDate] = useState("");
+  const [historyEndDate, setHistoryEndDate] = useState("");
+  const [historyAnimalType, setHistoryAnimalType] = useState("all");
+
+  // Get unique animal types for filter dropdown
+  const animalTypes = [...new Set(livestock.map((l) => l.type))];
+
+  // Fetch vaccination history from Convex
+  const vaccinationHistory = useQuery(api.livestock.getVaccinationHistory, {
+    startDate: historyStartDate ? new Date(historyStartDate).getTime() : undefined,
+    endDate: historyEndDate ? new Date(historyEndDate + "T23:59:59").getTime() : undefined,
+    animalType: historyAnimalType !== "all" ? historyAnimalType : undefined,
+  });
 
   const now = Date.now();
   const upcomingVaccinations = livestock
@@ -109,198 +150,383 @@ export function VaccinationScheduleTab({
   };
 
   const getDaysUntil = (timestamp: number) => {
-    const days = Math.ceil((timestamp - now) / (24 * 60 * 60 * 1000));
-    return days;
+    return Math.ceil((timestamp - now) / (24 * 60 * 60 * 1000));
   };
+
+  const clearHistoryFilters = () => {
+    setHistoryStartDate("");
+    setHistoryEndDate("");
+    setHistoryAnimalType("all");
+  };
+
+  const hasActiveFilters = historyStartDate || historyEndDate || historyAnimalType !== "all";
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-amber-50">
-                <Clock className="w-5 h-5 text-amber-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{upcomingVaccinations.length}</p>
-                <p className="text-xs text-muted-foreground">Upcoming</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-red-50">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{overdueVaccinations.length}</p>
-                <p className="text-xs text-muted-foreground">Overdue</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-50">
-                <Syringe className="w-5 h-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{unscheduled.length}</p>
-                <p className="text-xs text-muted-foreground">Unscheduled</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Sub-tabs */}
+      <div className="flex gap-1 p-1 bg-muted rounded-xl w-fit">
+        {[
+          { id: "schedule" as const, label: "Schedule", icon: Calendar },
+          { id: "history" as const, label: "History", icon: History },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveSubTab(tab.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              activeSubTab === tab.id
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <tab.icon className="w-4 h-4" />
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      {/* Overdue Vaccinations */}
-      {overdueVaccinations.length > 0 && (
-        <Card className="border-red-200">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-red-600 text-base">
-              <AlertTriangle className="w-5 h-5" />
-              Overdue Vaccinations
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {overdueVaccinations.map((animal) => {
-              const daysOverdue = Math.abs(getDaysUntil(animal.nextVaccination!));
-              return (
-                <div
-                  key={animal._id}
-                  className="flex items-center justify-between p-3 rounded-lg bg-red-50 border border-red-100"
-                >
-                  <div className="flex items-center gap-3">
-                    <Syringe className="w-4 h-4 text-red-500" />
-                    <div>
-                      <p className="font-medium">{animal.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {animal.type} · {animal.quantity} {animal.unit}
-                      </p>
-                    </div>
+      {/* Schedule Sub-tab */}
+      {activeSubTab === "schedule" && (
+        <>
+          {/* Stats */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-amber-50">
+                    <Clock className="w-5 h-5 text-amber-600" />
                   </div>
-                  <div className="flex items-center gap-3">
-                    <Badge variant="destructive">{daysOverdue}d overdue</Badge>
-                    <Button
-                      size="sm"
-                      onClick={() => setAnimalToComplete(animal)}
-                      className="bg-emerald-600 hover:bg-emerald-700"
-                    >
-                      <CheckCircle2 className="w-4 h-4 mr-1" />
-                      Complete
-                    </Button>
+                  <div>
+                    <p className="text-2xl font-bold">{upcomingVaccinations.length}</p>
+                    <p className="text-xs text-muted-foreground">Upcoming</p>
                   </div>
                 </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Upcoming Vaccinations */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Calendar className="w-5 h-5 text-emerald-600" />
-            Upcoming Vaccinations
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {upcomingVaccinations.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Syringe className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p>No upcoming vaccinations scheduled</p>
-            </div>
-          ) : (
-            upcomingVaccinations.map((animal) => {
-              const daysUntil = getDaysUntil(animal.nextVaccination!);
-              const isUrgent = daysUntil <= 3;
-              return (
-                <div
-                  key={animal._id}
-                  className={`flex items-center justify-between p-3 rounded-lg border ${
-                    isUrgent ? "bg-amber-50 border-amber-200" : "bg-background"
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Syringe className={`w-4 h-4 ${isUrgent ? "text-amber-600" : "text-emerald-600"}`} />
-                    <div>
-                      <p className="font-medium">{animal.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {animal.type} · Due{" "}
-                        {new Date(animal.nextVaccination!).toLocaleDateString()}
-                      </p>
-                    </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-red-50">
+                    <AlertTriangle className="w-5 h-5 text-red-600" />
                   </div>
-                  <div className="flex items-center gap-3">
-                    <Badge variant={isUrgent ? "destructive" : "secondary"}>
-                      {daysUntil === 0 ? "Today" : `${daysUntil}d`}
-                    </Badge>
+                  <div>
+                    <p className="text-2xl font-bold">{overdueVaccinations.length}</p>
+                    <p className="text-xs text-muted-foreground">Overdue</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-blue-50">
+                    <Syringe className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{unscheduled.length}</p>
+                    <p className="text-xs text-muted-foreground">Unscheduled</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Overdue Vaccinations */}
+          {overdueVaccinations.length > 0 && (
+            <Card className="border-red-200">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-red-600 text-base">
+                  <AlertTriangle className="w-5 h-5" />
+                  Overdue Vaccinations
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {overdueVaccinations.map((animal) => {
+                  const daysOverdue = Math.abs(getDaysUntil(animal.nextVaccination!));
+                  return (
+                    <div
+                      key={animal._id}
+                      className="flex items-center justify-between p-3 rounded-lg bg-red-50 border border-red-100"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Syringe className="w-4 h-4 text-red-500" />
+                        <div>
+                          <p className="font-medium">{animal.name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {animal.type} · {animal.quantity} {animal.unit}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Badge variant="destructive">{daysOverdue}d overdue</Badge>
+                        <Button
+                          size="sm"
+                          onClick={() => setAnimalToComplete(animal)}
+                          className="bg-emerald-600 hover:bg-emerald-700"
+                        >
+                          <CheckCircle2 className="w-4 h-4 mr-1" />
+                          Complete
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Upcoming Vaccinations */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Calendar className="w-5 h-5 text-emerald-600" />
+                Upcoming Vaccinations
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {upcomingVaccinations.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Syringe className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p>No upcoming vaccinations scheduled</p>
+                </div>
+              ) : (
+                upcomingVaccinations.map((animal) => {
+                  const daysUntil = getDaysUntil(animal.nextVaccination!);
+                  const isUrgent = daysUntil <= 3;
+                  return (
+                    <div
+                      key={animal._id}
+                      className={`flex items-center justify-between p-3 rounded-lg border ${
+                        isUrgent ? "bg-amber-50 border-amber-200" : "bg-background"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Syringe className={`w-4 h-4 ${isUrgent ? "text-amber-600" : "text-emerald-600"}`} />
+                        <div>
+                          <p className="font-medium">{animal.name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {animal.type} · Due{" "}
+                            {new Date(animal.nextVaccination!).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Badge variant={isUrgent ? "destructive" : "secondary"}>
+                          {daysUntil === 0 ? "Today" : `${daysUntil}d`}
+                        </Badge>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setAnimalToSchedule(animal)}
+                        >
+                          <Calendar className="w-4 h-4 mr-1" />
+                          Reschedule
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => setAnimalToComplete(animal)}
+                          className="bg-emerald-600 hover:bg-emerald-700"
+                        >
+                          <CheckCircle2 className="w-4 h-4 mr-1" />
+                          Complete
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Unscheduled Animals */}
+          {unscheduled.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Syringe className="w-5 h-5 text-blue-600" />
+                  Animals Without Vaccination Schedule
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {unscheduled.slice(0, 10).map((animal) => (
+                  <div
+                    key={animal._id}
+                    className="flex items-center justify-between p-3 rounded-lg border"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Syringe className="w-4 h-4 text-blue-500" />
+                      <div>
+                        <p className="font-medium">{animal.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {animal.type} · {animal.quantity} {animal.unit}
+                        </p>
+                      </div>
+                    </div>
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => setAnimalToSchedule(animal)}
                     >
                       <Calendar className="w-4 h-4 mr-1" />
-                      Reschedule
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => setAnimalToComplete(animal)}
-                      className="bg-emerald-600 hover:bg-emerald-700"
-                    >
-                      <CheckCircle2 className="w-4 h-4 mr-1" />
-                      Complete
+                      Schedule
                     </Button>
                   </div>
-                </div>
-              );
-            })
+                ))}
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
+        </>
+      )}
 
-      {/* Unscheduled Animals */}
-      {unscheduled.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Syringe className="w-5 h-5 text-blue-600" />
-              Animals Without Vaccination Schedule
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {unscheduled.slice(0, 10).map((animal) => (
-              <div
-                key={animal._id}
-                className="flex items-center justify-between p-3 rounded-lg border"
-              >
-                <div className="flex items-center gap-3">
-                  <Syringe className="w-4 h-4 text-blue-500" />
-                  <div>
-                    <p className="font-medium">{animal.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {animal.type} · {animal.quantity} {animal.unit}
-                    </p>
-                  </div>
+      {/* History Sub-tab */}
+      {activeSubTab === "history" && (
+        <>
+          {/* Filters */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Filter className="w-5 h-5 text-emerald-600" />
+                Filter Vaccination History
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div>
+                  <Label htmlFor="hist-start">Start Date</Label>
+                  <Input
+                    id="hist-start"
+                    type="date"
+                    value={historyStartDate}
+                    onChange={(e) => setHistoryStartDate(e.target.value)}
+                    className="mt-1"
+                  />
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setAnimalToSchedule(animal)}
-                >
-                  <Calendar className="w-4 h-4 mr-1" />
-                  Schedule
-                </Button>
+                <div>
+                  <Label htmlFor="hist-end">End Date</Label>
+                  <Input
+                    id="hist-end"
+                    type="date"
+                    value={historyEndDate}
+                    onChange={(e) => setHistoryEndDate(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="hist-type">Animal Type</Label>
+                  <Select value={historyAnimalType} onValueChange={setHistoryAnimalType}>
+                    <SelectTrigger id="hist-type" className="mt-1">
+                      <SelectValue placeholder="All types" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Types</SelectItem>
+                      {animalTypes.map((type) => (
+                        <SelectItem key={type} value={type}>
+                          {type}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end">
+                  {hasActiveFilters && (
+                    <Button variant="outline" onClick={clearHistoryFilters} className="w-full">
+                      Clear Filters
+                    </Button>
+                  )}
+                </div>
               </div>
-            ))}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+
+          {/* History Records */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <History className="w-5 h-5 text-emerald-600" />
+                  Vaccination History
+                </CardTitle>
+                {vaccinationHistory && (
+                  <Badge variant="secondary">{vaccinationHistory.length} records</Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {vaccinationHistory === undefined ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Loader2 className="w-8 h-8 mx-auto mb-3 animate-spin opacity-50" />
+                  <p>Loading vaccination history...</p>
+                </div>
+              ) : vaccinationHistory.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p>No vaccination records found</p>
+                  {hasActiveFilters && (
+                    <Button variant="link" onClick={clearHistoryFilters} className="mt-2">
+                      Clear filters to see all records
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Summary stats */}
+                  <div className="flex gap-4 text-sm text-muted-foreground pb-3 border-b">
+                    <span>
+                      Total: <strong className="text-foreground">{vaccinationHistory.length}</strong> vaccinations
+                    </span>
+                    <span>
+                      Total cost:{" "}
+                      <strong className="text-foreground">
+                        ${vaccinationHistory.reduce((sum, r) => sum + (r.cost || 0), 0).toFixed(2)}
+                      </strong>
+                    </span>
+                  </div>
+
+                  {/* Records list */}
+                  {vaccinationHistory.map((record, idx) => (
+                    <div
+                      key={`${record.livestockId}-${record.date}-${idx}`}
+                      className="flex items-start justify-between p-3 rounded-lg border bg-background"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 rounded-lg bg-emerald-50">
+                          <Syringe className="w-4 h-4 text-emerald-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium">{record.livestockName}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {record.livestockType} · {record.farmName}
+                          </p>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {record.description}
+                          </p>
+                          {record.treatment !== "Vaccination" && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Treatment: {record.treatment}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right flex-shrink-0 ml-4">
+                        <p className="text-sm font-medium">
+                          {new Date(record.date).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })}
+                        </p>
+                        {record.cost !== undefined && record.cost > 0 && (
+                          <p className="text-sm text-muted-foreground">
+                            ${record.cost.toFixed(2)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
       )}
 
       {/* Schedule Vaccination Dialog */}

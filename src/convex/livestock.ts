@@ -508,3 +508,98 @@ export const sendVaccinationReminders = mutation({
     return { sent };
   },
 });
+
+// ============================================================
+// Vaccination History
+// ============================================================
+
+/** Get vaccination history for all user livestock */
+export const getVaccinationHistory = query({
+  args: {
+    startDate: v.optional(v.number()),
+    endDate: v.optional(v.number()),
+    animalType: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+
+    const livestock = await ctx.db
+      .query("livestock")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    // Get farm names
+    const farmIds = [...new Set(livestock.map((l) => l.farmId))];
+    const farms = await Promise.all(farmIds.map((id) => ctx.db.get(id)));
+    const farmMap = new Map(farms.filter(Boolean).map((f) => [f!._id, f!.name]));
+
+    // Extract vaccination records from medicalHistory
+    const vaccinationRecords: Array<{
+      livestockId: string;
+      livestockName: string;
+      livestockType: string;
+      farmId: string;
+      farmName: string;
+      date: number;
+      description: string;
+      treatment: string;
+      cost?: number;
+    }> = [];
+
+    for (const animal of livestock) {
+      if (args.animalType && animal.type.toLowerCase() !== args.animalType.toLowerCase()) continue;
+
+      const history = animal.medicalHistory || [];
+      for (const record of history) {
+        // Filter to vaccination-related records
+        const isVaccination =
+          record.treatment.toLowerCase().includes("vaccin") ||
+          record.description.toLowerCase().includes("vaccin");
+
+        if (!isVaccination) continue;
+
+        // Date range filter
+        if (args.startDate && record.date < args.startDate) continue;
+        if (args.endDate && record.date > args.endDate) continue;
+
+        vaccinationRecords.push({
+          livestockId: animal._id,
+          livestockName: animal.name,
+          livestockType: animal.type,
+          farmId: animal.farmId,
+          farmName: farmMap.get(animal.farmId) || "Unknown Farm",
+          date: record.date,
+          description: record.description,
+          treatment: record.treatment,
+          cost: record.cost,
+        });
+      }
+
+      // Also add lastVaccination as a record if present
+      if (animal.lastVaccination) {
+        if (args.startDate && animal.lastVaccination < args.startDate) continue;
+        if (args.endDate && animal.lastVaccination > args.endDate) continue;
+
+        // Check if we already have a record for this date
+        const exists = vaccinationRecords.some(
+          (r) => r.livestockId === animal._id && Math.abs(r.date - animal.lastVaccination!) < 86400000
+        );
+        if (!exists) {
+          vaccinationRecords.push({
+            livestockId: animal._id,
+            livestockName: animal.name,
+            livestockType: animal.type,
+            farmId: animal.farmId,
+            farmName: farmMap.get(animal.farmId) || "Unknown Farm",
+            date: animal.lastVaccination,
+            description: "Vaccination completed",
+            treatment: "Vaccination",
+          });
+        }
+      }
+    }
+
+    // Sort by date descending (most recent first)
+    return vaccinationRecords.sort((a, b) => b.date - a.date);
+  },
+});
