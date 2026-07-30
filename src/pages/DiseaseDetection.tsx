@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useAction, useQuery, useMutation } from "convex/react";
+import { useAction, useMutation } from "convex/react";
+import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -561,8 +562,7 @@ export default function DiseaseDetection() {
   // Real Convex data
   const detectDisease = useAction(api.aiAssistant.detectDisease);
   const saveDetectionMutation = useMutation(api.detectionResults.saveDetection);
-  const detectionHistoryResult = useQuery(api.detectionResults.listUserDetections, {});
-  const detectionHistory = detectionHistoryResult?.page ?? [];
+  const { results: detectionHistory, sentinelRef, canLoadMore, isLoadingMore } = usePaginatedQuery(api.detectionResults.listUserDetections);
 
   const history: DetectionResult[] = detectionHistory.map((d) => ({
     id: d._id,

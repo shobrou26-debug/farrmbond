@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -295,15 +295,12 @@ function EmptyState() {
 // ============================================================
 
 export default function YieldPrediction() {
-  // Real Convex data (paginated — extract .page from results)
-  const predictionsResult = useQuery(api.yieldPredictions.listUserPredictions, {});
-  const farmsResult = useQuery(api.farms.listUserFarms, {});
-  const cropsResult = useQuery(api.crops.listUserCrops, {});
-  const predictionsData = predictionsResult?.page ?? [];
-  const farms = farmsResult?.page ?? [];
-  const crops = cropsResult?.page ?? [];
+  // Real Convex data (paginated via usePaginatedQuery)
+  const { results: predictionsData, isLoading: isLoadingPredictions, sentinelRef, canLoadMore, isLoadingMore } = usePaginatedQuery(api.yieldPredictions.listUserPredictions);
+  const { results: farms } = usePaginatedQuery(api.farms.listUserFarms);
+  const { results: crops } = usePaginatedQuery(api.crops.listUserCrops);
 
-  const isLoading = predictionsResult === undefined;
+  const isLoading = isLoadingPredictions;
 
   // Map Convex predictions to local format with enriched crop/farm data
   const predictions: YieldPredictionItem[] = useMemo(() => {

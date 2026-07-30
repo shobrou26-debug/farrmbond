@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
-import { useQuery, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
+import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -396,11 +397,9 @@ export default function Calendar() {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
-  // Real Convex data (paginated — extract .page from results)
-  const calendarEventsResult = useQuery(api.farmCalendar.listUserEvents, {});
-  const farmsResult = useQuery(api.farms.listUserFarms, {});
-  const calendarEvents = calendarEventsResult?.page ?? [];
-  const farms = farmsResult?.page ?? [];
+  // Real Convex data (paginated via usePaginatedQuery)
+  const { results: calendarEvents, isLoading: isLoadingEvents } = usePaginatedQuery(api.farmCalendar.listUserEvents);
+  const { results: farms } = usePaginatedQuery(api.farms.listUserFarms);
   const completeEventMutation = useMutation(api.farmCalendar.completeEvent);
 
   // Real weather data
@@ -442,7 +441,7 @@ export default function Calendar() {
     }
   };
 
-  const isLoading = calendarEvents === undefined;
+  const isLoading = isLoadingEvents;
 
   return (
     <AppLayout>

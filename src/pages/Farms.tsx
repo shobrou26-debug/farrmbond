@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { motion } from "framer-motion";
 import { useQuery } from "convex/react";
+import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -248,9 +249,7 @@ function FarmCard({ farm, index }: { farm: any; index: number }) {
 export default function Farms() {
   const { user } = useAuth();
   const haptic = useHaptic();
-  const farmsResult = useQuery(api.farms.listUserFarms, {}) ?? undefined;
-  const farms = farmsResult?.page ?? [];
-  const isLoading = farmsResult === undefined;
+  const { results: farms, isLoading, sentinelRef, canLoadMore, isLoadingMore } = usePaginatedQuery<{ _id: string; name: string; description?: string; location: { latitude: number; longitude: number; address?: string; city?: string; state?: string; country?: string }; size: number; sizeUnit: string; status: string; soilType?: string; soilPh?: number; ndviScore?: number; coverImage?: string; createdAt: number; updatedAt: number }>(api.farms.listUserFarms);
 
   const totalSize = farms?.reduce((sum: number, f: { size: number }) => sum + f.size, 0) ?? 0;
   const avgHealth = farms && farms.length > 0

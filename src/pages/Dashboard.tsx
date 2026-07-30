@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -412,14 +412,11 @@ export default function Dashboard() {
   const isMobile = useIsMobile();
   const firstName = user?.name?.split(" ")[0] || "Farmer";
 
-  // Real Convex data (paginated — extract .page from results)
-  const farmsResult = useQuery(api.farms.listUserFarms, {});
-  const cropsResult = useQuery(api.crops.listUserCrops, {});
-  const livestockResult = useQuery(api.livestock.listUserLivestock, {});
-  const farms = farmsResult?.page ?? [];
-  const crops = cropsResult?.page ?? [];
-  const livestock = livestockResult?.page ?? [];
-  const isLoading = farmsResult === undefined || cropsResult === undefined || livestockResult === undefined;
+  // Real Convex data (paginated via usePaginatedQuery with infinite scroll)
+  const { results: farms, isLoading: isLoadingFarms } = usePaginatedQuery(api.farms.listUserFarms);
+  const { results: crops, isLoading: isLoadingCrops } = usePaginatedQuery(api.crops.listUserCrops);
+  const { results: livestock, isLoading: isLoadingLivestock, sentinelRef, canLoadMore, isLoadingMore } = usePaginatedQuery(api.livestock.listUserLivestock);
+  const isLoading = isLoadingFarms || isLoadingCrops || isLoadingLivestock;
 
   const activeFarms = farms.length;
   const activeCrops = crops.filter((c) => c.status !== 'harvested' && c.status !== 'failed').length;

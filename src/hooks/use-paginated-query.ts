@@ -116,9 +116,9 @@ export function useInfiniteScroll(
  * );
  * ```
  */
-export function usePaginatedQuery<T>(
+export function usePaginatedQuery<T = any>(
   queryFn: FunctionReference<"query">,
-  args: Record<string, unknown> = {},
+  args?: Record<string, unknown>,
   options: UsePaginatedQueryOptions = {}
 ): UsePaginatedQueryReturn<T> {
   const { numItems = 20, enabled = true } = options;
@@ -146,7 +146,7 @@ export function usePaginatedQuery<T>(
   // Query args with pagination
   const queryArgs = useMemo(
     () => ({
-      ...args,
+      ...(args ?? {}),
       paginationOpts: {
         numItems,
         cursor,
