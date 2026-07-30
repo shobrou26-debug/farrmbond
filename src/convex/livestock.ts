@@ -603,3 +603,97 @@ export const getVaccinationHistory = query({
     return vaccinationRecords.sort((a, b) => b.date - a.date);
   },
 });
+
+// ============================================================
+// Vaccination Cost Analytics
+// ============================================================
+
+/** Get vaccination cost analytics broken down by animal type and farm */
+export const getVaccinationCostAnalytics = query({
+  args: {},
+  handler: async (ctx) => {
+    const { userId } = await requireAuth(ctx);
+
+    const livestock = await ctx.db
+      .query("livestock")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    // Get farm names
+    const farmIds = [...new Set(livestock.map((l) => l.farmId))];
+    const farms = await Promise.all(farmIds.map((id) => ctx.db.get(id)));
+    const farmMap = new Map(farms.filter(Boolean).map((f) => [f!._id, f!.name]));
+
+    // Collect all vaccination cost records
+    const records: Array<{
+      livestockType: string;
+      farmId: string;
+      farmName: string;
+      date: number;
+      cost: number;
+    }> = [];
+
+    for (const animal of livestock) {
+      const history = animal.medicalHistory || [];
+      for (const record of history) {
+        const isVaccination =
+          record.treatment.toLowerCase().includes("vaccin") ||
+          record.description.toLowerCase().includes("vaccin");
+        if (!isVaccination || !record.cost || record.cost <= 0) continue;
+
+        records.push({
+          livestockType: animal.type,
+          farmId: animal.farmId,
+          farmName: farmMap.get(animal.farmId) || "Unknown Farm",
+          date: record.date,
+          cost: record.cost,
+        });
+      }
+    }
+
+    // Total cost
+    const totalCost = records.reduce((sum, r) => sum + r.cost, 0);
+
+    // Cost by animal type
+    const costByType: Record<string, number> = {};
+    for (const r of records) {
+      costByType[r.livestockType] = (costByType[r.livestockType] || 0) + r.cost;
+    }
+    const byType = Object.entries(costByType)
+      .map(([type, cost]) => ({ type, cost }))
+      .sort((a, b) => b.cost - a.cost);
+
+    // Cost by farm
+    const costByFarm: Record<string, number> = {};
+    for (const r of records) {
+      costByFarm[r.farmName] = (costByFarm[r.farmName] || 0) + r.cost;
+    }
+    const byFarm = Object.entries(costByFarm)
+      .map(([farm, cost]) => ({ farm, cost }))
+      .sort((a, b) => b.cost - a.cost);
+
+    // Monthly spending trend (last 12 months)
+    const now = Date.now();
+    const monthlySpending: Array<{ month: string; cost: number }> = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const monthLabel = d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+      const monthStart = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+      const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59).getTime();
+      const monthCost = records
+        .filter((r) => r.date >= monthStart && r.date <= monthEnd)
+        .reduce((sum, r) => sum + r.cost, 0);
+      monthlySpending.push({ month: monthLabel, cost: monthCost });
+    }
+
+    return {
+      totalCost,
+      recordCount: records.length,
+      byType,
+      byFarm,
+      monthlySpending,
+    };
+  },
+});

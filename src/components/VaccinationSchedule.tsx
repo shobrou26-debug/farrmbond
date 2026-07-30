@@ -8,10 +8,10 @@ import {
   Clock,
   History,
   Filter,
-  Download,
   Loader2,
   FileText,
-  Search,
+  BarChart3,
+  TrendingUp,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  PieChart,
+  Pie,
+  Cell,
+  AreaChart,
+  Area,
+  ResponsiveContainer,
+} from "recharts";
 import { toast } from "sonner";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -50,30 +69,23 @@ interface LivestockDoc {
   lastVaccination?: number;
 }
 
-interface VaccinationHistoryRecord {
-  livestockId: string;
-  livestockName: string;
-  livestockType: string;
-  farmId: string;
-  farmName: string;
-  date: number;
-  description: string;
-  treatment: string;
-  cost?: number;
-}
-
 interface VaccinationScheduleTabProps {
   livestock: LivestockDoc[];
   scheduleVaccination: (args: any) => Promise<any>;
   completeVaccination: (args: any) => Promise<any>;
 }
 
+const PIE_COLORS = [
+  "#16a34a", "#2563eb", "#d97706", "#dc2626", "#7c3aed",
+  "#0891b2", "#c026d3", "#65a30d", "#e11d48", "#0d9488",
+];
+
 export function VaccinationScheduleTab({
   livestock,
   scheduleVaccination,
   completeVaccination,
 }: VaccinationScheduleTabProps) {
-  const [activeSubTab, setActiveSubTab] = useState<"schedule" | "history">("schedule");
+  const [activeSubTab, setActiveSubTab] = useState<"schedule" | "history" | "analytics">("schedule");
   const [animalToSchedule, setAnimalToSchedule] = useState<LivestockDoc | null>(null);
   const [animalToComplete, setAnimalToComplete] = useState<LivestockDoc | null>(null);
   const [scheduleDate, setScheduleDate] = useState("");
@@ -86,15 +98,16 @@ export function VaccinationScheduleTab({
   const [historyEndDate, setHistoryEndDate] = useState("");
   const [historyAnimalType, setHistoryAnimalType] = useState("all");
 
-  // Get unique animal types for filter dropdown
   const animalTypes = [...new Set(livestock.map((l) => l.type))];
 
-  // Fetch vaccination history from Convex
+  // Queries
   const vaccinationHistory = useQuery(api.livestock.getVaccinationHistory, {
     startDate: historyStartDate ? new Date(historyStartDate).getTime() : undefined,
     endDate: historyEndDate ? new Date(historyEndDate + "T23:59:59").getTime() : undefined,
     animalType: historyAnimalType !== "all" ? historyAnimalType : undefined,
   });
+
+  const costAnalytics = useQuery(api.livestock.getVaccinationCostAnalytics);
 
   const now = Date.now();
   const upcomingVaccinations = livestock
@@ -161,6 +174,28 @@ export function VaccinationScheduleTab({
 
   const hasActiveFilters = historyStartDate || historyEndDate || historyAnimalType !== "all";
 
+  // Chart configs
+  const typeChartConfig = Object.fromEntries(
+    (costAnalytics?.byType || []).map((item, i) => [
+      item.type,
+      { label: item.type, color: PIE_COLORS[i % PIE_COLORS.length] },
+    ])
+  ) satisfies ChartConfig;
+
+  const farmChartConfig = Object.fromEntries(
+    (costAnalytics?.byFarm || []).map((item, i) => [
+      item.farm,
+      { label: item.farm, color: PIE_COLORS[i % PIE_COLORS.length] },
+    ])
+  ) satisfies ChartConfig;
+
+  const trendChartConfig = {
+    cost: {
+      label: "Vaccination Cost",
+      color: "#16a34a",
+    },
+  } satisfies ChartConfig;
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       {/* Sub-tabs */}
@@ -168,6 +203,7 @@ export function VaccinationScheduleTab({
         {[
           { id: "schedule" as const, label: "Schedule", icon: Calendar },
           { id: "history" as const, label: "History", icon: History },
+          { id: "analytics" as const, label: "Analytics", icon: BarChart3 },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -184,10 +220,9 @@ export function VaccinationScheduleTab({
         ))}
       </div>
 
-      {/* Schedule Sub-tab */}
+      {/* ========== SCHEDULE TAB ========== */}
       {activeSubTab === "schedule" && (
         <>
-          {/* Stats */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Card>
               <CardContent className="p-4">
@@ -230,7 +265,6 @@ export function VaccinationScheduleTab({
             </Card>
           </div>
 
-          {/* Overdue Vaccinations */}
           {overdueVaccinations.length > 0 && (
             <Card className="border-red-200">
               <CardHeader className="pb-3">
@@ -274,7 +308,6 @@ export function VaccinationScheduleTab({
             </Card>
           )}
 
-          {/* Upcoming Vaccinations */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
@@ -337,7 +370,6 @@ export function VaccinationScheduleTab({
             </CardContent>
           </Card>
 
-          {/* Unscheduled Animals */}
           {unscheduled.length > 0 && (
             <Card>
               <CardHeader className="pb-3">
@@ -377,10 +409,9 @@ export function VaccinationScheduleTab({
         </>
       )}
 
-      {/* History Sub-tab */}
+      {/* ========== HISTORY TAB ========== */}
       {activeSubTab === "history" && (
         <>
-          {/* Filters */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
@@ -437,7 +468,6 @@ export function VaccinationScheduleTab({
             </CardContent>
           </Card>
 
-          {/* History Records */}
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
@@ -468,7 +498,6 @@ export function VaccinationScheduleTab({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {/* Summary stats */}
                   <div className="flex gap-4 text-sm text-muted-foreground pb-3 border-b">
                     <span>
                       Total: <strong className="text-foreground">{vaccinationHistory.length}</strong> vaccinations
@@ -480,8 +509,6 @@ export function VaccinationScheduleTab({
                       </strong>
                     </span>
                   </div>
-
-                  {/* Records list */}
                   {vaccinationHistory.map((record, idx) => (
                     <div
                       key={`${record.livestockId}-${record.date}-${idx}`}
@@ -496,9 +523,7 @@ export function VaccinationScheduleTab({
                           <p className="text-sm text-muted-foreground">
                             {record.livestockType} · {record.farmName}
                           </p>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {record.description}
-                          </p>
+                          <p className="text-sm text-muted-foreground mt-1">{record.description}</p>
                           {record.treatment !== "Vaccination" && (
                             <p className="text-xs text-muted-foreground mt-0.5">
                               Treatment: {record.treatment}
@@ -515,9 +540,7 @@ export function VaccinationScheduleTab({
                           })}
                         </p>
                         {record.cost !== undefined && record.cost > 0 && (
-                          <p className="text-sm text-muted-foreground">
-                            ${record.cost.toFixed(2)}
-                          </p>
+                          <p className="text-sm text-muted-foreground">${record.cost.toFixed(2)}</p>
                         )}
                       </div>
                     </div>
@@ -528,6 +551,253 @@ export function VaccinationScheduleTab({
           </Card>
         </>
       )}
+
+      {/* ========== ANALYTICS TAB ========== */}
+      {activeSubTab === "analytics" && (
+        <>
+          {costAnalytics === undefined ? (
+            <Card>
+              <CardContent className="p-12 text-center text-muted-foreground">
+                <Loader2 className="w-8 h-8 mx-auto mb-3 animate-spin opacity-50" />
+                <p>Loading analytics...</p>
+              </CardContent>
+            </Card>
+          ) : costAnalytics.recordCount === 0 ? (
+            <Card>
+              <CardContent className="p-12 text-center text-muted-foreground">
+                <BarChart3 className="w-16 h-16 mx-auto mb-4 opacity-30" />
+                <p className="text-lg font-medium mb-2">No vaccination cost data yet</p>
+                <p className="text-sm">
+                  Complete vaccinations with costs to see analytics here.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {/* Summary Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-emerald-50">
+                        <TrendingUp className="w-5 h-5 text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold">
+                          ${costAnalytics.totalCost.toFixed(2)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Total Vaccination Cost</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-blue-50">
+                        <FileText className="w-5 h-5 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold">{costAnalytics.recordCount}</p>
+                        <p className="text-xs text-muted-foreground">Total Records</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-amber-50">
+                        <Syringe className="w-5 h-5 text-amber-600" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold">
+                          ${costAnalytics.recordCount > 0
+                            ? (costAnalytics.totalCost / costAnalytics.recordCount).toFixed(2)
+                            : "0.00"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Avg. Cost per Vaccination</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Monthly Spending Trend */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <TrendingUp className="w-5 h-5 text-emerald-600" />
+                    Monthly Spending Trend
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ChartContainer config={trendChartConfig} className="h-[300px] w-full">
+                    <AreaChart data={costAnalytics.monthlySpending}>
+                      <defs>
+                        <linearGradient id="costGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#16a34a" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#16a34a" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fontSize: 12 }}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 12 }}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={(value) => `$${value}`}
+                      />
+                      <ChartTooltip
+                        content={
+                          <ChartTooltipContent
+                            formatter={(value) => [`$${Number(value).toFixed(2)}`, "Cost"]}
+                          />
+                        }
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="cost"
+                        stroke="#16a34a"
+                        strokeWidth={2}
+                        fill="url(#costGradient)"
+                      />
+                    </AreaChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+
+              {/* Cost by Animal Type + Cost by Farm */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Pie Chart: Cost by Animal Type */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Syringe className="w-5 h-5 text-emerald-600" />
+                      Cost by Animal Type
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {costAnalytics.byType.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <p>No cost data by type</p>
+                      </div>
+                    ) : (
+                      <>
+                        <ChartContainer config={typeChartConfig} className="h-[250px] w-full">
+                          <PieChart>
+                            <ChartTooltip
+                              content={
+                                <ChartTooltipContent
+                                  formatter={(value) => [`$${Number(value).toFixed(2)}`, "Cost"]}
+                                />
+                              }
+                            />
+                            <Pie
+                              data={costAnalytics.byType}
+                              dataKey="cost"
+                              nameKey="type"
+                              cx="50%"
+                              cy="50%"
+                              outerRadius={90}
+                              innerRadius={50}
+                              paddingAngle={3}
+                            >
+                              {costAnalytics.byType.map((_, index) => (
+                                <Cell
+                                  key={`cell-${index}`}
+                                  fill={PIE_COLORS[index % PIE_COLORS.length]}
+                                />
+                              ))}
+                            </Pie>
+                          </PieChart>
+                        </ChartContainer>
+                        {/* Legend */}
+                        <div className="flex flex-wrap gap-3 mt-4 justify-center">
+                          {costAnalytics.byType.map((item, i) => (
+                            <div key={item.type} className="flex items-center gap-2 text-sm">
+                              <div
+                                className="w-3 h-3 rounded-full"
+                                style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }}
+                              />
+                              <span className="text-muted-foreground">{item.type}</span>
+                              <span className="font-medium">${item.cost.toFixed(2)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Bar Chart: Cost by Farm */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <BarChart3 className="w-5 h-5 text-emerald-600" />
+                      Cost by Farm
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {costAnalytics.byFarm.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <p>No cost data by farm</p>
+                      </div>
+                    ) : (
+                      <ChartContainer config={farmChartConfig} className="h-[300px] w-full">
+                        <BarChart
+                          data={costAnalytics.byFarm}
+                          layout="vertical"
+                          margin={{ left: 10 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" className="opacity-30" horizontal={false} />
+                          <XAxis
+                            type="number"
+                            tick={{ fontSize: 12 }}
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(value) => `$${value}`}
+                          />
+                          <YAxis
+                            type="category"
+                            dataKey="farm"
+                            tick={{ fontSize: 12 }}
+                            tickLine={false}
+                            axisLine={false}
+                            width={120}
+                          />
+                          <ChartTooltip
+                            content={
+                              <ChartTooltipContent
+                                formatter={(value) => [`$${Number(value).toFixed(2)}`, "Cost"]}
+                              />
+                            }
+                          />
+                          <Bar dataKey="cost" radius={[0, 4, 4, 0]}>
+                            {costAnalytics.byFarm.map((_, index) => (
+                              <Cell
+                                key={`farm-${index}`}
+                                fill={PIE_COLORS[index % PIE_COLORS.length]}
+                              />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ChartContainer>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {/* ========== DIALOGS ========== */}
 
       {/* Schedule Vaccination Dialog */}
       <Dialog
