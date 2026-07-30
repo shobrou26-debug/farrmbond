@@ -522,6 +522,23 @@ export const sendVaccinationReminders = mutation({
         .sort((a, b) => b.date - a.date)[0];
       const vaccineType = lastVaccine?.vaccineType || "unknown";
 
+      // Create in-app notification
+      const isOverdue = daysUntilDue < 0;
+      const urgencyText = isOverdue
+        ? `${Math.abs(daysUntilDue)} days overdue`
+        : `in ${daysUntilDue} day${daysUntilDue === 1 ? '' : 's'}`;
+
+      await ctx.db.insert("notifications", {
+        userId: animal.userId,
+        title: isOverdue ? `⚠️ Vaccination Overdue: ${animal.name}` : `💉 Vaccination Due: ${animal.name}`,
+        message: `${animal.name} (${animal.type}) needs ${vaccineType !== 'unknown' ? vaccineType : 'a'} vaccination ${urgencyText}. Farm: ${farm?.name || 'Unknown Farm'}.`,
+        type: isOverdue ? "vaccination_overdue" : "vaccination_reminder",
+        actionUrl: "/livestock",
+        actionLabel: "View Livestock",
+        isRead: false,
+        createdAt: now,
+      });
+
       // Send reminder email via scheduler
       await ctx.scheduler.runAfter(0, api.emails.sendVaccinationReminder, {
         userId: animal.userId,
