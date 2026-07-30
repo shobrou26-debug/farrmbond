@@ -68,7 +68,7 @@ export const listFarmLivestock = query({
 // Livestock Mutations
 // ============================================================
 
-/** Create a new livestock entry */
+/** Create a new livestock entry with optional health records, vaccination schedule, and cost tracking */
 export const createLivestock = mutation({
   args: {
     farmId: v.id("farms"),
@@ -78,10 +78,22 @@ export const createLivestock = mutation({
     quantity: v.number(),
     unit: v.string(),
     acquisitionDate: v.number(),
+    // Cost tracking
     acquisitionCost: v.optional(v.number()),
-    productionType: v.optional(v.string()),
     feedType: v.optional(v.string()),
     dailyFeedCost: v.optional(v.number()),
+    // Production
+    productionType: v.optional(v.string()),
+    // Vaccination scheduling
+    lastVaccination: v.optional(v.number()),
+    nextVaccination: v.optional(v.number()),
+    lastCheckup: v.optional(v.number()),
+    // Initial health records
+    initialHealthRecord: v.optional(v.object({
+      description: v.string(),
+      treatment: v.string(),
+      cost: v.optional(v.number()),
+    })),
   },
   handler: async (ctx, args) => {
     const { userId } = await requireAuth(ctx);
@@ -95,6 +107,16 @@ export const createLivestock = mutation({
     validateNumber(args.quantity, "Quantity", 1, 100000);
 
     const now = Date.now();
+
+    // Build medical history from initial health record
+    const medicalHistory = args.initialHealthRecord
+      ? [{
+          date: now,
+          description: sanitizeInput(args.initialHealthRecord.description),
+          treatment: sanitizeInput(args.initialHealthRecord.treatment),
+          cost: args.initialHealthRecord.cost,
+        }]
+      : undefined;
 
     const livestockId = await ctx.db.insert("livestock", {
       farmId: args.farmId,
@@ -111,6 +133,10 @@ export const createLivestock = mutation({
       productionType: args.productionType ? sanitizeInput(args.productionType) : undefined,
       feedType: args.feedType ? sanitizeInput(args.feedType) : undefined,
       dailyFeedCost: args.dailyFeedCost,
+      lastVaccination: args.lastVaccination,
+      nextVaccination: args.nextVaccination,
+      lastCheckup: args.lastCheckup,
+      medicalHistory,
       createdAt: now,
       updatedAt: now,
     });
@@ -125,6 +151,54 @@ export const createLivestock = mutation({
     });
 
     return livestockId;
+  },
+});
+
+/** Add a health record to an existing livestock entry */
+export const addHealthRecord = mutation({
+  args: {
+    livestockId: v.id("livestock"),
+    description: v.string(),
+    treatment: v.string(),
+    cost: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    await verifyLivestockOwnership(ctx, args.livestockId, userId);
+
+    const description = sanitizeInput(validateString(args.description, "Description", 200));
+    const treatment = sanitizeInput(validateString(args.treatment, "Treatment", 500));
+
+    const now = Date.now();
+
+    // Get existing medical history and append
+    const livestock = await ctx.db.get(args.livestockId);
+    const existingHistory = livestock?.medicalHistory || [];
+
+    await ctx.db.patch(args.livestockId, {
+      medicalHistory: [
+        ...existingHistory,
+        {
+          date: now,
+          description,
+          treatment,
+          cost: args.cost,
+        },
+      ],
+      lastCheckup: now,
+      updatedAt: now,
+    });
+
+    // Audit log
+    await createAuditLog(ctx, {
+      userId,
+      action: "livestock_health_record_added",
+      resource: "livestock",
+      resourceId: args.livestockId,
+      changes: { description, treatment },
+    });
+
+    return args.livestockId;
   },
 });
 
@@ -147,6 +221,9 @@ export const updateLivestock = mutation({
     nextVaccination: v.optional(v.number()),
     lastCheckup: v.optional(v.number()),
     dailyFeedCost: v.optional(v.number()),
+    feedType: v.optional(v.string()),
+    productionType: v.optional(v.string()),
+    acquisitionCost: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const { userId } = await requireAuth(ctx);
@@ -161,6 +238,9 @@ export const updateLivestock = mutation({
     if (args.nextVaccination !== undefined) updates.nextVaccination = args.nextVaccination;
     if (args.lastCheckup !== undefined) updates.lastCheckup = args.lastCheckup;
     if (args.dailyFeedCost !== undefined) updates.dailyFeedCost = args.dailyFeedCost;
+    if (args.feedType !== undefined) updates.feedType = sanitizeInput(args.feedType);
+    if (args.productionType !== undefined) updates.productionType = sanitizeInput(args.productionType);
+    if (args.acquisitionCost !== undefined) updates.acquisitionCost = args.acquisitionCost;
 
     await ctx.db.patch(args.livestockId, updates);
 
