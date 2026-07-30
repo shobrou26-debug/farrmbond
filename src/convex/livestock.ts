@@ -967,3 +967,96 @@ export const getCoverageAlerts = query({
     return { alerts, summary };
   },
 });
+
+// ============================================================
+// Low Coverage Alert Sender (Cron Job)
+// ============================================================
+
+export const sendLowCoverageAlerts = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const users = await ctx.db.query("users").collect();
+    const now = Date.now();
+    const ninetyDaysAgo = now - 90 * 24 * 60 * 60 * 1000;
+    const vaccineTypes = [
+      "FMD", "Anthrax", "Brucellosis", "Rift Valley Fever",
+      "Newcastle Disease", "Gumboro", "Rabies", "Blackleg",
+      "PPR", "CBPP", "Pasteurellosis", "Trypanosomiasis",
+    ];
+    let sent = 0;
+    let skipped = 0;
+
+    for (const user of users) {
+      if (!user.email) { skipped++; continue; }
+      const livestock = await ctx.db
+        .query("livestock")
+        .withIndex("by_user", (q) => q.eq("userId", user._id))
+        .collect();
+      if (livestock.length === 0) { skipped++; continue; }
+
+      const animalsByType: Record<string, typeof livestock> = {};
+      for (const animal of livestock) {
+        if (animal.status === "quarantine") continue;
+        if (!animalsByType[animal.type]) animalsByType[animal.type] = [];
+        animalsByType[animal.type].push(animal);
+      }
+
+      const alerts: Array<{
+        vaccineName: string; animalType: string; percentage: number;
+        vaccinated: number; total: number; severity: string;
+        recommendation: string; interval: string;
+      }> = [];
+
+      for (const [type, animals] of Object.entries(animalsByType)) {
+        const totalAnimals = animals.reduce((sum, a) => sum + a.quantity, 0);
+        const vaccineCoverage: Record<string, number> = {};
+        for (const vax of vaccineTypes) vaccineCoverage[vax] = 0;
+        for (const animal of animals) {
+          for (const record of (animal.medicalHistory || [])) {
+            if (record.date < ninetyDaysAgo) continue;
+            if (record.vaccineType && vaccineTypes.includes(record.vaccineType)) {
+              vaccineCoverage[record.vaccineType] += animal.quantity;
+            }
+          }
+        }
+        for (const [vaxName, vaccinated] of Object.entries(vaccineCoverage)) {
+          const pct = totalAnimals > 0 ? Math.min(100, Math.round((vaccinated / totalAnimals) * 100)) : 0;
+          if (pct < 50) {
+            const rec = COVERAGE_RECOMMENDATIONS[vaxName];
+            alerts.push({
+              vaccineName: vaxName, animalType: type, percentage: pct,
+              vaccinated: Math.min(vaccinated, totalAnimals), total: totalAnimals,
+              severity: pct === 0 ? "critical" : pct < 25 ? "critical" : "warning",
+              recommendation: rec?.recommendation || "Schedule vaccination as soon as possible.",
+              interval: rec?.interval || "As recommended",
+            });
+          }
+        }
+      }
+
+      if (alerts.length === 0) { skipped++; continue; }
+      alerts.sort((a, b) => {
+        const sevOrder: Record<string, number> = { critical: 0, warning: 1, info: 2 };
+        return (sevOrder[a.severity] - sevOrder[b.severity]) || (a.percentage - b.percentage);
+      });
+      const summary = {
+        total: alerts.length,
+        critical: alerts.filter((a) => a.severity === "critical").length,
+        high: alerts.filter((a) => a.severity === "critical" || a.percentage < 25).length,
+        medium: alerts.filter((a) => a.severity === "warning").length,
+      };
+      await ctx.db.insert("notifications", {
+        userId: user._id, type: "warning",
+        title: `${alerts.length} vaccine${alerts.length !== 1 ? 's' : ''} below 50% coverage`,
+        message: `${summary.critical} critical, ${summary.medium} warnings. Update your vaccination schedule.`,
+        isRead: false, createdAt: now,
+      });
+      await ctx.scheduler.runAfter(0, api.emails.sendLowCoverageAlert, {
+        userId: user._id, email: user.email, name: user.name || "there",
+        alerts: alerts.slice(0, 10), summary,
+      });
+      sent++;
+    }
+    return { sent, skipped, total: users.length };
+  },
+});

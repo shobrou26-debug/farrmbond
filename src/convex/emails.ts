@@ -202,3 +202,37 @@ export const sendVaccinationReminder = action({
     return sendEmail(args.email, `${isOverdue ? '⚠️' : '💉'} Vaccination ${isOverdue ? 'Overdue' : 'Reminder'}: ${args.livestockName} — ${urgencyText}`, htmlContent);
   },
 });
+
+/**
+ * Send a low vaccine coverage alert email to a farmer
+ */
+export const sendLowCoverageAlert = action({
+  args: {
+    userId: v.id("users"),
+    email: v.string(),
+    name: v.string(),
+    alerts: v.array(v.object({
+      vaccineName: v.string(),
+      animalType: v.string(),
+      percentage: v.number(),
+      vaccinated: v.number(),
+      total: v.number(),
+      severity: v.string(),
+      recommendation: v.string(),
+      interval: v.string(),
+    })),
+    summary: v.object({
+      total: v.number(),
+      critical: v.number(),
+      high: v.number(),
+      medium: v.number(),
+    }),
+  },
+  handler: async (ctx, args) => {
+    if (!BREVO_API_KEY) return { sent: false, reason: "Brevo API key not configured" };
+    const coverageUrl = `${APP_URL}/livestock?tab=coverage`;
+    const alertRows = args.alerts.map((a) => `<tr><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-weight:600;">${a.vaccineName}</td><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">${a.animalType}</td><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;"><span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;${a.severity === 'critical' ? 'background:#fef2f2;color:#991b1b;' : 'background:#fffbeb;color:#92400e;'}">${a.percentage}%</span></td><td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:13px;">${a.recommendation.substring(0, 80)}...</td></tr>`).join('');
+    const htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;background:#f7faf7}.container{background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,.1)}.header{background:linear-gradient(135deg,#dc2626,#b91c1c);padding:32px;text-align:center}.header h1{color:#fff;margin:0;font-size:24px}.content{padding:32px}.alert-badge{display:inline-block;background:#fef2f2;color:#991b1b;padding:8px 16px;border-radius:20px;font-weight:600;font-size:14px;margin:16px 0;border:1px solid #fecaca}table{width:100%;border-collapse:collapse;margin:20px 0;font-size:14px}th{background:#f8fafc;padding:10px 12px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:12px;text-transform:uppercase;color:#64748b}.cta-button{display:inline-block;background:#16a34a;color:#fff!important;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;margin:24px 0}.footer{background:#f8fafc;padding:24px;text-align:center;color:#64748b;font-size:14px}.footer a{color:#16a34a}</style></head><body><div class="container"><div class="header"><h1>🛡️ Vaccine Coverage Alert</h1></div><div class="content"><h2>Low Coverage Detected</h2><p>Hi ${args.name || 'there'},</p><div class="alert-badge">⚠️ ${args.summary.total} vaccine${args.summary.total !== 1 ? 's' : ''} below 50% coverage</div><p>Our system has detected that some of your livestock herds have critically low vaccination coverage. This puts your animals at risk of disease outbreaks.</p>${args.summary.critical > 0 ? '<p style="color:#991b1b;font-weight:600;">🔴 ' + args.summary.critical + ' critical alerts require immediate attention</p>' : ''}${args.summary.high > 0 ? '<p style="color:#c2410c;font-weight:600;">🟠 ' + args.summary.high + ' high priority vaccines need action soon</p>' : ''}<table><thead><tr><th>Vaccine</th><th>Animal Type</th><th>Coverage</th><th>Action Needed</th></tr></thead><tbody>${alertRows}</tbody></table><p>Schedule catch-up vaccinations as soon as possible to protect your herd health and productivity.</p><a href="${coverageUrl}" class="cta-button">View Coverage Dashboard</a><p>If you have questions about vaccination schedules, contact your local veterinarian or use our AI farming assistant.</p><p>Stay protected! 🌱<br>The FarmBond Team</p></div><div class="footer"><p>FarmBond - AI-Powered Smart Farming</p><p><a href="${APP_URL}/privacy">Privacy Policy</a> | <a href="${APP_URL}/settings?tab=notifications">Notification Settings</a></p></div></div></body></html>`;
+    return sendEmail(args.email, `⚠️ ${args.summary.total} Vaccine${args.summary.total !== 1 ? 's' : ''} Below 50% Coverage - Action Required`, htmlContent);
+  },
+});

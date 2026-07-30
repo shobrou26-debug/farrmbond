@@ -69,8 +69,6 @@ crons.interval(
   api.weather.prefetchAllFarmWeather
 );
 
-export default crons;
-
 /**
  * Send vaccination reminders daily.
  * Checks all livestock with upcoming vaccinations and sends email reminders.
@@ -80,3 +78,15 @@ crons.interval(
   { hours: 24 },
   api.livestock.sendVaccinationReminders
 );
+/**
+ * Send low vaccine coverage alert emails daily.
+ * Checks all users with vaccines below 50% coverage and sends
+ * proactive email alerts with recommendations.
+ */
+crons.interval(
+  "low_coverage_alerts",
+  { hours: 24 },
+  api.livestock.sendLowCoverageAlerts
+);
+
+export default crons;
