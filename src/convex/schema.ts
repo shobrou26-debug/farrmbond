@@ -1059,238 +1059,239 @@ const schema = defineSchema(
       .index("by_status", ["status"])
       .index("by_provider", ["provider"])
       .index("by_created", ["createdAt"]),
+    // ============================================================
+    // INTELLIGENCE ENGINE TABLES
+    // ============================================================
+
+    // Satellite imagery data cache
+    satelliteData: defineTable({
+      farmId: v.id("farms"),
+      userId: v.id("users"),
+
+      // NDVI data
+      ndvi: v.optional(v.number()), // 0-1 NDVI value
+      ndviClass: v.optional(v.string()), // "bare_soil", "sparse", "moderate", "dense", "very_dense"
+
+      // Vegetation indices
+      evi: v.optional(v.number()), // Enhanced Vegetation Index
+      savi: v.optional(v.number()), // Soil Adjusted Vegetation Index
+      ndwi: v.optional(v.number()), // Normalized Difference Water Index
+
+      // Field analysis
+      vegetationCoverage: v.optional(v.number()), // percentage
+      stressAreas: v.optional(v.array(v.object({
+        latitude: v.number(),
+        longitude: v.number(),
+        severity: v.string(),
+        type: v.string(),
+      }))),
+
+      // Water bodies
+      waterBodies: v.optional(v.number()), // detected water bodies count
+
+      // Growth stage estimation
+      growthStage: v.optional(v.string()),
+      growthConfidence: v.optional(v.number()),
+
+      // Image references
+      imageUrl: v.optional(v.string()),
+      thumbnailUrl: v.optional(v.string()),
+
+      // Metadata
+      capturedAt: v.number(),
+      timestamp: v.number(),
+      fetchedAt: v.number(),
+    })
+      .index("by_farm", ["farmId"])
+      .index("by_user", ["userId"])
+      .index("by_farm_time", ["farmId", "timestamp"]),
+
+    // Soil intelligence data cache (from SoilGrids)
+    soilData: defineTable({
+      farmId: v.id("farms"),
+      userId: v.id("users"),
+
+      // Basic properties
+      ph: v.number(),
+      organicMatter: v.number(), // percentage
+      nitrogen: v.number(), // percentage
+      phosphorus: v.number(), // mg/kg
+      potassium: v.number(), // mg/kg
+
+      // Physical properties
+      soilMoisture: v.number(), // percentage
+      drainage: v.string(),
+      texture: v.string(),
+      fertility: v.string(),
+
+      // Depth profiles
+      phDepth15cm: v.optional(v.number()),
+      phDepth30cm: v.optional(v.number()),
+      organicMatterDepth15cm: v.optional(v.number()),
+
+      // Carbon
+      organicCarbon: v.optional(v.number()),
+
+      // CEC (Cation Exchange Capacity)
+      cec: v.optional(v.number()),
+
+      // Recommendations generated from soil data
+      recommendations: v.optional(v.array(v.object({
+        issue: v.string(),
+        action: v.string(),
+        priority: v.string(),
+      }))),
+
+      // Metadata
+      source: v.string(), // "soilgrids", "lab_test", "estimated"
+      fetchedAt: v.number(),
+    })
+      .index("by_farm", ["farmId"])
+      .index("by_user", ["userId"]),
+
+    // Intelligence data entries (central intelligence log)
+    intelligenceData: defineTable({
+      userId: v.id("users"),
+      farmId: v.id("farms"),
+
+      // Source classification
+      source: v.string(), // "weather", "satellite", "soil", "market", "crop", "livestock", "financial"
+      dataType: v.string(),
+
+      // Content
+      title: v.string(),
+      summary: v.string(),
+      details: v.optional(v.any()),
+
+      // Scoring
+      confidence: v.number(), // 0-100
+      impact: v.string(), // "positive", "negative", "neutral"
+      severity: v.string(), // "low", "medium", "high", "critical"
+
+      // Actions triggered
+      actionsTriggered: v.optional(v.array(v.string())),
+
+      // Expiry
+      expiresAt: v.number(),
+
+      // Metadata
+      createdAt: v.number(),
+    })
+      .index("by_user", ["userId"])
+      .index("by_farm", ["farmId"])
+      .index("by_source", ["source"])
+      .index("by_farm_source", ["farmId", "source"]),
+
+    // Market intelligence cache
+    marketInsights: defineTable({
+      cropType: v.string(),
+      region: v.optional(v.string()),
+
+      // Price data
+      currentPrice: v.number(),
+      minPrice: v.number(),
+      maxPrice: v.number(),
+      unit: v.string(),
+      currency: v.string(),
+
+      // Trend analysis
+      trend: v.union(v.literal("up"), v.literal("down"), v.literal("stable")),
+      changePercent: v.number(),
+
+      // Insights
+      insight: v.string(),
+      recommendation: v.string(),
+
+      // Source
+      source: v.string(),
+
+      // Metadata
+      fetchedAt: v.number(),
+    })
+      .index("by_crop", ["cropType"])
+      .index("by_fetched", ["fetchedAt"]),
+
+    // Farm health scores (computed by intelligence engine)
+    farmHealthScores: defineTable({
+      farmId: v.id("farms"),
+      userId: v.id("users"),
+
+      // Component scores (0-100)
+      overall: v.number(),
+      cropHealth: v.number(),
+      livestockHealth: v.number(),
+      soilHealth: v.number(),
+      weatherRisk: v.number(),
+      financialHealth: v.number(),
+      satelliteHealth: v.number(),
+
+      // Risk assessment
+      riskLevel: v.string(), // "low", "medium", "high", "critical"
+      riskFactors: v.optional(v.array(v.string())),
+
+      // Trend
+      trend: v.string(), // "improving", "stable", "declining"
+      previousScore: v.optional(v.number()),
+
+      // Metadata
+      computedAt: v.number(),
+    })
+      .index("by_farm", ["farmId"])
+      .index("by_user", ["userId"]),
+
+    // Weekly AI reports
+    weeklyReports: defineTable({
+      userId: v.id("users"),
+      farmId: v.id("farms"),
+
+      // Report period
+      weekStart: v.number(),
+      weekEnd: v.number(),
+
+      // Sections
+      farmHealthSummary: v.string(),
+      cropProgress: v.string(),
+      livestockStatus: v.string(),
+      weatherSummary: v.string(),
+      soilInsights: v.optional(v.string()),
+      satelliteObservations: v.optional(v.string()),
+      marketTrends: v.optional(v.string()),
+      financialPerformance: v.string(),
+
+      // Tasks
+      tasksCompleted: v.number(),
+      tasksUpcoming: v.number(),
+
+      // AI Recommendations
+      recommendations: v.array(v.object({
+        category: v.string(),
+        title: v.string(),
+        description: v.string(),
+        priority: v.string(),
+        confidence: v.number(),
+      })),
+
+      // Risk analysis
+      riskAnalysis: v.string(),
+      riskScore: v.number(), // 0-100
+
+      // Overall score
+      healthScore: v.number(),
+
+      // PDF export
+      pdfUrl: v.optional(v.string()),
+
+      // Metadata
+      generatedAt: v.number(),
+    })
+      .index("by_user", ["userId"])
+      .index("by_farm", ["farmId"])
+      .index("by_week", ["weekStart"]),
+
   },
   {
     schemaValidation: false,
   },
 );
 
-// ============================================================
-// INTELLIGENCE ENGINE TABLES
-// ============================================================
-
-// Satellite imagery data cache
-satelliteData: defineTable({
-  farmId: v.id("farms"),
-  userId: v.id("users"),
-  
-  // NDVI data
-  ndvi: v.optional(v.number()), // 0-1 NDVI value
-  ndviClass: v.optional(v.string()), // "bare_soil", "sparse", "moderate", "dense", "very_dense"
-  
-  // Vegetation indices
-  evi: v.optional(v.number()), // Enhanced Vegetation Index
-  savi: v.optional(v.number()), // Soil Adjusted Vegetation Index
-  ndwi: v.optional(v.number()), // Normalized Difference Water Index
-  
-  // Field analysis
-  vegetationCoverage: v.optional(v.number()), // percentage
-  stressAreas: v.optional(v.array(v.object({
-    latitude: v.number(),
-    longitude: v.number(),
-    severity: v.string(),
-    type: v.string(),
-  }))),
-  
-  // Water bodies
-  waterBodies: v.optional(v.number()), // detected water bodies count
-  
-  // Growth stage estimation
-  growthStage: v.optional(v.string()),
-  growthConfidence: v.optional(v.number()),
-  
-  // Image references
-  imageUrl: v.optional(v.string()),
-  thumbnailUrl: v.optional(v.string()),
-  
-  // Metadata
-  capturedAt: v.number(),
-  timestamp: v.number(),
-  fetchedAt: v.number(),
-})
-  .index("by_farm", ["farmId"])
-  .index("by_user", ["userId"])
-  .index("by_farm_time", ["farmId", "timestamp"]),
-
-// Soil intelligence data cache (from SoilGrids)
-soilData: defineTable({
-  farmId: v.id("farms"),
-  userId: v.id("users"),
-  
-  // Basic properties
-  ph: v.number(),
-  organicMatter: v.number(), // percentage
-  nitrogen: v.number(), // percentage
-  phosphorus: v.number(), // mg/kg
-  potassium: v.number(), // mg/kg
-  
-  // Physical properties
-  soilMoisture: v.number(), // percentage
-  drainage: v.string(),
-  texture: v.string(),
-  fertility: v.string(),
-  
-  // Depth profiles
-  phDepth15cm: v.optional(v.number()),
-  phDepth30cm: v.optional(v.number()),
-  organicMatterDepth15cm: v.optional(v.number()),
-  
-  // Carbon
-  organicCarbon: v.optional(v.number()),
-  
-  // CEC (Cation Exchange Capacity)
-  cec: v.optional(v.number()),
-  
-  // Recommendations generated from soil data
-  recommendations: v.optional(v.array(v.object({
-    issue: v.string(),
-    action: v.string(),
-    priority: v.string(),
-  }))),
-  
-  // Metadata
-  source: v.string(), // "soilgrids", "lab_test", "estimated"
-  fetchedAt: v.number(),
-})
-  .index("by_farm", ["farmId"])
-  .index("by_user", ["userId"]),
-
-// Intelligence data entries (central intelligence log)
-intelligenceData: defineTable({
-  userId: v.id("users"),
-  farmId: v.id("farms"),
-  
-  // Source classification
-  source: v.string(), // "weather", "satellite", "soil", "market", "crop", "livestock", "financial"
-  dataType: v.string(),
-  
-  // Content
-  title: v.string(),
-  summary: v.string(),
-  details: v.optional(v.any()),
-  
-  // Scoring
-  confidence: v.number(), // 0-100
-  impact: v.string(), // "positive", "negative", "neutral"
-  severity: v.string(), // "low", "medium", "high", "critical"
-  
-  // Actions triggered
-  actionsTriggered: v.optional(v.array(v.string())),
-  
-  // Expiry
-  expiresAt: v.number(),
-  
-  // Metadata
-  createdAt: v.number(),
-})
-  .index("by_user", ["userId"])
-  .index("by_farm", ["farmId"])
-  .index("by_source", ["source"])
-  .index("by_farm_source", ["farmId", "source"]),
-
-// Market intelligence cache
-marketInsights: defineTable({
-  cropType: v.string(),
-  region: v.optional(v.string()),
-  
-  // Price data
-  currentPrice: v.number(),
-  minPrice: v.number(),
-  maxPrice: v.number(),
-  unit: v.string(),
-  currency: v.string(),
-  
-  // Trend analysis
-  trend: v.union(v.literal("up"), v.literal("down"), v.literal("stable")),
-  changePercent: v.number(),
-  
-  // Insights
-  insight: v.string(),
-  recommendation: v.string(),
-  
-  // Source
-  source: v.string(),
-  
-  // Metadata
-  fetchedAt: v.number(),
-})
-  .index("by_crop", ["cropType"])
-  .index("by_fetched", ["fetchedAt"]),
-
-// Farm health scores (computed by intelligence engine)
-farmHealthScores: defineTable({
-  farmId: v.id("farms"),
-  userId: v.id("users"),
-  
-  // Component scores (0-100)
-  overall: v.number(),
-  cropHealth: v.number(),
-  livestockHealth: v.number(),
-  soilHealth: v.number(),
-  weatherRisk: v.number(),
-  financialHealth: v.number(),
-  satelliteHealth: v.number(),
-  
-  // Risk assessment
-  riskLevel: v.string(), // "low", "medium", "high", "critical"
-  riskFactors: v.optional(v.array(v.string())),
-  
-  // Trend
-  trend: v.string(), // "improving", "stable", "declining"
-  previousScore: v.optional(v.number()),
-  
-  // Metadata
-  computedAt: v.number(),
-})
-  .index("by_farm", ["farmId"])
-  .index("by_user", ["userId"]),
-
-// Weekly AI reports
-weeklyReports: defineTable({
-  userId: v.id("users"),
-  farmId: v.id("farms"),
-  
-  // Report period
-  weekStart: v.number(),
-  weekEnd: v.number(),
-  
-  // Sections
-  farmHealthSummary: v.string(),
-  cropProgress: v.string(),
-  livestockStatus: v.string(),
-  weatherSummary: v.string(),
-  soilInsights: v.optional(v.string()),
-  satelliteObservations: v.optional(v.string()),
-  marketTrends: v.optional(v.string()),
-  financialPerformance: v.string(),
-  
-  // Tasks
-  tasksCompleted: v.number(),
-  tasksUpcoming: v.number(),
-  
-  // AI Recommendations
-  recommendations: v.array(v.object({
-    category: v.string(),
-    title: v.string(),
-    description: v.string(),
-    priority: v.string(),
-    confidence: v.number(),
-  })),
-  
-  // Risk analysis
-  riskAnalysis: v.string(),
-  riskScore: v.number(), // 0-100
-  
-  // Overall score
-  healthScore: v.number(),
-  
-  // PDF export
-  pdfUrl: v.optional(v.string()),
-  
-  // Metadata
-  generatedAt: v.number(),
-})
-  .index("by_user", ["userId"])
-  .index("by_farm", ["farmId"])
-  .index("by_week", ["weekStart"]),
-
+export default schema;

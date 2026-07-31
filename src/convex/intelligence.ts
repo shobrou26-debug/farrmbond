@@ -94,7 +94,7 @@ export const getFarmHealthScore = query({
     let weatherRisk = 50; // default moderate risk
     if (weatherData) {
       const temp = weatherData.temperature ?? 25;
-      const rain = weatherData.rainfall ?? 0;
+      const rain = weatherData.precipitation ?? 0;
       // Simple risk calculation
       if (temp > 35 || temp < 10 || rain < 5) weatherRisk = 80;
       else if (temp > 30 || temp < 15 || rain < 20) weatherRisk = 60;
@@ -180,7 +180,7 @@ export const getRecommendations = query({
 
     if (weatherData) {
       const temp = weatherData.temperature ?? 25;
-      const rain = weatherData.rainfall ?? 0;
+      const rain = weatherData.precipitation ?? 0;
 
       if (rain < 5) {
         recommendations.push({
@@ -407,10 +407,10 @@ export const getCrossModuleInsights = query({
 
     // Cross-reference: Weather + Crops
     if (weatherData && crops.length > 0) {
-      const rain = weatherData.rainfall ?? 0;
+      const rain = weatherData.precipitation ?? 0;
       const temp = weatherData.temperature ?? 25;
 
-      if (rain < 10 && crops.some((c) => c.stage === "flowering" || c.stage === "fruiting")) {
+      if (rain < 10 && crops.some((c) => c.status === "flowering" || c.status === "fruiting")) {
         insights.push({
           type: "irrigation_urgent",
           title: "Critical: Flowering Crops Need Water",
@@ -490,10 +490,14 @@ export const storeIntelligenceData = mutation({
       userId,
       source: args.source,
       dataType: args.dataType,
-      data: args.data,
+      title: args.source + " insight",
+      summary: typeof args.data === "object" ? JSON.stringify(args.data) : String(args.data ?? ""),
+      details: args.data,
       confidence: args.confidence,
-      timestamp: Date.now(),
-      processed: false,
+      impact: "neutral",
+      severity: "low",
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      createdAt: Date.now(),
     });
 
     return true;
@@ -510,13 +514,17 @@ export const markRecommendationActed = mutation({
   handler: async (ctx, args) => {
     const { userId } = await requireAuth(ctx);
 
-    await ctx.db.insert("recommendationActions", {
-      userId,
-      recommendationId: args.recommendationId,
-      action: args.action,
-      notes: args.notes,
-      timestamp: Date.now(),
-    });
+    // Update existing intelligence data entry to mark it as acted upon
+    const entries = await ctx.db
+      .query("intelligenceData")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    
+    if (entries.length > 0) {
+      await ctx.db.patch(entries[0]._id, {
+        actionsTriggered: [args.action],
+      });
+    }
 
     return true;
   },
@@ -678,7 +686,7 @@ export const runIntelligencePipeline = mutation({
           farmId: farm._id, userId, overall, cropHealth: avgCropHealth,
           livestockHealth: avgLivestockHealth, soilHealth, weatherRisk,
           financialHealth, satelliteHealth, riskLevel, riskFactors, trend,
-          previousScore: previousScore?.overall, computedAt: now,
+          previousScore: previousScore ? (previousScore as any).overall : undefined, computedAt: now,
         });
       }
 
@@ -726,10 +734,9 @@ export const getLatestInsights = query({
       .query("intelligenceData")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .order("desc")
-      .limit(args.limit ?? 10)
-      .collect();
+      .collect().slice(0, args.limit ?? 10);
 
     // Filter out expired insights
-    return insights.filter((i) => i.expiresAt > now);
+    return insights.filter((i: any) => i.expiresAt > now);
   },
 });

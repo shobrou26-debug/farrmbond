@@ -27,10 +27,10 @@ export const getSatelliteAnalysis = query({
       .query("satelliteData")
       .withIndex("by_farm", (q) => q.eq("farmId", args.farmId))
       .order("desc")
-      .limit(12);
+      .take(12);
 
     // Calculate NDVI trend
-    const ndviTrend = historicalData.map((d) => ({
+    const ndviTrend = historicalData.map((d: any) => ({
       date: d.timestamp,
       ndvi: d.ndvi ?? 0,
       label: new Date(d.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
@@ -76,9 +76,9 @@ export const getSatelliteAnalysis = query({
       stressAreas,
       lastUpdated: satelliteData?.timestamp ?? null,
       satelliteImage: satelliteData?.imageUrl ?? null,
-      vegetationIndex: satelliteData?.vegetationIndex ?? null,
-      cropDensity: satelliteData?.cropDensity ?? null,
-      waterStress: satelliteData?.waterStress ?? false,
+      vegetationIndex: satelliteData?.ndvi ?? null,
+      cropDensity: satelliteData?.vegetationCoverage ?? null,
+      waterStress: (satelliteData?.ndwi ?? 0) < 0.1,
     };
   },
 });
@@ -121,8 +121,8 @@ export const analyzeFarmSatellite = action({
 
     // Simulate satellite analysis based on farm location
     // In production, this would call Sentinel-2 API
-    const lat = farm.latitude ?? -1.2921;
-    const lon = farm.longitude ?? 36.8219;
+    const lat = farm.location?.latitude ?? -1.2921;
+    const lon = farm.location?.longitude ?? 36.8219;
 
     // Generate realistic NDVI based on location and season
     const month = new Date().getMonth();
@@ -181,13 +181,11 @@ export const storeSatelliteData = mutation({
       farmId: args.farmId,
       userId,
       ndvi: args.ndvi,
-      vegetationIndex: args.vegetationIndex,
-      cropDensity: args.cropDensity,
-      waterStress: args.waterStress,
-      soilMoisture: args.soilMoisture,
+      vegetationCoverage: args.vegetationIndex ?? args.cropDensity,
       imageUrl: args.imageUrl,
       timestamp: args.analysisDate,
-      source: "sentinel-2",
+      fetchedAt: Date.now(),
+      capturedAt: args.analysisDate ?? Date.now(),
     });
 
     return true;
@@ -204,8 +202,8 @@ export const getFieldBoundaries = query({
 
     // In production, this would come from GIS data
     // For now, return farm boundaries based on GPS coordinates
-    const lat = farm.latitude ?? -1.2921;
-    const lon = farm.longitude ?? 36.8219;
+    const lat = farm.location?.latitude ?? -1.2921;
+    const lon = farm.location?.longitude ?? 36.8219;
 
     return {
       farmId: args.farmId,
@@ -281,8 +279,8 @@ export const detectCropStress = query({
     if (!satelliteData) return null;
 
     const ndvi = satelliteData.ndvi ?? 0;
-    const waterStress = satelliteData.waterStress ?? false;
-    const soilMoisture = satelliteData.soilMoisture ?? 50;
+    const waterStress = (satelliteData.ndwi ?? 0) < 0.1;
+    const soilMoisture = 50; // Derived from weather data in production
 
     const stressFactors: Array<{
       factor: string;

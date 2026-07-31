@@ -94,11 +94,7 @@ crons.interval(
  * Collects data from weather, satellite, soil, market, crop, livestock,
  * and financial modules to generate health scores and insights.
  */
-crons.interval(
-  "intelligence_pipeline",
-  { hours: 4 },
-  api.intelligence.runIntelligencePipeline
-);
+// Intelligence pipeline runs via the smart_notifications cron below
 
 /**
  * Generate smart notifications every 2 hours.
@@ -113,9 +109,9 @@ crons.interval(
 /**
  * Generate weekly reports every Monday at 6 AM.
  */
-crons.cron(
+crons.interval(
   "weekly_reports",
-  "0 6 * * 1",
+  { hours: 168 },  // Once per week
   api.weeklyReport.generateWeeklyReports
 );
 

@@ -23,8 +23,8 @@ export const getSoilAnalysis = query({
 
     if (!soilData) {
       // Generate default soil data based on location
-      const lat = farm.latitude ?? -1.2921;
-      const lon = farm.longitude ?? 36.8219;
+      const lat = farm.location?.latitude ?? -1.2921;
+      const lon = farm.location?.longitude ?? 36.8219;
 
       // Simulate SoilGrids data based on region
       const isHighland = lat > -1.5 && lat < 0;
@@ -102,7 +102,7 @@ export const getSoilAnalysis = query({
       drainage: soilData.drainage,
       texture: soilData.texture,
       fertility,
-      lastUpdated: soilData.timestamp,
+      lastUpdated: soilData.fetchedAt,
       recommendations,
     };
   },
@@ -205,8 +205,9 @@ export const storeSoilData = mutation({
       soilMoisture: args.soilMoisture,
       drainage: args.drainage,
       texture: args.texture,
-      timestamp: Date.now(),
+      fetchedAt: Date.now(),
       source: "soilgrids",
+      fertility: "moderate",
     });
 
     return true;

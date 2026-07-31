@@ -11,22 +11,22 @@ import { requireAuth } from "./authHelpers";
 export const generateWeeklyReport = action({
   args: { farmId: v.id("farms") },
   handler: async (ctx, args) => {
-    const farm = await ctx.runQuery(api.farms.getFarm, { farmId: args.farmId });
+    const farm: any = await ctx.runQuery(api.farms.getFarm, { farmId: args.farmId });
     if (!farm) throw new Error("Farm not found");
 
     const now = Date.now();
     const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
 
     // Gather data from all modules
-    const crops = await ctx.runQuery(api.crops.listFarmCrops, { farmId: args.farmId });
-    const livestock = await ctx.runQuery(api.livestock.listFarmLivestock, { farmId: args.farmId });
-    const healthScore = await ctx.runQuery(api.intelligence.getFarmHealthScore, { farmId: args.farmId });
-    const recommendations = await ctx.runQuery(api.intelligence.getRecommendations, { farmId: args.farmId, limit: 5 });
-    const satellite = await ctx.runQuery(api.satellite.getSatelliteAnalysis, { farmId: args.farmId });
-    const soil = await ctx.runQuery(api.soil.getSoilAnalysis, { farmId: args.farmId });
+    const crops: any = await ctx.runQuery(api.crops.listFarmCrops, { farmId: args.farmId });
+    const livestock: any = await ctx.runQuery(api.livestock.listFarmLivestock, { farmId: args.farmId });
+    const healthScore: any = await ctx.runQuery(api.intelligence.getFarmHealthScore, { farmId: args.farmId });
+    const recommendations: any = await ctx.runQuery(api.intelligence.getRecommendations, { farmId: args.farmId, limit: 5 });
+    const satellite: any = await ctx.runQuery(api.satellite.getSatelliteAnalysis, { farmId: args.farmId });
+    const soil: any = await ctx.runQuery(api.soil.getSoilAnalysis, { farmId: args.farmId });
 
     // Build report
-    const report = {
+    const report: any = {
       farmId: args.farmId,
       farmName: farm.name,
       generatedAt: now,
@@ -196,10 +196,9 @@ export const getReportHistory = query({
       .query("weeklyReports")
       .withIndex("by_farm", (q) => q.eq("farmId", args.farmId))
       .order("desc")
-      .limit(args.limit ?? 10)
       .collect();
 
-    return reports.map((r) => ({
+    return reports.map((r: any) => ({
       id: r._id,
       generatedAt: r.generatedAt,
       overallHealth: r.report?.summary?.overallHealth ?? 0,

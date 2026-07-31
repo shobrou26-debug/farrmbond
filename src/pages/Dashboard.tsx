@@ -34,6 +34,8 @@ import {
   Wind,
 } from "lucide-react";
 import { Link } from "react-router";
+import { FarmHealthScoreWidget, IntelligenceInsightsWidget } from "@/components/FarmHealthScoreWidget";
+import { useQuery } from "convex/react";
 
 // ============================================================
 // Animation Variants
@@ -423,6 +425,9 @@ export default function Dashboard() {
   const totalLivestock = livestock.reduce((sum, l) => sum + l.quantity, 0);
   const totalFarmSize = farms.reduce((sum, f) => sum + f.size, 0);
 
+  // Intelligence engine data
+  const latestInsights = useQuery(api.intelligence.getLatestInsights, { limit: 5 });
+
   // Greeting based on time of day
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
@@ -584,7 +589,9 @@ export default function Dashboard() {
 
             {/* Right Column */}
             <motion.div variants={itemVariants} className="space-y-4 sm:space-y-6">
+              <FarmHealthScoreWidget />
               <WeatherWidget />
+              <IntelligenceInsightsWidget insights={latestInsights ?? []} />
               <AIAssistantWidget />
             </motion.div>
           </div>

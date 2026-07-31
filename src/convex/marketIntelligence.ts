@@ -178,11 +178,13 @@ export const storeMarketPrice = mutation({
   handler: async (ctx, args) => {
     await ctx.db.insert("marketPrices", {
       cropType: args.cropType.toLowerCase(),
+      country: "KE",
       price: args.price,
       unit: args.unit,
       currency: args.currency,
+      trend: "stable" as const,
       source: args.source,
-      timestamp: Date.now(),
+      recordedAt: Date.now(),
     });
 
     return true;
@@ -202,14 +204,14 @@ export const getPriceHistory = query({
     const history = await ctx.db
       .query("marketPrices")
       .withIndex("by_crop", (q) => q.eq("cropType", args.cropType.toLowerCase()))
-      .filter((q) => q.gte(q.field("timestamp"), cutoffDate))
+      .filter((q) => q.gte(q.field("recordedAt"), cutoffDate))
       .order("asc")
       .collect();
 
     return history.map((h) => ({
-      date: h.timestamp,
+      date: h.recordedAt,
       price: h.price,
-      label: new Date(h.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      label: new Date(h.recordedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
     }));
   },
 });

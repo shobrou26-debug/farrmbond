@@ -217,12 +217,11 @@ export const generateSmartNotifications = mutation({
       .query("notifications")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .order("desc")
-      .limit(50)
-      .collect();
+      .collect().then((r: any[]) => r.slice(0, 50));
 
-    const recentTitles = new Set(recentNotifications.map((n) => n.title));
+    const recentTitles = new Set(recentNotifications.map((n: any) => n.title));
     const recentTimestamps = new Map(
-      recentNotifications.map((n) => [n.title, n.createdAt])
+      recentNotifications.map((n: any) => [n.title, n.createdAt])
     );
 
     const DEDUP_HOURS: Record<string, number> = {
@@ -253,7 +252,7 @@ export const generateSmartNotifications = mutation({
       if (recentTitles.has(notif.title)) {
         const lastCreated = recentTimestamps.get(notif.title) ?? 0;
         const dedupWindow = (DEDUP_HOURS[notif.type] ?? 24) * 60 * 60 * 1000;
-        if (now - lastCreated < dedupWindow) {
+        if (now - (lastCreated as number) < dedupWindow) {
           skipped++;
           continue;
         }
@@ -286,10 +285,9 @@ export const getSmartNotifications = query({
       .query("notifications")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .order("desc")
-      .limit(100)
-      .collect();
+      .collect().then((r: any[]) => r.slice(0, 100));
 
-    const unreadCount = notifications.filter((n) => !n.isRead).length;
+    const unreadCount = notifications.filter((n: any) => !n.isRead).length;
 
     // Group by type
     const grouped: Record<string, typeof notifications> = {};
@@ -331,7 +329,7 @@ export const markAllRead = mutation({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
 
-    const unread = notifications.filter((n) => !n.isRead);
+    const unread = notifications.filter((n: any) => !n.isRead);
     for (const notif of unread) {
       await ctx.db.patch(notif._id, { isRead: true });
     }
