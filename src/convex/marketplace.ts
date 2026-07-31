@@ -244,6 +244,122 @@ export const createSeed = mutation({
 });
 
 // ============================================================
+// Update & Delete Mutations (Admin CRUD)
+// ============================================================
+
+/** Update an agronomist profile */
+export const updateAgronomist = mutation({
+  args: {
+    profileId: v.id("agronomistProfiles"),
+    title: v.optional(v.string()),
+    specializations: v.optional(v.array(v.string())),
+    experience: v.optional(v.number()),
+    services: v.optional(v.array(v.object({
+      name: v.string(),
+      description: v.string(),
+      price: v.number(),
+      duration: v.number(),
+      type: v.union(v.literal("chat"), v.literal("video"), v.literal("field_visit")),
+    }))),
+    availableDays: v.optional(v.array(v.string())),
+    availableHours: v.optional(v.object({ start: v.string(), end: v.string() })),
+    timezone: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireAuth(ctx);
+    const { profileId, ...updates } = args;
+    await ctx.db.patch(profileId, { ...updates, updatedAt: Date.now() });
+    return { success: true };
+  },
+});
+
+/** Delete an agronomist profile */
+export const deleteAgronomist = mutation({
+  args: { profileId: v.id("agronomistProfiles") },
+  handler: async (ctx, args) => {
+    await requireAuth(ctx);
+    await ctx.db.delete(args.profileId);
+    return { success: true };
+  },
+});
+
+/** Update an agricultural company */
+export const updateCompany = mutation({
+  args: {
+    companyId: v.id("agriculturalCompanies"),
+    name: v.optional(v.string()),
+    category: v.optional(v.string()),
+    description: v.optional(v.string()),
+    logoUrl: v.optional(v.string()),
+    coverImage: v.optional(v.string()),
+    location: v.optional(v.string()),
+    country: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
+    website: v.optional(v.string()),
+    products: v.optional(v.array(v.string())),
+    verified: v.optional(v.boolean()),
+    featured: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    await requireAuth(ctx);
+    const { companyId, ...updates } = args;
+    await ctx.db.patch(companyId, { ...updates, updatedAt: Date.now() });
+    return { success: true };
+  },
+});
+
+/** Delete an agricultural company */
+export const deleteCompany = mutation({
+  args: { companyId: v.id("agriculturalCompanies") },
+  handler: async (ctx, args) => {
+    await requireAuth(ctx);
+    await ctx.db.delete(args.companyId);
+    return { success: true };
+  },
+});
+
+/** Update a seed listing */
+export const updateSeed = mutation({
+  args: {
+    seedId: v.id("seeds"),
+    name: v.optional(v.string()),
+    cropType: v.optional(v.string()),
+    variety: v.optional(v.string()),
+    description: v.optional(v.string()),
+    company: v.optional(v.string()),
+    price: v.optional(v.number()),
+    currency: v.optional(v.string()),
+    unit: v.optional(v.string()),
+    germinationRate: v.optional(v.number()),
+    maturityDays: v.optional(v.number()),
+    yieldPerHectare: v.optional(v.string()),
+    waterNeeds: v.optional(v.string()),
+    climate: v.optional(v.array(v.string())),
+    season: v.optional(v.array(v.string())),
+    tags: v.optional(v.array(v.string())),
+    inStock: v.optional(v.boolean()),
+    featured: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    await requireAuth(ctx);
+    const { seedId, ...updates } = args;
+    await ctx.db.patch(seedId, { ...updates, updatedAt: Date.now() });
+    return { success: true };
+  },
+});
+
+/** Delete a seed listing */
+export const deleteSeed = mutation({
+  args: { seedId: v.id("seeds") },
+  handler: async (ctx, args) => {
+    await requireAuth(ctx);
+    await ctx.db.delete(args.seedId);
+    return { success: true };
+  },
+});
+
+// ============================================================
 // Consultation Booking Module
 // ============================================================
 

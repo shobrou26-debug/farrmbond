@@ -47,6 +47,7 @@ const SeedShowcase = lazy(() => import("./pages/SeedShowcase.tsx"));
 const AgriculturalCompanies = lazy(() => import("./pages/AgriculturalCompanies.tsx"));
 const FarmingEvents = lazy(() => import("./pages/FarmingEvents.tsx"));
 const WeeklyAIReport = lazy(() => import("./pages/WeeklyAIReport.tsx"));
+const SeedManagement = lazy(() => import("./pages/SeedManagement.tsx"));
 
 // ============================================================
 // Loading fallback
@@ -182,6 +183,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/admin/content" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
               <Route path="/admin/audit" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
               <Route path="/admin/settings" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
+              <Route path="/admin/seeds" element={<RequireAuth><SeedManagement /></RequireAuth>} />
 
               {/* Catch-all */}
               <Route path="*" element={<NotFound />} />

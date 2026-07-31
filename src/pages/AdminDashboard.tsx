@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useNavigate } from "react-router";
 import { motion } from "framer-motion";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,6 +40,7 @@ const itemVariants = {
 };
 
 export default function AdminDashboard() {
+  const navigate = useNavigate();
   const [seeding, setSeeding] = useState(false);
   const [seedResult, setSeedResult] = useState<string | null>(null);
   const seedMarketplace = useMutation(api.seedData.seedMarketplace);
@@ -149,10 +151,11 @@ export default function AdminDashboard() {
                     { label: "System Settings", icon: Settings },
                     { label: "View Audit Logs", icon: Shield },
                     { label: "Send Announcements", icon: Bell },
+                    { label: "Seed Management", icon: Sprout, href: "/admin/seeds" },
                   ].map((action, i) => {
                     const Icon = action.icon;
                     return (
-                      <Button key={i} variant="ghost" className="w-full justify-start">
+                      <Button key={i} variant="ghost" className="w-full justify-start" onClick={() => navigate((action as any).href || "/")}>
                         <Icon className="w-4 h-4 mr-2" />{action.label}
                       </Button>
                     );
