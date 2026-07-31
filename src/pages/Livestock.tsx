@@ -975,6 +975,8 @@ export default function Livestock() {
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [coverageFarmFilter, setCoverageFarmFilter] = useState<string>("all");
   const [coverageTimeRange, setCoverageTimeRange] = useState<number>(90);
+  const [comparisonMode, setComparisonMode] = useState<boolean>(false);
+  const [comparisonVaccine, setComparisonVaccine] = useState<string>("FMD");
   const [selectedAnimal, setSelectedAnimal] = useState<LivestockDoc | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "health" | "vaccinations" | "coverage" | "alerts">("overview");
   const [showAlerts, setShowAlerts] = useState(false);
@@ -993,6 +995,7 @@ export default function Livestock() {
   const vaccineCoverage = useQuery(api.livestock.getVaccineCoverage, { farmId: coverageFarmFilter === "all" ? undefined : coverageFarmFilter, daysBack: coverageTimeRange });
   const coverageAlerts = useQuery(api.livestock.getCoverageAlerts, { farmId: coverageFarmFilter === "all" ? undefined : coverageFarmFilter });
   const coverageTrends = useQuery(api.livestock.getCoverageTrends, { farmId: coverageFarmFilter === "all" ? undefined : coverageFarmFilter });
+  const farmTrends = useQuery(api.livestock.getCoverageTrendsByFarm, {});
   const completeVaccination = useMutation(api.livestock.completeVaccination);
 
   // Map farmId to farm name
@@ -1689,13 +1692,24 @@ export default function Livestock() {
                     )}
 
                     {/* Coverage Trends Chart */}
-                    {coverageTrends && coverageTrends.months.length > 0 && coverageTrends.vaccineNames.length > 0 && (
+                    {!comparisonMode && coverageTrends && coverageTrends.months.length > 0 && coverageTrends.vaccineNames.length > 0 && (
                       <Card className="border-border/50">
                         <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <TrendingUp className="w-5 h-5 text-primary" />
-                            Coverage Trends (Last 12 Months)
-                          </CardTitle>
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="flex items-center gap-2">
+                              <TrendingUp className="w-5 h-5 text-primary" />
+                              Coverage Trends (Last 12 Months)
+                            </CardTitle>
+                            {farms && farms.page && farms.page.length > 1 && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setComparisonMode(true)}
+                              >
+                                Compare Farms
+                              </Button>
+                            )}
+                          </div>
                         </CardHeader>
                         <CardContent>
                           <div className="h-[350px] w-full">
@@ -1712,6 +1726,103 @@ export default function Livestock() {
                               </LineChart>
                             </ResponsiveContainer>
                           </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* Farm Comparison Mode */}
+                    {comparisonMode && (
+                      <Card className="border-border/50">
+                        <CardHeader>
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="flex items-center gap-2">
+                              <TrendingUp className="w-5 h-5 text-primary" />
+                              Farm Comparison
+                            </CardTitle>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setComparisonMode(false)}
+                            >
+                              <X className="w-4 h-4 mr-1" />
+                              Exit Comparison
+                            </Button>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            Compare vaccine coverage trends across your farms side-by-side
+                          </p>
+                        </CardHeader>
+                        <CardContent>
+                          {/* Vaccine Selector */}
+                          {farmTrends && farmTrends.vaccineNames.length > 0 && (
+                            <div className="flex items-center gap-3 mb-6">
+                              <Label className="text-sm font-medium">Compare by:</Label>
+                              <select
+                                className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                                value={comparisonVaccine}
+                                onChange={(e) => setComparisonVaccine(e.target.value)}
+                              >
+                                {farmTrends.vaccineNames.map((vax: string) => (
+                                  <option key={vax} value={vax}>{vax}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          {/* Farm Lines Legend */}
+                          {farmTrends && farmTrends.farmTrends.length > 0 && (
+                            <div className="flex flex-wrap gap-3 mb-4">
+                              {farmTrends.farmTrends.map((ft: any, idx: number) => (
+                                <div key={ft.farmId} className="flex items-center gap-2 text-sm">
+                                  <div
+                                    className="w-3 h-3 rounded-full"
+                                    style={{ backgroundColor: ["#16a34a", "#2563eb", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#be185d", "#65a30d"][idx % 8] }}
+                                  />
+                                  <span>{ft.farmName}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {farmTrends && farmTrends.farmTrends.length > 0 ? (
+                            <div className="h-[400px] w-full">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <LineChart
+                                  data={farmTrends.farmTrends[0]?.data || []}
+                                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                                >
+                                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                                  <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                                  <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} tickFormatter={(v) => `${v}%`} />
+                                  <Tooltip
+                                    formatter={(value: number) => [`${value}%`, ""]}
+                                    contentStyle={{ borderRadius: "8px", border: "1px solid hsl(var(--border))", background: "hsl(var(--background))" }}
+                                  />
+                                  <Legend wrapperStyle={{ fontSize: "12px" }} />
+                                  {farmTrends.farmTrends.map((ft: any, idx: number) => (
+                                    <Line
+                                      key={ft.farmId}
+                                      type="monotone"
+                                      data={ft.data}
+                                      dataKey={comparisonVaccine}
+                                      name={ft.farmName}
+                                      stroke={["#16a34a", "#2563eb", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#be185d", "#65a30d"][idx % 8]}
+                                      strokeWidth={2.5}
+                                      dot={{ r: 4 }}
+                                      activeDot={{ r: 6 }}
+                                      strokeDasharray={idx > 0 ? ["5 5", "8 4", "12 4", "3 3"][idx % 4] : undefined}
+                                    />
+                                  ))}
+                                </LineChart>
+                              </ResponsiveContainer>
+                            </div>
+                          ) : (
+                            <div className="text-center py-12">
+                              <TrendingUp className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
+                              <h3 className="text-lg font-medium">No farm data available</h3>
+                              <p className="text-muted-foreground mt-1">
+                                Add livestock to multiple farms to compare coverage trends
+                              </p>
+                            </div>
+                          )}
                         </CardContent>
                       </Card>
                     )}

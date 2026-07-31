@@ -323,7 +323,7 @@ export const getUpcomingVaccinations = query({
     // Filter by farm if specified
     const farmIds = [...new Set(livestock.map((l) => l.farmId))];
     const farms = await Promise.all(farmIds.map((id) => ctx.db.get(id)));
-    const farmMap = new Map(farms.filter(Boolean).map((f) => [f!._id, f!.name]));
+    const farmMap = new Map<string, string>(farms.filter(Boolean).map((f) => [f!._id as string, f!.name]));
 
     const upcoming = livestock
       .filter((l) => l.nextVaccination && l.nextVaccination <= cutoff)
@@ -581,7 +581,7 @@ export const getVaccinationHistory = query({
     // Get farm names
     const farmIds = [...new Set(livestock.map((l) => l.farmId))];
     const farms = await Promise.all(farmIds.map((id) => ctx.db.get(id)));
-    const farmMap = new Map(farms.filter(Boolean).map((f) => [f!._id, f!.name]));
+    const farmMap = new Map<string, string>(farms.filter(Boolean).map((f) => [f!._id as string, f!.name]));
 
     // Extract vaccination records from medicalHistory
     const vaccinationRecords: Array<{
@@ -675,7 +675,7 @@ export const getVaccinationCostAnalytics = query({
     // Get farm names
     const farmIds = [...new Set(livestock.map((l) => l.farmId))];
     const farms = await Promise.all(farmIds.map((id) => ctx.db.get(id)));
-    const farmMap = new Map(farms.filter(Boolean).map((f) => [f!._id, f!.name]));
+    const farmMap = new Map<string, string>(farms.filter(Boolean).map((f) => [f!._id as string, f!.name]));
 
     // Collect all vaccination cost records
     const records: Array<{
@@ -1142,5 +1142,104 @@ export const getCoverageTrends = query({
     );
 
     return { months, vaccineNames };
+  },
+});
+
+// ============================================================
+// Coverage Trends By Farm (Comparison Mode)
+// ============================================================
+
+/** Get monthly vaccine coverage trends broken down by farm for comparison */
+export const getCoverageTrendsByFarm = query({
+  args: {},
+  handler: async (ctx) => {
+    const { userId } = await requireAuth(ctx);
+
+    const livestock = await ctx.db
+      .query("livestock")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    if (livestock.length === 0) return { farmTrends: [], vaccineNames: [], months: [] };
+
+    const now = Date.now();
+    const vaccineTypes = [
+      "FMD", "Anthrax", "Brucellosis", "Rift Valley Fever",
+      "Newcastle Disease", "Gumboro", "Rabies", "Blackleg",
+      "PPR", "CBPP", "Pasteurellosis", "Trypanosomiasis",
+    ];
+
+    // Get farm names
+    const farmIds = [...new Set(livestock.map((l) => l.farmId))];
+    const farms = await Promise.all(farmIds.map((id) => ctx.db.get(id)));
+    const farmMap = new Map<string, string>(farms.filter(Boolean).map((f) => [f!._id as string, f!.name]));
+
+    // Group livestock by farm
+    const livestockByFarm: Record<string, typeof livestock> = {};
+    for (const animal of livestock) {
+      if (animal.status === "quarantine") continue;
+      if (!livestockByFarm[animal.farmId]) livestockByFarm[animal.farmId] = [];
+      livestockByFarm[animal.farmId].push(animal);
+    }
+
+    // Build monthly buckets for the last 12 months
+    const months: string[] = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now);
+      d.setMonth(d.getMonth() - i, 1);
+      months.push(d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }));
+    }
+
+    // For each farm, calculate monthly coverage
+    const farmTrends: Array<{
+      farmId: string;
+      farmName: string;
+      data: Array<Record<string, string | number>>;
+    }> = [];
+
+    for (const [farmId, animals] of Object.entries(livestockByFarm)) {
+      const farmName = farmMap.get(farmId) || "Unknown Farm";
+      const data: Array<Record<string, string | number>> = [];
+
+      for (let i = 11; i >= 0; i--) {
+        const monthStart = new Date(now);
+        monthStart.setMonth(monthStart.getMonth() - i, 1);
+        monthStart.setHours(0, 0, 0, 0);
+        const monthEnd = new Date(monthStart);
+        monthEnd.setMonth(monthEnd.getMonth() + 1);
+        monthEnd.setHours(0, 0, 0, 0);
+
+        const label = monthStart.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+        const bucket: Record<string, string | number> = { month: label };
+
+        const cutoff = monthEnd.getTime();
+        const totalAnimals = animals.reduce((sum, a) => sum + a.quantity, 0);
+
+        for (const vax of vaccineTypes) {
+          let vaccinated = 0;
+          for (const animal of animals) {
+            for (const record of (animal.medicalHistory || [])) {
+              if (record.date > cutoff) continue;
+              if (record.date < cutoff - 365 * 24 * 60 * 60 * 1000) continue;
+              if (record.vaccineType === vax) {
+                vaccinated += animal.quantity;
+              }
+            }
+          }
+          const pct = totalAnimals > 0 ? Math.min(100, Math.round((vaccinated / totalAnimals) * 100)) : 0;
+          bucket[vax] = pct;
+        }
+        data.push(bucket);
+      }
+
+      farmTrends.push({ farmId, farmName, data });
+    }
+
+    // Find which vaccine types have data across any farm
+    const vaccineNames = vaccineTypes.filter((vax) =>
+      farmTrends.some((ft) => ft.data.some((m) => (m[vax] as number) > 0))
+    );
+
+    return { farmTrends, vaccineNames, months };
   },
 });
