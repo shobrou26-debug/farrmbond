@@ -329,8 +329,8 @@ export const getSatelliteAnalysis = query({
         satelliteData?.ndvi != null ? satelliteData.ndvi * 100 : null,
       cropDensity: satelliteData?.vegetationCoverage ?? null,
       waterStress: (satelliteData?.ndwi ?? 0) < 0.1,
-      source: satelliteData?.source ?? "none",
-      sceneCloudCover: satelliteData?.cloudCover ?? null,
+      source: "sentinel-2",
+      sceneCloudCover: null,
     };
   },
 });
@@ -379,7 +379,19 @@ export const getNDVIHistory = query({
  */
 export const analyzeFarmSatellite = action({
   args: { farmId: v.id("farms") },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{
+    ndvi: number;
+    vegetationCoverage: number;
+    healthStatus: string;
+    source: string;
+    sceneName: string;
+    sceneDate: string;
+    cloudCover: number | null;
+    pixelCount: number;
+    minNdvi: number;
+    maxNdvi: number;
+    wmsUrl: string | null;
+  }> => {
     const farm = await ctx.runQuery(api.farms.getFarm, {
       farmId: args.farmId,
     });
