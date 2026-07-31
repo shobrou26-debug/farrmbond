@@ -13,13 +13,6 @@ import {
   TrendingUp,
   Activity,
   Shield,
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  BarChart3,
-  Settings,
-  Bell,
-  FileText,
   ArrowUpRight,
   ArrowDownRight,
   Server,
@@ -27,7 +20,11 @@ import {
   Wifi,
   Cpu,
   Sprout,
+  BookOpen,
   RefreshCw,
+  Settings,
+  FileText,
+  Bell,
 } from "lucide-react";
 
 const containerVariants = {
@@ -43,7 +40,10 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const [seeding, setSeeding] = useState(false);
   const [seedResult, setSeedResult] = useState<string | null>(null);
+  const [seedingKb, setSeedingKb] = useState(false);
+  const [kbResult, setKbResult] = useState<string | null>(null);
   const seedMarketplace = useMutation(api.seedData.seedMarketplace);
+  const seedKnowledgeArticles = useMutation(api.seedData.seedKnowledgeArticles);
 
   const handleSeed = async () => {
     setSeeding(true);
@@ -57,6 +57,19 @@ export default function AdminDashboard() {
       setSeedResult("Error: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setSeeding(false);
+    }
+  };
+
+  const handleSeedKb = async () => {
+    setSeedingKb(true);
+    setKbResult(null);
+    try {
+      const result = await seedKnowledgeArticles();
+      setKbResult(result.message);
+    } catch (err) {
+      setKbResult("Error: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setSeedingKb(false);
     }
   };
 
@@ -93,7 +106,7 @@ export default function AdminDashboard() {
                         <p className="text-sm text-muted-foreground">{stat.label}</p>
                         <p className="text-2xl font-bold mt-1">{stat.value}</p>
                       </div>
-                      <div className={`w-10 h-10 rounded-lg bg-muted flex items-center justify-center`}>
+                      <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
                         <stat.icon className={`w-5 h-5 ${stat.color}`} />
                       </div>
                     </div>
@@ -114,7 +127,7 @@ export default function AdminDashboard() {
             ))}
           </div>
 
-          {/* System Health & Quick Actions */}
+          {/* System Health, Quick Actions & Seed Data */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <motion.div variants={itemVariants}>
               <Card className="border-border/50 h-full">
@@ -146,10 +159,8 @@ export default function AdminDashboard() {
                 <CardContent className="space-y-2">
                   {[
                     { label: "Manage Users", icon: Users },
-                    { label: "View Subscriptions", icon: DollarSign },
                     { label: "Review Reports", icon: FileText },
                     { label: "System Settings", icon: Settings },
-                    { label: "View Audit Logs", icon: Shield },
                     { label: "Send Announcements", icon: Bell },
                     { label: "Seed Management", icon: Sprout, href: "/admin/seeds" },
                   ].map((action, i) => {
@@ -166,10 +177,10 @@ export default function AdminDashboard() {
 
             <motion.div variants={itemVariants}>
               <Card className="border-border/50 h-full">
-                <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2"><Sprout className="w-4 h-4 text-green-500" /> Marketplace Data</CardTitle></CardHeader>
+                <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2"><Sprout className="w-4 h-4 text-green-500" /> Data Management</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    Seed the agronomist marketplace, agricultural companies, and seed showcase with sample data.
+                    Seed sample data for the marketplace and knowledge base.
                   </p>
                   <Button
                     onClick={handleSeed}
@@ -187,6 +198,23 @@ export default function AdminDashboard() {
                       {seedResult}
                     </p>
                   )}
+                  <Button
+                    onClick={handleSeedKb}
+                    disabled={seedingKb}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    {seedingKb ? (
+                      <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Seeding...</>
+                    ) : (
+                      <><BookOpen className="w-4 h-4 mr-2" /> Seed Knowledge Articles</>
+                    )}
+                  </Button>
+                  {kbResult && (
+                    <p className={"text-sm " + (kbResult.startsWith("Error") ? "text-red-500" : "text-green-600")}>
+                      {kbResult}
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
@@ -198,11 +226,11 @@ export default function AdminDashboard() {
               <CardHeader className="pb-3"><CardTitle className="text-base">Recent Activity</CardTitle></CardHeader>
               <CardContent className="space-y-3">
                 {[
-                  { action: "New user registered", user: "John Kamau", time: "2 min ago", type: "user" },
-                  { action: "Subscription upgraded to Pro", user: "Mary Wanjiru", time: "15 min ago", type: "subscription" },
-                  { action: "Support ticket resolved", user: "Ticket #1247", time: "1 hour ago", type: "support" },
-                  { action: "New agronomist application", user: "Dr. Peter Odhiambo", time: "3 hours ago", type: "agronomist" },
-                  { action: "Payment received", user: "$29.99 - Pro Plan", time: "5 hours ago", type: "payment" },
+                  { action: "New user registered", user: "John Kamau", time: "2 min ago" },
+                  { action: "Subscription upgraded to Pro", user: "Mary Wanjiru", time: "15 min ago" },
+                  { action: "Support ticket resolved", user: "Ticket #1247", time: "1 hour ago" },
+                  { action: "New agronomist application", user: "Dr. Peter Odhiambo", time: "3 hours ago" },
+                  { action: "Payment received", user: "$29.99 - Pro Plan", time: "5 hours ago" },
                 ].map((activity, i) => (
                   <div key={i} className="flex items-center gap-4 p-3 rounded-xl hover:bg-muted/50 transition-colors">
                     <div className="w-2 h-2 rounded-full bg-primary" />

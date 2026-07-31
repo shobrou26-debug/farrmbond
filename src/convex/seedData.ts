@@ -540,3 +540,52 @@ export const clearMarketplace = mutation({
     };
   },
 });
+
+// ============================================================
+// Knowledge Articles Seed Data
+// ============================================================
+
+/** Seed knowledge articles with agronomy best practices */
+export const seedKnowledgeArticles = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const anyUser = await ctx.db.query("users").first();
+    if (!anyUser) return { message: "No users found", count: 0 };
+    const existing = await ctx.db.query("knowledgeArticles").first();
+    if (existing) return { message: "Already seeded", count: 0 };
+    const articles = [
+      { title: "Maize Planting Guide", summary: "Comprehensive guide to growing maize in tropical African climates.", content: "Seed Selection: Choose certified hybrid seeds. Soil Preparation: Plough to 20-30cm depth, apply manure. Planting: 75cm rows, 25cm plants, 5-8cm deep. Management: Weed at 2-3 and 5-6 weeks, top-dress with CAN. Harvest when husks turn brown.", category: "Crop Management", tags: ["Maize", "Cereals", "Planting"], views: 2450, likes: 189, bookmarks: 67, isPublished: true, isFeatured: true },
+      { title: "Integrated Pest Management", summary: "Manage pests using biological, cultural, and chemical methods.", content: "Biological Control: Encourage natural predators, use Bt for caterpillars. Cultural: Crop rotation, intercropping, resistant varieties. Physical: Hand-picking, pheromone traps, sticky traps. Chemical: Last resort, follow economic thresholds.", category: "Pest Management", tags: ["IPM", "Pests", "Biological Control"], views: 1890, likes: 156, bookmarks: 89, isPublished: true, isFeatured: true },
+      { title: "Soil Health Management", summary: "Understanding soil composition, testing, and amendment strategies.", content: "Test annually for pH, N, P, K. Optimal pH 6.0-7.0. Build organic matter with compost at 5-10 tonnes/ha. Use cover crops. Apply lime for acidic soils. Practice conservation agriculture.", category: "Soil Management", tags: ["Soil Health", "pH", "Organic Matter"], views: 2100, likes: 203, bookmarks: 112, isPublished: true, isFeatured: true },
+      { title: "Drip Irrigation Guide", summary: "Design, install, and maintain drip irrigation systems.", content: "40-60% water savings. Components: water source, filtration, main line, drip tape. Maintenance: flush monthly, clean filters weekly. ROI within 1-2 seasons for high-value crops.", category: "Irrigation", tags: ["Drip Irrigation", "Water Management"], views: 1650, likes: 134, bookmarks: 78, isPublished: true, isFeatured: false },
+      { title: "Climate-Smart Agriculture", summary: "Adapt to changing weather patterns with resilient practices.", content: "Plant drought-tolerant varieties. Use mulching and rainwater harvesting. Practice conservation agriculture. Diversify crops. Increase soil organic matter for water retention.", category: "Climate & Weather", tags: ["Climate Change", "Adaptation", "Resilience"], views: 1780, likes: 167, bookmarks: 95, isPublished: true, isFeatured: false },
+      { title: "Post-Harvest Loss Reduction", summary: "Minimize losses in cereals through proper drying and storage.", content: "Dry grains to 13-14% moisture. Use hermetic bags (PICS, GrainPro). Metal silos for bulk storage. Reducing losses by 10% increases income by 20-30%.", category: "Post-Harvest", tags: ["Post-Harvest", "Storage", "Cereals"], views: 1520, likes: 142, bookmarks: 88, isPublished: true, isFeatured: false },
+      { title: "Organic Farming Transition", summary: "Step-by-step guide to transitioning to organic farming.", content: "3-year transition period. Use compost, green manures, biological fertilizers. Crop rotation minimum 3 years. Certification required. Premium prices 20-100% higher.", category: "Organic Farming", tags: ["Organic", "Certification", "Sustainable"], views: 1920, likes: 178, bookmarks: 102, isPublished: true, isFeatured: true },
+      { title: "Dairy Cattle Nutrition", summary: "Formulate balanced rations for dairy cattle.", content: "16-18% crude protein needed. Forage:Concentrate 60:40. Local feeds: Napier grass, maize silage, legume hays. Feed twice daily. Clean water ad libitum.", category: "Livestock Management", tags: ["Dairy", "Feed", "Nutrition"], views: 1680, likes: 145, bookmarks: 76, isPublished: true, isFeatured: false },
+      { title: "Farm Financial Management", summary: "Essential bookkeeping for farm profitability.", content: "Track income and expenses by enterprise. Use cash book system. Calculate gross margins. Break-even analysis. Mobile apps available for record keeping.", category: "Farm Business", tags: ["Finance", "Records", "Profitability"], views: 1340, likes: 118, bookmarks: 92, isPublished: true, isFeatured: false },
+      { title: "Agroforestry Systems", summary: "Integrate trees with crops and livestock for sustainability.", content: "Alley cropping with Gliricidia, Leucaena. Silvopasture with Grevillea. Boundary planting with Moringa. Improves soil fertility, diversifies income, sequesters carbon.", category: "Agroforestry", tags: ["Trees", "Sustainable", "Biodiversity"], views: 1450, likes: 132, bookmarks: 71, isPublished: true, isFeatured: false },
+    ];
+    let count = 0;
+    for (const article of articles) {
+      await ctx.db.insert("knowledgeArticles", {
+        authorId: anyUser._id,
+        title: article.title,
+        summary: article.summary,
+        content: article.content,
+        category: article.category,
+        tags: article.tags,
+        views: article.views,
+        likes: article.likes,
+        bookmarks: article.bookmarks,
+        isPublished: article.isPublished,
+        isFeatured: article.isFeatured,
+        createdAt: now,
+        updatedAt: now,
+        publishedAt: now,
+      });
+      count++;
+    }
+    return { message: `Seeded ${count} knowledge articles`, count };
+  },
+});
