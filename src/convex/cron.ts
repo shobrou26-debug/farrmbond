@@ -103,7 +103,7 @@ crons.interval(
 crons.interval(
   "smart_notifications",
   { hours: 2 },
-  api.smartNotifications.generateSmartNotifications
+  api.smartNotificationsCron.runAllNotificationsForAllFarms
 );
 
 /**
