@@ -1,3 +1,6 @@
+import { useState } from "react";
+import { useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { motion } from "framer-motion";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +25,8 @@ import {
   Database,
   Wifi,
   Cpu,
+  Sprout,
+  RefreshCw,
 } from "lucide-react";
 
 const containerVariants = {
@@ -34,88 +39,116 @@ const itemVariants = {
 };
 
 export default function AdminDashboard() {
+  const [seeding, setSeeding] = useState(false);
+  const [seedResult, setSeedResult] = useState<string | null>(null);
+  const seedMarketplace = useMutation(api.seedData.seedMarketplace);
+
+  const handleSeed = async () => {
+    setSeeding(true);
+    setSeedResult(null);
+    try {
+      const result = await seedMarketplace();
+      setSeedResult(
+        `Seeded: ${result.agronomists} agronomists, ${result.companies} companies, ${result.seeds} seeds`
+      );
+    } catch (err) {
+      setSeedResult("Error: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setSeeding(false);
+    }
+  };
+
   return (
     <AppLayout>
       <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
-          <p className="text-muted-foreground mt-1">System overview and management</p>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
+              <p className="text-muted-foreground mt-1">Manage your FarmBond platform</p>
+            </div>
+            <Badge variant="secondary" className="text-sm w-fit">
+              <Shield className="w-4 h-4 mr-1 text-green-500" />
+              Super Admin
+            </Badge>
+          </div>
         </motion.div>
 
         <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-6">
-          {/* Key Metrics */}
-          <motion.div variants={itemVariants} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Stats Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { title: "Total Users", value: "12,847", change: "+324 this month", trend: "up", icon: Users, color: "bg-blue-500" },
-              { title: "Monthly Revenue", value: "$48,250", change: "+18.2%", trend: "up", icon: DollarSign, color: "bg-green-500" },
-              { title: "Active Subscriptions", value: "3,421", change: "+156 this week", trend: "up", icon: TrendingUp, color: "bg-purple-500" },
-              { title: "Support Tickets", value: "47", change: "-12 from yesterday", trend: "down", icon: AlertTriangle, color: "bg-amber-500" },
-            ].map((metric, i) => {
-              const Icon = metric.icon;
-              return (
-                <Card key={i} className="border-border/50 card-hover">
-                  <CardContent className="p-5">
-                    <div className="flex items-start justify-between">
-                      <div className="space-y-2">
-                        <p className="text-sm text-muted-foreground">{metric.title}</p>
-                        <p className="text-2xl font-bold">{metric.value}</p>
-                        <div className="flex items-center gap-1">
-                          {metric.trend === "up" ? <ArrowUpRight className="w-3.5 h-3.5 text-green-500" /> : <ArrowDownRight className="w-3.5 h-3.5 text-green-500" />}
-                          <span className="text-xs text-green-500">{metric.change}</span>
-                        </div>
+              { label: "Total Users", value: "2,847", change: "+12.5%", up: true, icon: Users, color: "text-blue-500" },
+              { label: "Monthly Revenue", value: "$45,280", change: "+8.2%", up: true, icon: DollarSign, color: "text-green-500" },
+              { label: "Active Subscriptions", value: "1,432", change: "+5.3%", up: true, icon: TrendingUp, color: "text-purple-500" },
+              { label: "Support Tickets", value: "23", change: "-15%", up: false, icon: Activity, color: "text-amber-500" },
+            ].map((stat, i) => (
+              <motion.div key={i} variants={itemVariants}>
+                <Card className="border-border/50">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">{stat.label}</p>
+                        <p className="text-2xl font-bold mt-1">{stat.value}</p>
                       </div>
-                      <div className={`flex items-center justify-center w-10 h-10 rounded-xl ${metric.color}`}>
-                        <Icon className="w-5 h-5 text-white" />
+                      <div className={`w-10 h-10 rounded-lg bg-muted flex items-center justify-center`}>
+                        <stat.icon className={`w-5 h-5 ${stat.color}`} />
                       </div>
+                    </div>
+                    <div className="flex items-center gap-1 mt-2">
+                      {stat.up ? (
+                        <ArrowUpRight className="w-3 h-3 text-green-500" />
+                      ) : (
+                        <ArrowDownRight className="w-3 h-3 text-red-500" />
+                      )}
+                      <span className={`text-xs font-medium ${stat.up ? "text-green-500" : "text-red-500"}`}>
+                        {stat.change}
+                      </span>
+                      <span className="text-xs text-muted-foreground">vs last month</span>
                     </div>
                   </CardContent>
                 </Card>
-              );
-            })}
-          </motion.div>
+              </motion.div>
+            ))}
+          </div>
 
+          {/* System Health & Quick Actions */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* System Health */}
-            <motion.div variants={itemVariants} className="lg:col-span-2">
-              <Card className="border-border/50">
+            <motion.div variants={itemVariants}>
+              <Card className="border-border/50 h-full">
                 <CardHeader className="pb-3"><CardTitle className="text-base">System Health</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {[
-                      { label: "API Status", status: "Operational", icon: Server, ok: true },
-                      { label: "Database", status: "Healthy", icon: Database, ok: true },
-                      { label: "CDN", status: "Operational", icon: Wifi, ok: true },
-                      { label: "AI Services", status: "Operational", icon: Cpu, ok: true },
-                    ].map((item, i) => {
-                      const Icon = item.icon;
-                      return (
-                        <div key={i} className="p-3 rounded-xl bg-muted/30 text-center">
-                          <Icon className="w-5 h-5 mx-auto text-muted-foreground mb-2" />
-                          <p className="text-xs text-muted-foreground">{item.label}</p>
-                          <div className="flex items-center justify-center gap-1 mt-1">
-                            <div className="w-2 h-2 bg-green-500 rounded-full" />
-                            <span className="text-xs font-medium text-green-600">{item.status}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                <CardContent className="space-y-3">
+                  {[
+                    { label: "API Server", status: "Operational", icon: Server, ok: true },
+                    { label: "Database", status: "Operational", icon: Database, ok: true },
+                    { label: "CDN", status: "Operational", icon: Wifi, ok: true },
+                    { label: "AI Services", status: "Operational", icon: Cpu, ok: true },
+                  ].map((item, i) => (
+                    <div key={i} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50">
+                      <div className="flex items-center gap-2">
+                        <item.icon className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm">{item.label}</span>
+                      </div>
+                      <Badge variant={item.ok ? "default" : "destructive"} className="text-xs">
+                        {item.status}
+                      </Badge>
+                    </div>
+                  ))}
                 </CardContent>
               </Card>
             </motion.div>
 
-            {/* Quick Actions */}
             <motion.div variants={itemVariants}>
-              <Card className="border-border/50">
+              <Card className="border-border/50 h-full">
                 <CardHeader className="pb-3"><CardTitle className="text-base">Quick Actions</CardTitle></CardHeader>
                 <CardContent className="space-y-2">
                   {[
                     { label: "Manage Users", icon: Users },
-                    { label: "View Revenue", icon: DollarSign },
-                    { label: "Support Tickets", icon: FileText },
-                    { label: "Announcements", icon: Bell },
-                    { label: "Audit Logs", icon: Shield },
-                    { label: "Settings", icon: Settings },
+                    { label: "View Subscriptions", icon: DollarSign },
+                    { label: "Review Reports", icon: FileText },
+                    { label: "System Settings", icon: Settings },
+                    { label: "View Audit Logs", icon: Shield },
+                    { label: "Send Announcements", icon: Bell },
                   ].map((action, i) => {
                     const Icon = action.icon;
                     return (
@@ -124,6 +157,33 @@ export default function AdminDashboard() {
                       </Button>
                     );
                   })}
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            <motion.div variants={itemVariants}>
+              <Card className="border-border/50 h-full">
+                <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2"><Sprout className="w-4 h-4 text-green-500" /> Marketplace Data</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Seed the agronomist marketplace, agricultural companies, and seed showcase with sample data.
+                  </p>
+                  <Button
+                    onClick={handleSeed}
+                    disabled={seeding}
+                    className="w-full gradient-primary"
+                  >
+                    {seeding ? (
+                      <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Seeding...</>
+                    ) : (
+                      <><Sprout className="w-4 h-4 mr-2" /> Seed Marketplace</>
+                    )}
+                  </Button>
+                  {seedResult && (
+                    <p className={"text-sm " + (seedResult.startsWith("Error") ? "text-red-500" : "text-green-600")}>
+                      {seedResult}
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
