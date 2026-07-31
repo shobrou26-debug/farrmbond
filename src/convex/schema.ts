@@ -1060,6 +1060,68 @@ const schema = defineSchema(
       .index("by_provider", ["provider"])
       .index("by_created", ["createdAt"]),
     // ============================================================
+
+    // ============================================================
+    // AGRICULTURAL COMPANIES TABLE
+    // ============================================================
+    agriculturalCompanies: defineTable({
+      name: v.string(),
+      category: v.string(), // "seeds", "fertilizer", "equipment", "services"
+      description: v.string(),
+      logoUrl: v.optional(v.string()),
+      coverImage: v.optional(v.string()),
+      location: v.string(),
+      country: v.string(),
+      phone: v.optional(v.string()),
+      email: v.optional(v.string()),
+      website: v.optional(v.string()),
+      products: v.array(v.string()),
+      rating: v.number(),
+      reviewCount: v.number(),
+      verified: v.boolean(),
+      featured: v.boolean(),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_category", ["category"])
+      .index("by_country", ["country"])
+      .index("by_rating", ["rating"])
+      .index("by_verified", ["verified"]),
+
+    // ============================================================
+    // SEED SHOWCASE TABLE
+    // ============================================================
+    seeds: defineTable({
+      name: v.string(),
+      cropType: v.string(),
+      variety: v.string(),
+      description: v.string(),
+      companyId: v.optional(v.id("agriculturalCompanies")),
+      company: v.string(),
+      imageUrl: v.optional(v.string()),
+      price: v.number(),
+      currency: v.string(),
+      unit: v.string(),
+      rating: v.number(),
+      reviewCount: v.number(),
+      germinationRate: v.number(), // percentage
+      maturityDays: v.number(),
+      yieldPerHectare: v.string(),
+      waterNeeds: v.string(),
+      climate: v.array(v.string()),
+      season: v.array(v.string()),
+      inStock: v.boolean(),
+      featured: v.boolean(),
+      tags: v.array(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_crop_type", ["cropType"])
+      .index("by_company", ["company"])
+      .index("by_price", ["price"])
+      .index("by_featured", ["featured"])
+      .index("by_in_stock", ["inStock"]),
+
     // INTELLIGENCE ENGINE TABLES
     // ============================================================
 
