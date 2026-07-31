@@ -1,5 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { query, QueryCtx } from "./_generated/server";
+import { query, mutation, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 
 /**
@@ -54,5 +54,48 @@ export const getUserByStripeCustomer = query({
       .filter((q) => q.eq(q.field("stripeCustomerId"), args.stripeCustomerId))
       .first();
     return user || null;
+  },
+});
+
+// ============================================================
+// User Preferences
+// ============================================================
+
+/** Update user preferences (units, currency, timezone) */
+export const updatePreferences = mutation({
+  args: {
+    units: v.optional(v.union(v.literal("metric"), v.literal("imperial"))),
+    currency: v.optional(v.string()),
+    timezone: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const updates: Record<string, unknown> = {};
+    if (args.units !== undefined) updates.units = args.units;
+    if (args.currency !== undefined) updates.currency = args.currency;
+    if (args.timezone !== undefined) updates.timezone = args.timezone;
+
+    await ctx.db.patch(userId, updates);
+    return { success: true };
+  },
+});
+
+/** Get current user preferences */
+export const getPreferences = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+
+    const user = await ctx.db.get(userId);
+    if (!user) return null;
+
+    return {
+      units: user.units ?? "metric",
+      currency: user.currency ?? "KES",
+      timezone: user.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+    };
   },
 });

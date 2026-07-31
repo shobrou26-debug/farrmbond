@@ -542,3 +542,168 @@
     color: black !important;
   }
 }
+
+/* ============================================================
+   FARM-INSPIRED THEMES
+   Toggle by adding class to <html>: <html class="theme-golden-harvest">
+   ============================================================ */
+
+/* Golden Harvest - Warm amber/gold tones */
+.theme-golden-harvest {
+  --primary: oklch(0.55 0.16 80);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.92 0.04 80);
+  --secondary-foreground: oklch(0.25 0.04 80);
+  --accent: oklch(0.92 0.06 80);
+  --accent-foreground: oklch(0.25 0.04 80);
+  --background: oklch(0.99 0.005 80);
+  --foreground: oklch(0.15 0.02 80);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0.02 80);
+  --border: oklch(0.90 0.02 80);
+  --ring: oklch(0.55 0.16 80);
+  --chart-1: oklch(0.55 0.16 80);
+  --chart-2: oklch(0.50 0.14 60);
+  --chart-3: oklch(0.60 0.18 95);
+}
+
+/* Forest Grove - Deep emerald greens */
+.theme-forest-grove {
+  --primary: oklch(0.35 0.15 155);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.92 0.04 155);
+  --secondary-foreground: oklch(0.20 0.04 155);
+  --accent: oklch(0.92 0.06 155);
+  --accent-foreground: oklch(0.20 0.04 155);
+  --background: oklch(0.99 0.005 155);
+  --foreground: oklch(0.12 0.03 155);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.12 0.03 155);
+  --border: oklch(0.88 0.03 155);
+  --ring: oklch(0.35 0.15 155);
+  --chart-1: oklch(0.35 0.15 155);
+  --chart-2: oklch(0.45 0.14 165);
+  --chart-3: oklch(0.55 0.12 145);
+}
+
+/* Sunrise Farm - Warm coral/orange tones */
+.theme-sunrise-farm {
+  --primary: oklch(0.55 0.18 30);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.92 0.04 30);
+  --secondary-foreground: oklch(0.25 0.04 30);
+  --accent: oklch(0.92 0.06 30);
+  --accent-foreground: oklch(0.25 0.04 30);
+  --background: oklch(0.99 0.003 30);
+  --foreground: oklch(0.15 0.02 30);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0.02 30);
+  --border: oklch(0.90 0.02 30);
+  --ring: oklch(0.55 0.18 30);
+  --chart-1: oklch(0.55 0.18 30);
+  --chart-2: oklch(0.60 0.15 45);
+  --chart-3: oklch(0.50 0.12 15);
+}
+
+/* Blue Irrigation - Cool blue tones */
+.theme-blue-irrigation {
+  --primary: oklch(0.45 0.15 240);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.92 0.04 240);
+  --secondary-foreground: oklch(0.20 0.04 240);
+  --accent: oklch(0.92 0.06 240);
+  --accent-foreground: oklch(0.20 0.04 240);
+  --background: oklch(0.99 0.003 240);
+  --foreground: oklch(0.12 0.02 240);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.12 0.02 240);
+  --border: oklch(0.88 0.03 240);
+  --ring: oklch(0.45 0.15 240);
+  --chart-1: oklch(0.45 0.15 240);
+  --chart-2: oklch(0.55 0.12 220);
+  --chart-3: oklch(0.50 0.10 260);
+}
+
+/* Dark Farm - Rich dark mode */
+.theme-dark-farm,
+.dark {
+  --primary: oklch(0.60 0.16 155);
+  --primary-foreground: oklch(0.10 0 0);
+  --secondary: oklch(0.22 0.04 155);
+  --secondary-foreground: oklch(0.90 0 0);
+  --accent: oklch(0.22 0.06 155);
+  --accent-foreground: oklch(0.90 0 0);
+  --background: oklch(0.12 0.015 155);
+  --foreground: oklch(0.92 0.01 155);
+  --card: oklch(0.16 0.015 155);
+  --card-foreground: oklch(0.92 0.01 155);
+  --popover: oklch(0.16 0.015 155);
+  --popover-foreground: oklch(0.92 0.01 155);
+  --border: oklch(0.25 0.03 155);
+  --input: oklch(0.25 0.03 155);
+  --ring: oklch(0.60 0.16 155);
+  --sidebar: oklch(0.14 0.02 155);
+  --sidebar-foreground: oklch(0.90 0.01 155);
+  --sidebar-primary: oklch(0.60 0.16 155);
+  --sidebar-accent: oklch(0.20 0.04 155);
+  --chart-1: oklch(0.60 0.16 155);
+  --chart-2: oklch(0.55 0.14 165);
+  --chart-3: oklch(0.50 0.12 145);
+  color-scheme: dark;
+}
+
+.theme-dark-farm {
+  --background: oklch(0.10 0.02 155);
+  --foreground: oklch(0.95 0.005 155);
+  --card: oklch(0.14 0.02 155);
+  --card-foreground: oklch(0.95 0.005 155);
+  --primary: oklch(0.58 0.18 150);
+  --primary-foreground: oklch(0.10 0 0);
+  --border: oklch(0.22 0.03 155);
+  --ring: oklch(0.58 0.18 150);
+}
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  50% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.8; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-float { animation: float 3s ease-in-out infinite; }
+.animate-pulse-ring { animation: pulse-ring 2s ease-in-out infinite; }
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 0%, oklch(1 0 0 / 0.1) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Health Score Ring Component */
+.health-ring {
+  stroke-dasharray: 283;
+  stroke-dashoffset: 283;
+  transition: stroke-dashoffset 1.5s ease-in-out;
+  transform: rotate(-90deg);
+  transform-origin: center;
+}
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, var(--primary), oklch(0.55 0.18 80));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
