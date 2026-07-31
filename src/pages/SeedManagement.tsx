@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { useAuth } from "@/hooks/use-auth";
+import { Shield } from "lucide-react";
+import { useNavigate } from "react-router";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -402,6 +405,28 @@ function AgronomistsTab() {
 // Main Page
 // ============================================================
 export default function SeedManagement() {
+  const { user, isLoading } = useAuth();
+  const navigate = useNavigate();
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  
+  if (!isLoading && !isAdmin) {
+    return (
+      <AppLayout>
+        <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
+          <Card className="border-border/50">
+            <CardContent className="p-12 text-center">
+              <AlertTriangle className="w-16 h-16 mx-auto text-amber-500 mb-4" />
+              <h2 className="text-2xl font-bold mb-2">Access Denied</h2>
+              <p className="text-muted-foreground mb-6">You need admin privileges to access this page.</p>
+              <Button onClick={() => navigate("/dashboard")} className="gradient-primary">
+                Go to Dashboard
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </AppLayout>
+    );
+  }
   return (
     <AppLayout>
       <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
