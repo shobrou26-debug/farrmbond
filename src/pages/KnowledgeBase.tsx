@@ -306,7 +306,7 @@ export default function KnowledgeBase() {
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
         <div className="max-w-4xl mx-auto px-4 py-8">
-          <button onClick={() => setSelectedArticle(null)} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors">
+          <button onClick={() => setSelectedArticle(null)} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors print:hidden">
             <ChevronLeft className="w-5 h-5" /> Back to Knowledge Base
           </button>
 
@@ -324,7 +324,7 @@ export default function KnowledgeBase() {
               <span className="flex items-center gap-2"><Eye className="w-4 h-4" />{formatNumber(selectedArticle.views)} views</span>
               <span>{selectedArticle.publishDate}</span>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 print:hidden">
               <button onClick={(e) => handleToggleBookmark(selectedArticle.id, e)} className={`p-2 rounded-lg border transition-colors ${bookmarked.has(selectedArticle.id) || bookmarkSet.has(selectedArticle.id as Id<"knowledgeArticles">) ? "bg-primary/10 border-primary/30 text-primary" : "border-border hover:bg-muted"}`}>
                 <Bookmark className="w-5 h-5" />
               </button>
@@ -354,7 +354,7 @@ export default function KnowledgeBase() {
                   </>
                 )}
               </div>
-              <button className="p-2 rounded-lg border border-border hover:bg-muted transition-colors"><Printer className="w-5 h-5" /></button>
+              <button onClick={() => window.print()} className="p-2 rounded-lg border border-border hover:bg-muted transition-colors print:hidden"><Printer className="w-5 h-5" /></button>
             </div>
           </motion.div>
 

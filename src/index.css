@@ -428,3 +428,117 @@
     margin: 8px auto;
   }
 }
+
+/* ============================================================
+   Print Styles for Knowledge Base Article Detail
+   ============================================================ */
+@media print {
+  /* Hide all non-content elements */
+  nav, aside, footer, header, .sidebar, [data-sidebar],
+  .gradient-primary, [class*="sidebar"], [class*="nav"],
+  button:not(.print-keep), .no-print, [class*="Toolbar"],
+  [class*="toolbar"] {
+    display: none !important;
+  }
+
+  /* Hide all AppLayout sidebar/nav wrappers */
+  [data-slot="sidebar"], [data-slot="sidebar-inset"],
+  [data-slot="sidebar-header"], [data-slot="sidebar-footer"],
+  [data-slot="sidebar-content"] {
+    display: none !important;
+  }
+
+  /* Hide the main layout wrapper sidebar */
+  .\[data-sidebar\=\\"icon\\"\] {
+    display: none !important;
+  }
+
+  /* Reset body for print */
+  body {
+    background: white !important;
+    color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 12pt !important;
+    line-height: 1.5 !important;
+  }
+
+  /* Make article fill the page */
+  .min-h-screen {
+    min-height: auto !important;
+    background: white !important;
+  }
+
+  /* Ensure max-width container is full width */
+  .max-w-4xl {
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 20mm !important;
+  }
+
+  /* Article typography for print */
+  h1 {
+    font-size: 24pt !important;
+    color: black !important;
+    margin-bottom: 12pt !important;
+    page-break-after: avoid;
+  }
+
+  h2 {
+    font-size: 16pt !important;
+    color: black !important;
+    margin-top: 20pt !important;
+    page-break-after: avoid;
+  }
+
+  h3 {
+    font-size: 14pt !important;
+    color: black !important;
+    page-break-after: avoid;
+  }
+
+  p, li {
+    color: #333 !important;
+    page-break-inside: avoid;
+  }
+
+  /* Hide action buttons but show category/difficulty badges */
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Show article header info */
+  [class*="flex flex-wrap items-center gap-4 text-sm"] {
+    border-bottom: 1px solid #ccc !important;
+    padding-bottom: 8pt !important;
+    margin-bottom: 12pt !important;
+  }
+
+  /* Tags section */
+  [class*="border-t border-border"] {
+    border-top: 1px solid #ccc !important;
+    margin-top: 12pt !important;
+    padding-top: 8pt !important;
+  }
+
+  /* Add page header with title */
+  @page {
+    margin: 20mm;
+    @top-center {
+      content: "FarmBond Knowledge Base";
+      font-size: 9pt;
+      color: #666;
+    }
+    @bottom-center {
+      content: counter(page);
+      font-size: 9pt;
+    }
+  }
+
+  /* Add print-friendly background for badges */
+  span[class*="rounded-full"] {
+    border: 1px solid #ccc !important;
+    background: white !important;
+    color: black !important;
+  }
+}
