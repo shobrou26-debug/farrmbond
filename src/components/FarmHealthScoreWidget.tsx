@@ -1,5 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useMemo } from "react";
 import { motion } from "framer-motion";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { TrendingUp, TrendingDown, AlertTriangle, Lightbulb } from "lucide-react";
 
 interface HealthScoreRingProps {
   score: number; // 0-100
@@ -122,5 +127,94 @@ export function KPICard({ title, value, change, icon, color = "text-primary", cl
         </div>
       </div>
     </motion.div>
+  );
+}
+
+
+/**
+ * FarmHealthScoreWidget - displays overall farm health with animated ring
+ */
+export function FarmHealthScoreWidget() {
+  const farmsResult = useQuery(api.farms.listUserFarms, {});
+  const latestInsights = useQuery(api.intelligence.getLatestInsights, { limit: 5 });
+  const farms = farmsResult?.page ?? []
+
+  const overallScore = useMemo(() => {
+    if (!farms || farms.length === 0) return 75;
+    const scores = (farms as any[]).filter((f: any) => f.healthScore !== undefined).map((f: any) => f.healthScore as number);
+    if (scores.length === 0) return 75;
+    return Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length);
+  }, [farms]);
+
+  return (
+    <Card className="border-border/50">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-lg">Farm Health</CardTitle>
+      </CardHeader>
+      <CardContent className="flex items-center gap-6">
+        <HealthScoreRing score={overallScore} size={100} strokeWidth={8} />
+        <div className="space-y-1 flex-1">
+          <p className="text-sm text-muted-foreground">{farms.length} farm(s) monitored</p>
+          <p className="text-sm text-muted-foreground">{latestInsights?.length ?? 0} AI insights available</p>
+          <Badge variant="outline" className="mt-2 text-xs">Updated in real-time</Badge>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * IntelligenceInsightsWidget - shows AI-generated insights with confidence scores
+ */
+interface Insight {
+  category?: string;
+  title?: string;
+  description?: string;
+  priority?: string;
+  confidence?: number;
+  dataSources?: string[];
+  actions?: string[];
+}
+
+export function IntelligenceInsightsWidget({ insights = [] }: { insights?: Insight[] }) {
+  if (insights.length === 0) {
+    return (
+      <Card className="border-border/50">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg">AI Insights</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">No insights yet. Add farms and crops to receive AI-powered recommendations.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="border-border/50">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-lg">AI Insights</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {insights.slice(0, 4).map((insight, i) => (
+          <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+            <Lightbulb className="w-4 h-4 mt-0.5 text-amber-500 shrink-0" />
+            <div className="space-y-1 flex-1 min-w-0">
+              <p className="text-sm font-medium line-clamp-1">{insight.title ?? "Insight"}</p>
+              <p className="text-xs text-muted-foreground line-clamp-2">{insight.description ?? ""}</p>
+              {insight.confidence !== undefined && (
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 flex-1 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.round((insight.confidence ?? 0) * 100)}%` }} />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">{Math.round((insight.confidence ?? 0) * 100)}%</span>
+                </div>
+              )}
+            </div>
+            <Badge variant="outline" className="text-[10px] shrink-0">{insight.priority ?? "medium"}</Badge>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
