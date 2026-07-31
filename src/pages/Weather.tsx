@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { useWeather, useGeolocation } from "@/hooks/use-weather";
 import { useUnits } from "@/hooks/use-units";
+import { useTimezone } from "@/hooks/use-timezone";
 
 // ============================================================
 // Animation Variants
@@ -81,9 +82,15 @@ function getWeatherDescription(code: number): string {
   return descriptions[code] || "Unknown";
 }
 
-function formatTime(timeStr: string): string {
+function formatTime(timeStr: string, timezone?: string): string {
   const date = new Date(timeStr);
-  return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  if (isNaN(date.getTime())) return timeStr;
+  return date.toLocaleTimeString("en-US", {
+    timeZone: timezone,
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 function formatDay(dateStr: string, index: number): string {
@@ -382,6 +389,7 @@ export default function Weather() {
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const { data, isLoading, error, refetch } = useWeather();
   const { unitSystem, temp, wind, precip, tempUnit } = useUnits();
+  const { timezone, formatTime: tzFormatTime } = useTimezone();
   const isMobile = useIsMobile();
   const haptic = useHaptic();
 
@@ -498,11 +506,11 @@ export default function Weather() {
                     <div className="flex items-center gap-4 mt-4 pt-4 border-t border-white/20">
                       <div className="flex items-center gap-2">
                         <Sunrise className="w-4 h-4 text-orange-300" />
-                        <span className="text-sm text-white/80">{formatTime(daily[0].sunrise)}</span>
+                        <span className="text-sm text-white/80">{formatTime(daily[0].sunrise, timezone)}</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <Sunset className="w-4 h-4 text-orange-400" />
-                        <span className="text-sm text-white/80">{formatTime(daily[0].sunset)}</span>
+                        <span className="text-sm text-white/80">{formatTime(daily[0].sunset, timezone)}</span>
                       </div>
                     </div>
                   )}

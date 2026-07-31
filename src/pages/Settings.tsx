@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -22,6 +23,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme, THEMES } from "@/hooks/use-theme";
 import { useUnits } from "@/hooks/use-units";
+import { useTimezone, TIMEZONE_GROUPS } from "@/hooks/use-timezone";
 import { toast } from "sonner";
 import {
   User,
@@ -1543,7 +1545,7 @@ function AdminTab() {
 
 
 // Appearance Tab
-function AppearanceTab({ currentTheme, setTheme, unitSystem, setUnits }: { currentTheme: string; setTheme: (t: any) => void; unitSystem: string; setUnits: (u: any) => void }) {
+function AppearanceTab({ currentTheme, setTheme, unitSystem, setUnits, timezone, setTimezone }: { currentTheme: string; setTheme: (t: any) => void; unitSystem: string; setUnits: (u: any) => void; timezone: string; setTimezone: (tz: string) => void }) {
   return (
     <div className="space-y-6">
       <Card className="border-border/50">
@@ -1590,6 +1592,7 @@ function AppearanceTab({ currentTheme, setTheme, unitSystem, setUnits }: { curre
 export default function Settings() {
   const { theme: currentTheme, setTheme } = useTheme();
   const { unitSystem, setUnits } = useUnits();
+  const { timezone, setTimezone } = useTimezone();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
 
@@ -1645,7 +1648,7 @@ export default function Settings() {
               <SubscriptionTab />
             </TabsContent>
             <TabsContent value="appearance">
-              <AppearanceTab currentTheme={currentTheme} setTheme={setTheme} unitSystem={unitSystem} setUnits={setUnits} />
+              <AppearanceTab currentTheme={currentTheme} setTheme={setTheme} unitSystem={unitSystem} setUnits={setUnits} timezone={timezone} setTimezone={setTimezone} />
             </TabsContent>
             {isAdmin && (
               <TabsContent value="admin">

@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { useMutation } from "convex/react";
 import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { api } from "@/convex/_generated/api";
+import { useTimezone } from "@/hooks/use-timezone";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -205,10 +206,12 @@ function EventList({
   events,
   selectedDate,
   onComplete,
+  timezone,
 }: {
   events: CalendarEvent[];
   selectedDate: Date | null;
   onComplete: (id: string) => void;
+  timezone: string;
 }) {
   const filteredEvents = selectedDate
     ? events.filter((e) => new Date(e.startDate).toDateString() === selectedDate.toDateString())
@@ -260,7 +263,7 @@ function EventList({
                   </div>
                   <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                     <Clock className="w-3 h-3" />
-                    {new Date(event.startDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                    {new Date(event.startDate).toLocaleString("en-US", { timeZone: timezone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}
                   </div>
                   {isOverdue && (
                     <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
@@ -401,6 +404,7 @@ export default function Calendar() {
   const { results: calendarEvents, isLoading: isLoadingEvents } = usePaginatedQuery(api.farmCalendar.listUserEvents);
   const { results: farms } = usePaginatedQuery(api.farms.listUserFarms);
   const completeEventMutation = useMutation(api.farmCalendar.completeEvent);
+  const { timezone, formatTime, formatDateTime } = useTimezone();
 
   // Real weather data
   const weather = useWeather();
@@ -527,6 +531,7 @@ export default function Calendar() {
                   events={filteredEvents}
                   selectedDate={selectedDate}
                   onComplete={handleCompleteEvent}
+                  timezone={timezone}
                 />
               )}
             </motion.div>
