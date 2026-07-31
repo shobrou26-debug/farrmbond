@@ -24,6 +24,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTheme, THEMES } from "@/hooks/use-theme";
 import { useUnits } from "@/hooks/use-units";
 import { useTimezone, TIMEZONE_GROUPS } from "@/hooks/use-timezone";
+import { useCurrency, CURRENCY_GROUPS } from "@/hooks/use-currency";
 import { toast } from "sonner";
 import {
   User,
@@ -59,6 +60,7 @@ import {
   Eye,
   Sparkles,
   Palette,
+  DollarSign,
 } from "lucide-react";
 
 // ============================================================
@@ -1545,7 +1547,7 @@ function AdminTab() {
 
 
 // Appearance Tab
-function AppearanceTab({ currentTheme, setTheme, unitSystem, setUnits, timezone, setTimezone }: { currentTheme: string; setTheme: (t: any) => void; unitSystem: string; setUnits: (u: any) => void; timezone: string; setTimezone: (tz: string) => void }) {
+function AppearanceTab({ currentTheme, setTheme, unitSystem, setUnits, timezone, setTimezone, currency, setCurrency }: { currentTheme: string; setTheme: (t: any) => void; unitSystem: string; setUnits: (u: any) => void; timezone: string; setTimezone: (tz: string) => void; currency: string; setCurrency: (c: string) => void }) {
   return (
     <div className="space-y-6">
       <Card className="border-border/50">
@@ -1593,6 +1595,7 @@ export default function Settings() {
   const { theme: currentTheme, setTheme } = useTheme();
   const { unitSystem, setUnits } = useUnits();
   const { timezone, setTimezone } = useTimezone();
+  const { currency, setCurrency } = useCurrency();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
 
@@ -1648,7 +1651,7 @@ export default function Settings() {
               <SubscriptionTab />
             </TabsContent>
             <TabsContent value="appearance">
-              <AppearanceTab currentTheme={currentTheme} setTheme={setTheme} unitSystem={unitSystem} setUnits={setUnits} timezone={timezone} setTimezone={setTimezone} />
+              <AppearanceTab currentTheme={currentTheme} setTheme={setTheme} unitSystem={unitSystem} setUnits={setUnits} timezone={timezone} setTimezone={setTimezone} currency={currency} setCurrency={setCurrency} />
             </TabsContent>
             {isAdmin && (
               <TabsContent value="admin">

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { ExportDropdown } from "@/components/ExportDropdown";
 import { exportTransactionHistory } from "@/lib/exports";
 import { useMarketPrices } from "@/hooks/use-market-prices";
+import { useCurrency } from "@/hooks/use-currency";
 import {
   DollarSign,
   TrendingUp,
@@ -169,6 +170,7 @@ function TopMovers({
 // ============================================================
 
 export default function Finances() {
+  const { format: fmt } = useCurrency();
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<"all" | "income" | "expense">("all");
   const { data: marketData, isLoading: marketLoading, refetch: refetchMarket } = useMarketPrices();

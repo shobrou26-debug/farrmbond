@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useCurrency } from "@/hooks/use-currency";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
