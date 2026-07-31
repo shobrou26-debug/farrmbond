@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Skeleton } from "@/components/ui/skeleton";
+import ConsultationBooking from "@/components/ConsultationBooking";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -53,6 +54,7 @@ const expertiseFilters = [
 
 export default function AgronomistMarketplace() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [bookingAgronomist, setBookingAgronomist] = useState<any>(null);
   const [selectedExpertise, setSelectedExpertise] = useState("All");
 
   const agronomists = useQuery(api.marketplace.listAgronomists, {
@@ -264,6 +266,7 @@ export default function AgronomistMarketplace() {
                       <Button
                         className="flex-1 gradient-primary"
                         disabled={!isAvailable(agronomist)}
+                        onClick={() => setBookingAgronomist(agronomist)}
                       >
                         <Calendar className="w-4 h-4 mr-2" />
                         Book Consultation
@@ -294,6 +297,24 @@ export default function AgronomistMarketplace() {
           </div>
         )}
       </div>
+
+      {bookingAgronomist && (
+        <ConsultationBooking
+          agronomist={{
+            _id: bookingAgronomist.userId,
+            name: bookingAgronomist.name,
+            title: bookingAgronomist.title,
+            specializations: bookingAgronomist.specializations,
+            services: bookingAgronomist.services,
+            availableDays: bookingAgronomist.availableDays,
+            availableHours: bookingAgronomist.availableHours,
+            averageRating: bookingAgronomist.averageRating,
+            totalReviews: bookingAgronomist.totalReviews,
+            image: bookingAgronomist.image,
+          }}
+          onClose={() => setBookingAgronomist(null)}
+        />
+      )}
     </AppLayout>
   );
 }
