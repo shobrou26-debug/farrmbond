@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { requireAuth, requireAdmin } from "./authHelpers";
+import { requireAuth, requireAdmin, createAuditLog } from "./authHelpers";
 
 // ============================================================
 // Agronomist Marketplace Module
@@ -144,7 +144,7 @@ export const createCompany = mutation({
     const { userId } = await requireAdmin(ctx);
 
     const now = Date.now();
-    return await ctx.db.insert("agriculturalCompanies", {
+    const id = await ctx.db.insert("agriculturalCompanies", {
       ...args,
       rating: 0,
       reviewCount: 0,
@@ -153,6 +153,8 @@ export const createCompany = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await createAuditLog(ctx, { userId, action: "create", resource: "agriculturalCompanies", resourceId: id, changes: { name: args.name, category: args.category } });
+    return id;
   },
 });
 
@@ -231,7 +233,7 @@ export const createSeed = mutation({
     const { userId } = await requireAdmin(ctx);
 
     const now = Date.now();
-    return await ctx.db.insert("seeds", {
+    const id = await ctx.db.insert("seeds", {
       ...args,
       rating: 0,
       reviewCount: 0,
@@ -240,6 +242,8 @@ export const createSeed = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await createAuditLog(ctx, { userId, action: "create", resource: "seeds", resourceId: id, changes: { name: args.name, cropType: args.cropType } });
+    return id;
   },
 });
 
@@ -266,9 +270,10 @@ export const updateAgronomist = mutation({
     timezone: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const { userId } = await requireAdmin(ctx);
     const { profileId, ...updates } = args;
     await ctx.db.patch(profileId, { ...updates, updatedAt: Date.now() });
+    await createAuditLog(ctx, { userId, action: "update", resource: "agronomistProfiles", resourceId: profileId, changes: updates });
     return { success: true };
   },
 });
@@ -277,8 +282,10 @@ export const updateAgronomist = mutation({
 export const deleteAgronomist = mutation({
   args: { profileId: v.id("agronomistProfiles") },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const { userId } = await requireAdmin(ctx);
+    const doc = await ctx.db.get(args.profileId);
     await ctx.db.delete(args.profileId);
+    await createAuditLog(ctx, { userId, action: "delete", resource: "agronomistProfiles", resourceId: args.profileId, changes: { deletedName: doc?.title } });
     return { success: true };
   },
 });
@@ -302,9 +309,10 @@ export const updateCompany = mutation({
     featured: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const { userId } = await requireAdmin(ctx);
     const { companyId, ...updates } = args;
     await ctx.db.patch(companyId, { ...updates, updatedAt: Date.now() });
+    await createAuditLog(ctx, { userId, action: "update", resource: "agriculturalCompanies", resourceId: companyId, changes: updates });
     return { success: true };
   },
 });
@@ -313,8 +321,10 @@ export const updateCompany = mutation({
 export const deleteCompany = mutation({
   args: { companyId: v.id("agriculturalCompanies") },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const { userId } = await requireAdmin(ctx);
+    const doc = await ctx.db.get(args.companyId);
     await ctx.db.delete(args.companyId);
+    await createAuditLog(ctx, { userId, action: "delete", resource: "agriculturalCompanies", resourceId: args.companyId, changes: { deletedName: doc?.name } });
     return { success: true };
   },
 });
@@ -342,9 +352,10 @@ export const updateSeed = mutation({
     featured: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const { userId } = await requireAdmin(ctx);
     const { seedId, ...updates } = args;
     await ctx.db.patch(seedId, { ...updates, updatedAt: Date.now() });
+    await createAuditLog(ctx, { userId, action: "update", resource: "seeds", resourceId: seedId, changes: updates });
     return { success: true };
   },
 });
@@ -353,8 +364,10 @@ export const updateSeed = mutation({
 export const deleteSeed = mutation({
   args: { seedId: v.id("seeds") },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const { userId } = await requireAdmin(ctx);
+    const doc = await ctx.db.get(args.seedId);
     await ctx.db.delete(args.seedId);
+    await createAuditLog(ctx, { userId, action: "delete", resource: "seeds", resourceId: args.seedId, changes: { deletedName: doc?.name } });
     return { success: true };
   },
 });
@@ -374,10 +387,10 @@ export const bookConsultation = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { userId } = await requireAdmin(ctx);
+    const { userId } = await requireAuth(ctx);
 
     const now = Date.now();
-    return await ctx.db.insert("consultations", {
+    const id = await ctx.db.insert("consultations", {
       farmerId: userId,
       agronomistId: args.agronomistId,
       farmId: args.farmId,
@@ -392,6 +405,8 @@ export const bookConsultation = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await createAuditLog(ctx, { userId, action: "create", resource: "consultations", resourceId: id, changes: { agronomistId: args.agronomistId, serviceType: args.serviceType } });
+    return id;
   },
 });
 
