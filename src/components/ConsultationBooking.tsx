@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Calendar, Clock, Video, MessageSquare, MapPin,
-  ChevronLeft, ChevronRight, CheckCircle2, User, X, Loader2,
+  ChevronLeft, ChevronRight, CheckCircle2, User, X, Loader2, AlertTriangle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -42,7 +42,9 @@ function generateTimeSlots(startHour: number, endHour: number, durationMinutes: 
   const slots: string[] = [];
   for (let h = startHour; h < endHour; h++) {
     for (let m = 0; m < 60; m += durationMinutes) {
-      slots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
+      if (h + m / 60 + durationMinutes / 60 <= endHour) {
+        slots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
+      }
     }
   }
   return slots;
@@ -66,8 +68,23 @@ export default function ConsultationBooking({ agronomist, onClose }: Props) {
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
   const [calYear, setCalYear] = useState(new Date().getFullYear());
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const bookConsultation = useMutation(api.marketplace.bookConsultation);
+
+  // Check for existing pending consultations to prevent duplicates
+  const existingConsultations = useQuery(api.marketplace.listUserConsultations);
+  const hasDuplicate = useMemo(() => {
+    if (!selectedDate || !selectedTime || !existingConsultations) return false;
+    const [h, m] = selectedTime.split(":").map(Number);
+    const scheduledAt = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), h, m).getTime();
+    return existingConsultations.some(
+      (c) =>
+        c.agronomistId === agronomist._id &&
+        c.scheduledAt === scheduledAt &&
+        c.status !== "cancelled"
+    );
+  }, [selectedDate, selectedTime, existingConsultations, agronomist._id]);
 
   const services = agronomist.services || [];
   const currentService = services[selectedService];
@@ -79,6 +96,24 @@ export default function ConsultationBooking({ agronomist, onClose }: Props) {
     return generateTimeSlots(startHour, endHour, currentService.duration);
   }, [startHour, endHour, currentService]);
 
+  // Filter out past time slots for today
+  const availableTimeSlots = useMemo(() => {
+    if (!selectedDate) return timeSlots;
+    const today = new Date();
+    const isToday =
+      selectedDate.getFullYear() === today.getFullYear() &&
+      selectedDate.getMonth() === today.getMonth() &&
+      selectedDate.getDate() === today.getDate();
+
+    if (!isToday) return timeSlots;
+
+    const currentMinutes = today.getHours() * 60 + today.getMinutes();
+    return timeSlots.filter((slot) => {
+      const [h, m] = slot.split(":").map(Number);
+      return h * 60 + m > currentMinutes;
+    });
+  }, [timeSlots, selectedDate]);
+
   const isDayAvailable = (day: number) => {
     if (!agronomist.availableDays || agronomist.availableDays.length === 0) return true;
     const date = new Date(calYear, calMonth, day);
@@ -87,7 +122,8 @@ export default function ConsultationBooking({ agronomist, onClose }: Props) {
 
   const isDatePast = (day: number) => {
     const date = new Date(calYear, calMonth, day);
-    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     return date < today;
   };
 
@@ -99,12 +135,38 @@ export default function ConsultationBooking({ agronomist, onClose }: Props) {
     }
   };
 
+  // Escape key handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  // Prevent body scroll when modal is open
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, []);
+
   const handleBooking = async () => {
     if (!selectedDate || !selectedTime || !currentService) return;
+    if (hasDuplicate) {
+      setError("You already have a booking with this agronomist at this time.");
+      return;
+    }
     setIsSubmitting(true);
+    setError(null);
     try {
       const [h, m] = selectedTime.split(":").map(Number);
-      const scheduledAt = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), h, m).getTime();
+      const scheduledAt = new Date(
+        selectedDate.getFullYear(),
+        selectedDate.getMonth(),
+        selectedDate.getDate(),
+        h,
+        m
+      ).getTime();
       await bookConsultation({
         agronomistId: agronomist._id,
         serviceType: currentService.name,
@@ -115,32 +177,57 @@ export default function ConsultationBooking({ agronomist, onClose }: Props) {
       setStep(4);
     } catch (err) {
       console.error("Booking failed:", err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Booking failed. Please try again."
+      );
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-card rounded-2xl border border-border shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-card rounded-2xl border border-border shadow-2xl"
+      >
+        {/* Header */}
         <div className="sticky top-0 z-10 bg-card border-b border-border px-6 py-4 flex items-center justify-between rounded-t-2xl">
           <div className="flex items-center gap-3">
-            {step > 1 && step < 4 && <Button variant="ghost" size="icon" onClick={() => setStep((s) => (s - 1) as 1 | 2 | 3)}><ChevronLeft className="w-4 h-4" /></Button>}
+            {step > 1 && step < 4 && (
+              <Button variant="ghost" size="icon" onClick={() => setStep((s) => (s - 1) as 1 | 2 | 3)}>
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+            )}
             <div>
               <h2 className="font-semibold text-lg">Book Consultation</h2>
               <p className="text-sm text-muted-foreground">with {agronomist.name}</p>
             </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="w-5 h-5" /></Button>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="w-5 h-5" />
+          </Button>
         </div>
 
+        {/* Step Progress */}
         {step < 4 && (
           <div className="px-6 py-3 border-b border-border">
             <div className="flex items-center gap-2">
               {[1, 2, 3].map((s) => (
                 <div key={s} className="flex items-center gap-2 flex-1">
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${step >= s ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{s}</div>
-                  <span className={`text-xs hidden sm:inline ${step >= s ? "text-foreground" : "text-muted-foreground"}`}>{s === 1 ? "Service" : s === 2 ? "Schedule" : "Confirm"}</span>
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                    step >= s ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                  }`}>{s}</div>
+                  <span className={`text-xs hidden sm:inline ${
+                    step >= s ? "text-foreground" : "text-muted-foreground"
+                  }`}>{s === 1 ? "Service" : s === 2 ? "Schedule" : "Confirm"}</span>
                   {s < 3 && <div className={`flex-1 h-0.5 ${step > s ? "bg-primary" : "bg-muted"}`} />}
                 </div>
               ))}
@@ -148,8 +235,20 @@ export default function ConsultationBooking({ agronomist, onClose }: Props) {
           </div>
         )}
 
+        {/* Error Banner */}
+        {error && (
+          <div className="mx-6 mt-4 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
+            <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+            <Button variant="ghost" size="icon" className="ml-auto shrink-0" onClick={() => setError(null)}>
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
+
         <div className="p-6">
           <AnimatePresence mode="wait">
+            {/* Step 1: Select Service */}
             {step === 1 && (
               <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
                 <h3 className="font-semibold">Select a Service</h3>
@@ -158,10 +257,20 @@ export default function ConsultationBooking({ agronomist, onClose }: Props) {
                 ) : (
                   <div className="space-y-3">
                     {services.map((svc, i) => (
-                      <button key={i} onClick={() => setSelectedService(i)} className={`w-full text-left p-4 rounded-xl border transition-all ${selectedService === i ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:border-primary/50"}`}>
+                      <button
+                        key={i}
+                        onClick={() => setSelectedService(i)}
+                        className={`w-full text-left p-4 rounded-xl border transition-all ${
+                          selectedService === i
+                            ? "border-primary bg-primary/5 shadow-sm"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                      >
                         <div className="flex items-start justify-between">
                           <div className="flex items-start gap-3">
-                            <div className={`p-2 rounded-lg ${selectedService === i ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>{serviceTypeIcon(svc.type)}</div>
+                            <div className={`p-2 rounded-lg ${
+                              selectedService === i ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                            }`}>{serviceTypeIcon(svc.type)}</div>
                             <div>
                               <h4 className="font-medium">{svc.name}</h4>
                               <p className="text-sm text-muted-foreground mt-1">{svc.description}</p>
@@ -178,30 +287,50 @@ export default function ConsultationBooking({ agronomist, onClose }: Props) {
                   </div>
                 )}
                 <div className="flex justify-end pt-4">
-                  <Button onClick={() => setStep(2)} disabled={services.length === 0} className="gradient-primary">Continue <ChevronRight className="w-4 h-4 ml-1" /></Button>
+                  <Button onClick={() => setStep(2)} disabled={services.length === 0} className="gradient-primary">
+                    Continue <ChevronRight className="w-4 h-4 ml-1" />
+                  </Button>
                 </div>
               </motion.div>
             )}
 
+            {/* Step 2: Select Date & Time */}
             {step === 2 && (
               <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
                 <h3 className="font-semibold">Select Date &amp; Time</h3>
                 <Card className="border-border/50">
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between mb-4">
-                      <Button variant="ghost" size="icon" onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); } else setCalMonth(calMonth - 1); }}><ChevronLeft className="w-4 h-4" /></Button>
-                      <span className="font-medium">{new Date(calYear, calMonth).toLocaleString("default", { month: "long", year: "numeric" })}</span>
-                      <Button variant="ghost" size="icon" onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); } else setCalMonth(calMonth + 1); }}><ChevronRight className="w-4 h-4" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => {
+                        if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); } else setCalMonth(calMonth - 1);
+                      }}><ChevronLeft className="w-4 h-4" /></Button>
+                      <span className="font-medium">
+                        {new Date(calYear, calMonth).toLocaleString("default", { month: "long", year: "numeric" })}
+                      </span>
+                      <Button variant="ghost" size="icon" onClick={() => {
+                        if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); } else setCalMonth(calMonth + 1);
+                      }}><ChevronRight className="w-4 h-4" /></Button>
                     </div>
                     <div className="grid grid-cols-7 gap-1 mb-2">
-                      {dayShort.map((d) => (<div key={d} className="text-center text-xs font-medium text-muted-foreground py-1">{d}</div>))}
+                      {dayShort.map((d) => (
+                        <div key={d} className="text-center text-xs font-medium text-muted-foreground py-1">{d}</div>
+                      ))}
                     </div>
                     <div className="grid grid-cols-7 gap-1">
                       {calendarDays.map((day, i) => {
                         if (day === null) return <div key={i} />;
                         const available = isDayAvailable(day) && !isDatePast(day);
                         const isSelected = selectedDate?.getDate() === day && selectedDate?.getMonth() === calMonth && selectedDate?.getFullYear() === calYear;
-                        return <button key={i} disabled={!available} onClick={() => { setSelectedDate(new Date(calYear, calMonth, day)); setSelectedTime(null); }} className={`h-9 rounded-lg text-sm font-medium transition-all ${isSelected ? "bg-primary text-primary-foreground" : available ? "hover:bg-muted text-foreground" : "text-muted-foreground/30 cursor-not-allowed"}`}>{day}</button>;
+                        return (
+                          <button
+                            key={i}
+                            disabled={!available}
+                            onClick={() => { setSelectedDate(new Date(calYear, calMonth, day)); setSelectedTime(null); setError(null); }}
+                            className={`h-9 rounded-lg text-sm font-medium transition-all ${
+                              isSelected ? "bg-primary text-primary-foreground" : available ? "hover:bg-muted text-foreground" : "text-muted-foreground/30 cursor-not-allowed"
+                            }`}
+                          >{day}</button>
+                        );
                       })}
                     </div>
                   </CardContent>
@@ -209,27 +338,59 @@ export default function ConsultationBooking({ agronomist, onClose }: Props) {
 
                 {selectedDate && (
                   <div>
-                    <h4 className="text-sm font-medium mb-2">Available Times for {selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}</h4>
-                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                      {timeSlots.map((slot) => (
-                        <button key={slot} onClick={() => setSelectedTime(slot)} className={`px-3 py-2 rounded-lg text-sm font-medium border transition-all ${selectedTime === slot ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/50"}`}>{slot}</button>
-                      ))}
-                    </div>
+                    <h4 className="text-sm font-medium mb-2">
+                      Available Times for {selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+                    </h4>
+                    {availableTimeSlots.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-3">No available time slots for this date. Please select another date.</p>
+                    ) : (
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                        {availableTimeSlots.map((slot) => (
+                          <button
+                            key={slot}
+                            onClick={() => { setSelectedTime(slot); setError(null); }}
+                            className={`px-3 py-2 rounded-lg text-sm font-medium border transition-all ${
+                              selectedTime === slot
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "border-border hover:border-primary/50"
+                            }`}
+                          >{slot}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {selectedDate && selectedTime && hasDuplicate && (
+                  <div className="px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                    <p className="text-sm text-amber-700 dark:text-amber-400">
+                      You already have a booking with this agronomist at this time. Please select a different time.
+                    </p>
                   </div>
                 )}
 
                 <div>
                   <label className="text-sm font-medium mb-1 block">Notes (optional)</label>
-                  <textarea placeholder="Describe your farming issue or what you need help with..." value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm min-h-[80px] focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                  <textarea
+                    placeholder="Describe your farming issue or what you need help with..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm min-h-[80px] focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
                 </div>
 
                 <div className="flex justify-between pt-4">
                   <Button variant="outline" onClick={() => setStep(1)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
-                  <Button onClick={() => setStep(3)} disabled={!selectedDate || !selectedTime} className="gradient-primary">Continue <ChevronRight className="w-4 h-4 ml-1" /></Button>
+                  <Button
+                    onClick={() => setStep(3)}
+                    disabled={!selectedDate || !selectedTime || hasDuplicate}
+                    className="gradient-primary"
+                  >Continue <ChevronRight className="w-4 h-4 ml-1" /></Button>
                 </div>
               </motion.div>
             )}
 
+            {/* Step 3: Confirm Booking */}
             {step === 3 && (
               <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
                 <h3 className="font-semibold">Confirm Booking</h3>
@@ -237,7 +398,11 @@ export default function ConsultationBooking({ agronomist, onClose }: Props) {
                   <CardContent className="p-4 space-y-3">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
-                        {agronomist.image ? <img src={agronomist.image} alt="" className="w-full h-full object-cover" /> : <User className="w-6 h-6 text-primary" />}
+                        {agronomist.image ? (
+                          <img src={agronomist.image} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <User className="w-6 h-6 text-primary" />
+                        )}
                       </div>
                       <div>
                         <p className="font-medium">{agronomist.name}</p>
@@ -245,12 +410,34 @@ export default function ConsultationBooking({ agronomist, onClose }: Props) {
                       </div>
                     </div>
                     <div className="border-t border-border pt-3 space-y-2">
-                      <div className="flex justify-between text-sm"><span className="text-muted-foreground">Service</span><span className="font-medium">{currentService?.name}</span></div>
-                      <div className="flex justify-between text-sm"><span className="text-muted-foreground">Type</span><span className="font-medium capitalize">{currentService?.type.replace("_", " ")}</span></div>
-                      <div className="flex justify-between text-sm"><span className="text-muted-foreground">Date</span><span className="font-medium">{selectedDate?.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</span></div>
-                      <div className="flex justify-between text-sm"><span className="text-muted-foreground">Time</span><span className="font-medium">{selectedTime}</span></div>
-                      <div className="flex justify-between text-sm"><span className="text-muted-foreground">Duration</span><span className="font-medium">{currentService?.duration} minutes</span></div>
-                      {notes && <div className="flex justify-between text-sm"><span className="text-muted-foreground">Notes</span><span className="font-medium text-right max-w-[60%]">{notes}</span></div>}
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Service</span>
+                        <span className="font-medium">{currentService?.name}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Type</span>
+                        <span className="font-medium capitalize">{currentService?.type.replace("_", " ")}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Date</span>
+                        <span className="font-medium">
+                          {selectedDate?.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Time</span>
+                        <span className="font-medium">{selectedTime}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Duration</span>
+                        <span className="font-medium">{currentService?.duration} minutes</span>
+                      </div>
+                      {notes && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Notes</span>
+                          <span className="font-medium text-right max-w-[60%]">{notes}</span>
+                        </div>
+                      )}
                     </div>
                     <div className="border-t border-border pt-3 flex justify-between">
                       <span className="font-medium">Total</span>
@@ -260,18 +447,25 @@ export default function ConsultationBooking({ agronomist, onClose }: Props) {
                 </Card>
 
                 <div className="bg-muted/50 rounded-xl p-4">
-                  <p className="text-sm text-muted-foreground"><strong>Note:</strong> Payment will be processed after the agronomist confirms your booking. You will receive a notification with payment instructions.</p>
+                  <p className="text-sm text-muted-foreground">
+                    <strong>Note:</strong> Payment will be processed after the agronomist confirms your booking. You will receive a notification with payment instructions.
+                  </p>
                 </div>
 
                 <div className="flex justify-between pt-4">
                   <Button variant="outline" onClick={() => setStep(2)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
                   <Button onClick={handleBooking} disabled={isSubmitting} className="gradient-primary">
-                    {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Booking...</> : <><CheckCircle2 className="w-4 h-4 mr-2" /> Confirm Booking</>}
+                    {isSubmitting ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Booking...</>
+                    ) : (
+                      <><CheckCircle2 className="w-4 h-4 mr-2" /> Confirm Booking</>
+                    )}
                   </Button>
                 </div>
               </motion.div>
             )}
 
+            {/* Step 4: Success */}
             {step === 4 && (
               <motion.div key="step4" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-6 space-y-4">
                 <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mx-auto">
@@ -279,7 +473,9 @@ export default function ConsultationBooking({ agronomist, onClose }: Props) {
                 </div>
                 <h3 className="text-xl font-bold">Booking Confirmed!</h3>
                 <p className="text-muted-foreground max-w-md mx-auto">
-                  Your consultation with <strong>{agronomist.name}</strong> has been booked for <strong>{selectedDate?.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</strong> at <strong>{selectedTime}</strong>.
+                  Your consultation with <strong>{agronomist.name}</strong> has been booked for{" "}
+                  <strong>{selectedDate?.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</strong> at{" "}
+                  <strong>{selectedTime}</strong>.
                 </p>
                 <div className="bg-muted/50 rounded-xl p-4 max-w-sm mx-auto text-sm text-muted-foreground">
                   <p>You will receive a notification when the agronomist confirms your booking. Payment instructions will be provided at that time.</p>

@@ -414,7 +414,7 @@ export const bookConsultation = mutation({
 export const listUserConsultations = query({
   args: {},
   handler: async (ctx) => {
-    const { userId } = await requireAdmin(ctx);
+    const { userId } = await requireAuth(ctx);
 
     const consultations = await ctx.db
       .query("consultations")
@@ -422,6 +422,18 @@ export const listUserConsultations = query({
       .order("desc")
       .collect();
 
-    return consultations;
+    // Join with agronomist user data for display
+    const results = await Promise.all(
+      consultations.map(async (c) => {
+        const agronomist = await ctx.db.get(c.agronomistId);
+        return {
+          ...c,
+          agronomistName: agronomist?.name ?? "Unknown",
+          agronomistImage: agronomist?.image ?? null,
+        };
+      })
+    );
+
+    return results;
   },
 });
