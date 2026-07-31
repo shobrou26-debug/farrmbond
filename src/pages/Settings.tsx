@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme, THEMES } from "@/hooks/use-theme";
+import { useUnits } from "@/hooks/use-units";
 import { toast } from "sonner";
 import {
   User,
@@ -1542,7 +1543,7 @@ function AdminTab() {
 
 
 // Appearance Tab
-function AppearanceTab({ currentTheme, setTheme }: { currentTheme: string; setTheme: (t: any) => void }) {
+function AppearanceTab({ currentTheme, setTheme, unitSystem, setUnits }: { currentTheme: string; setTheme: (t: any) => void; unitSystem: string; setUnits: (u: any) => void }) {
   return (
     <div className="space-y-6">
       <Card className="border-border/50">
@@ -1588,6 +1589,7 @@ function AppearanceTab({ currentTheme, setTheme }: { currentTheme: string; setTh
 
 export default function Settings() {
   const { theme: currentTheme, setTheme } = useTheme();
+  const { unitSystem, setUnits } = useUnits();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
 
@@ -1643,7 +1645,7 @@ export default function Settings() {
               <SubscriptionTab />
             </TabsContent>
             <TabsContent value="appearance">
-              <AppearanceTab currentTheme={currentTheme} setTheme={setTheme} />
+              <AppearanceTab currentTheme={currentTheme} setTheme={setTheme} unitSystem={unitSystem} setUnits={setUnits} />
             </TabsContent>
             {isAdmin && (
               <TabsContent value="admin">

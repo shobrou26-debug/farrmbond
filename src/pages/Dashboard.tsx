@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { useWeather } from "@/hooks/use-weather";
+import { useUnits } from "@/hooks/use-units";
 import { useIsMobile, useHaptic } from "@/hooks/use-mobile";
 import {
   Leaf,

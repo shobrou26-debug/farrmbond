@@ -29,6 +29,7 @@ import {
   Gauge,
 } from "lucide-react";
 import { useWeather, useGeolocation } from "@/hooks/use-weather";
+import { useUnits } from "@/hooks/use-units";
 
 // ============================================================
 // Animation Variants
@@ -278,10 +279,10 @@ function AgriWeatherAlerts({ alerts }: { alerts: import("@/hooks/use-weather").W
 // Soil Conditions
 // ============================================================
 
-function SoilConditions({ soil }: { soil: import("@/hooks/use-weather").SoilData }) {
+function SoilConditions({ soil, tempUnit, unitSystem }: { soil: import("@/hooks/use-weather").SoilData; tempUnit?: string; unitSystem?: string }) {
   const conditions = [
     { label: "Soil Moisture (Surface)", value: soil.moisture0to1cm * 100, unit: "%", max: 100, icon: Droplets },
-    { label: "Soil Temperature (Surface)", value: soil.temperature0cm, unit: "°C", max: 50, icon: Thermometer },
+    { label: "Soil Temperature (Surface)", value: soil.temperature0cm, unit: tempUnit, max: unitSystem === "metric" ? 50 : 120, icon: Thermometer },
     { label: "Soil Moisture (Root Zone)", value: soil.moisture1to3cm * 100, unit: "%", max: 100, icon: Droplets },
     { label: "Evapotranspiration (ET₀)", value: soil.et0FaoEvapotranspiration, unit: "mm/day", max: 12, icon: Sun },
   ];
@@ -380,6 +381,7 @@ function FarmingRecommendations({ recommendations }: { recommendations: import("
 export default function Weather() {
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const { data, isLoading, error, refetch } = useWeather();
+  const { unitSystem, temp, wind, precip, tempUnit } = useUnits();
   const isMobile = useIsMobile();
   const haptic = useHaptic();
 
@@ -465,7 +467,7 @@ export default function Weather() {
                     <div className="pb-2">
                       <p className="text-white/90 font-medium">{getWeatherDescription(current.weatherCode)}</p>
                       <p className="text-white/70 text-sm">
-                        Feels like {Math.round(current.temperature)}°C
+                        Feels like {temp(Math.round(current.temperature))}
                       </p>
                     </div>
                   </div>
@@ -483,7 +485,7 @@ export default function Weather() {
                     <div className="flex items-center gap-2">
                       <Wind className="w-4 h-4 text-white/70" />
                       <span className="text-sm text-white/80">
-                        Wind: {Math.round(current.windSpeed)} km/h {getWindDirection(current.windDirection)}
+                        Wind: {wind(Math.round(current.windSpeed))} {getWindDirection(current.windDirection)}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -523,7 +525,7 @@ export default function Weather() {
               <WeeklyForecast daily={daily} />
             </motion.div>
             <motion.div variants={itemVariants} className="space-y-4 sm:space-y-6">
-              <SoilConditions soil={soil} />
+              <SoilConditions soil={soil} tempUnit={tempUnit} unitSystem={unitSystem} />
               <AgriWeatherAlerts alerts={alerts} />
             </motion.div>
           </div>
