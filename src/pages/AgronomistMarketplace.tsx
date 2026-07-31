@@ -66,10 +66,23 @@ export default function AgronomistMarketplace() {
     const q = searchQuery.toLowerCase();
     return (
       ag.name.toLowerCase().includes(q) ||
-      (ag as any).specialization?.toLowerCase().includes(q) ||
       ag.specializations?.some((s) => s.toLowerCase().includes(q))
     );
   });
+
+  /** Helper: check if agronomist is available based on their schedule */
+  const isAvailable = (ag: (typeof filtered)[0]) =>
+    (ag.availableDays?.length ?? 0) > 0;
+
+  /** Helper: get consultation fee from services array */
+  const getFee = (ag: (typeof filtered)[0]) =>
+    ag.services?.[0]?.price ?? 0;
+
+  /** Helper: get available hours string */
+  const getHours = (ag: (typeof filtered)[0]) =>
+    ag.availableHours
+      ? `${ag.availableHours.start}–${ag.availableHours.end}`
+      : "< 24 hours";
 
   return (
     <AppLayout>
@@ -93,7 +106,7 @@ export default function AgronomistMarketplace() {
               <CheckCircle2 className="w-4 h-4 mr-1 text-green-500" />
               {isLoading
                 ? "Loading..."
-                : `${filtered.filter((a) => a.available).length} Experts Available`}
+                : `${filtered.filter((a) => isAvailable(a)).length} Experts Available`}
             </Badge>
           </div>
         </motion.div>
@@ -179,9 +192,7 @@ export default function AgronomistMarketplace() {
                         )}
                       </div>
                       <div className="flex-1">
-                        <h3 className="font-semibold text-lg">
-                          {(agronomist as any).name || "Unknown"}
-                        </h3>
+                        <h3 className="font-semibold text-lg">{agronomist.name}</h3>
                         <p className="text-sm text-muted-foreground">
                           {agronomist.specializations?.join(", ") || "Generalist"}
                         </p>
@@ -199,7 +210,7 @@ export default function AgronomistMarketplace() {
                           </span>
                         </div>
                       </div>
-                      {agronomist.available ? (
+                      {isAvailable(agronomist) ? (
                         <Badge className="bg-green-100 text-green-700 border-green-500/20">
                           Available
                         </Badge>
@@ -236,12 +247,11 @@ export default function AgronomistMarketplace() {
                       </div>
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Clock className="w-4 h-4" />
-                        {(agronomist as any).responseTime || "< 24 hours"}
+                        {getHours(agronomist)}
                       </div>
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <DollarSign className="w-4 h-4" />
-                        {agronomist.currency}{" "}
-                        {agronomist.consultationFee?.toLocaleString() || "0"}/session
+                        KES {getFee(agronomist).toLocaleString()}/session
                       </div>
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <MessageSquare className="w-4 h-4" />
@@ -253,12 +263,12 @@ export default function AgronomistMarketplace() {
                     <div className="flex gap-2 pt-2">
                       <Button
                         className="flex-1 gradient-primary"
-                        disabled={!agronomist.available}
+                        disabled={!isAvailable(agronomist)}
                       >
                         <Calendar className="w-4 h-4 mr-2" />
                         Book Consultation
                       </Button>
-                      {(agronomist as any).videoConsultation && (
+                      {agronomist.services?.some((s) => s.type === "video") && (
                         <Button variant="outline" size="icon">
                           <Video className="w-4 h-4" />
                         </Button>
