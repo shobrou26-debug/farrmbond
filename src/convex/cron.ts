@@ -89,4 +89,34 @@ crons.interval(
   api.livestock.sendLowCoverageAlerts
 );
 
+/**
+ * Run intelligence pipeline for all users every 4 hours.
+ * Collects data from weather, satellite, soil, market, crop, livestock,
+ * and financial modules to generate health scores and insights.
+ */
+crons.interval(
+  "intelligence_pipeline",
+  { hours: 4 },
+  api.intelligence.runIntelligencePipeline
+);
+
+/**
+ * Generate smart notifications every 2 hours.
+ * Checks all modules for alerts, warnings, and opportunities.
+ */
+crons.interval(
+  "smart_notifications",
+  { hours: 2 },
+  api.smartNotifications.generateSmartNotifications
+);
+
+/**
+ * Generate weekly reports every Monday at 6 AM.
+ */
+crons.cron(
+  "weekly_reports",
+  "0 6 * * 1",
+  api.weeklyReport.generateWeeklyReports
+);
+
 export default crons;
