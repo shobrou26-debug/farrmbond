@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,9 +25,9 @@ import {
 
 export function FarmHealthScoreWidget() {
   // Get farms to query health scores
-  const farms = useQuery(api.farms.listUserFarms);
+  const { results: farms, isLoading } = usePaginatedQuery(api.farms.listUserFarms);
 
-  if (!farms) {
+  if (isLoading) {
     return (
       <Card className="border-border/50">
         <CardContent className="p-4 sm:p-6">

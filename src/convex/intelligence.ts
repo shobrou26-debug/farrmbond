@@ -730,13 +730,15 @@ export const getLatestInsights = query({
     const { userId } = await requireAuth(ctx);
     const now = Date.now();
 
-    const insights = await ctx.db
+    const allInsights = await ctx.db
       .query("intelligenceData")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .order("desc")
-      .collect().slice(0, args.limit ?? 10);
+      .collect();
+
+    const insights = allInsights.slice(0, args.limit ?? 10);
 
     // Filter out expired insights
-    return insights.filter((i: any) => i.expiresAt > now);
+    return insights.filter((i) => i.expiresAt > now);
   },
 });
