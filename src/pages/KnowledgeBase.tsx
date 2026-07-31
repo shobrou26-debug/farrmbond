@@ -14,6 +14,10 @@ import {
   Bookmark,
   Share2,
   Printer,
+  Copy,
+  Check,
+  Twitter,
+  MessageCircle,
   Leaf,
   Bug,
   Droplets,
@@ -153,6 +157,8 @@ export default function KnowledgeBase() {
   const [difficultyFilter, setDifficultyFilter] = useState<string>("all");
   const [bookmarked, setBookmarked] = useState<Set<string>>(new Set());
   const [liked, setLiked] = useState<Set<string>>(new Set());
+  const [showShareMenu, setShowShareMenu] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Real-time Convex mutations
   const toggleBookmarkMutation = useMutation(api.knowledgeArticles.toggleBookmark);
@@ -322,7 +328,32 @@ export default function KnowledgeBase() {
               <button onClick={(e) => handleToggleBookmark(selectedArticle.id, e)} className={`p-2 rounded-lg border transition-colors ${bookmarked.has(selectedArticle.id) || bookmarkSet.has(selectedArticle.id as Id<"knowledgeArticles">) ? "bg-primary/10 border-primary/30 text-primary" : "border-border hover:bg-muted"}`}>
                 <Bookmark className="w-5 h-5" />
               </button>
-              <button className="p-2 rounded-lg border border-border hover:bg-muted transition-colors"><Share2 className="w-5 h-5" /></button>
+              <div className="relative">
+                <button onClick={() => setShowShareMenu(!showShareMenu)} className="p-2 rounded-lg border border-border hover:bg-muted transition-colors"><Share2 className="w-5 h-5" /></button>
+                {showShareMenu && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowShareMenu(false)} />
+                    <div className="absolute right-0 top-full mt-2 w-52 bg-card border border-border rounded-xl shadow-lg z-50 p-2">
+                      <button onClick={() => { navigator.clipboard.writeText(window.location.href); setCopied(true); setTimeout(() => setCopied(false), 2000); setShowShareMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-muted text-sm transition-colors">
+                        {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />} {copied ? "Copied!" : "Copy Link"}
+                      </button>
+                      <button onClick={() => { if (navigator.share) { navigator.share({ title: selectedArticle.title, text: selectedArticle.summary, url: window.location.href }); } setShowShareMenu(false); }} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-muted text-sm transition-colors">
+                        <Share2 className="w-4 h-4" /> Share via Device
+                      </button>
+                      <div className="border-t border-border my-1" />
+                      <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(selectedArticle.title)}&url=${encodeURIComponent(window.location.href)}`} target="_blank" rel="noopener noreferrer" onClick={() => setShowShareMenu(false)} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-muted text-sm transition-colors">
+                        <Twitter className="w-4 h-4" /> Twitter
+                      </a>
+                      <a href={`https://api.whatsapp.com/send?text=${encodeURIComponent(selectedArticle.title + " " + window.location.href)}`} target="_blank" rel="noopener noreferrer" onClick={() => setShowShareMenu(false)} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-muted text-sm transition-colors">
+                        <MessageCircle className="w-4 h-4 text-green-600" /> WhatsApp
+                      </a>
+                      <a href={`mailto:?subject=${encodeURIComponent(selectedArticle.title)}&body=${encodeURIComponent(selectedArticle.summary + "\n\n" + window.location.href)}`} onClick={() => setShowShareMenu(false)} className="flex items-center gap-3 w-full px-3 py-2 rounded-lg hover:bg-muted text-sm transition-colors">
+                        <MessageCircle className="w-4 h-4 text-blue-600" /> Email
+                      </a>
+                    </div>
+                  </>
+                )}
+              </div>
               <button className="p-2 rounded-lg border border-border hover:bg-muted transition-colors"><Printer className="w-5 h-5" /></button>
             </div>
           </motion.div>
