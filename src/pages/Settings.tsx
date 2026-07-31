@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/use-auth";
+import { useTheme, THEMES } from "@/hooks/use-theme";
 import { toast } from "sonner";
 import {
   User,
@@ -54,6 +55,7 @@ import {
   Bot,
   Eye,
   Sparkles,
+  Palette,
 } from "lucide-react";
 
 // ============================================================
@@ -1538,7 +1540,54 @@ function AdminTab() {
 // Main Settings Page
 // ============================================================
 
+
+// Appearance Tab
+function AppearanceTab({ currentTheme, setTheme }: { currentTheme: string; setTheme: (t: any) => void }) {
+  return (
+    <div className="space-y-6">
+      <Card className="border-border/50">
+        <CardHeader>
+          <CardTitle className="text-base">Theme</CardTitle>
+          <p className="text-sm text-muted-foreground">Choose a color theme that suits your preference</p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {THEMES.map((theme) => (
+              <button
+                key={theme.id}
+                onClick={() => setTheme(theme.id)}
+                className={`relative p-4 rounded-xl border-2 text-left transition-all hover:shadow-md ${
+                  currentTheme === theme.id
+                    ? "border-primary bg-primary/5 shadow-sm"
+                    : "border-border hover:border-primary/50"
+                }`}
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <div
+                    className="w-8 h-8 rounded-full border-2 border-white shadow-sm"
+                    style={{ backgroundColor: theme.preview }}
+                  />
+                  <div>
+                    <p className="font-medium text-sm">{theme.name}</p>
+                    <p className="text-xs text-muted-foreground">{theme.description}</p>
+                  </div>
+                </div>
+                {currentTheme === theme.id && (
+                  <div className="absolute top-3 right-3">
+                    <CheckCircle2 className="w-5 h-5 text-primary" />
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function Settings() {
+  const { theme: currentTheme, setTheme } = useTheme();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
 
@@ -1569,6 +1618,10 @@ export default function Settings() {
                 <CreditCard className="w-4 h-4" />
                 <span className="hidden sm:inline">Subscription</span>
               </TabsTrigger>
+              <TabsTrigger value="appearance" className="gap-2">
+                <Palette className="w-4 h-4" />
+                <span className="hidden sm:inline">Appearance</span>
+              </TabsTrigger>
               {isAdmin && (
                 <TabsTrigger value="admin" className="gap-2">
                   <Users className="w-4 h-4" />
@@ -1588,6 +1641,9 @@ export default function Settings() {
             </TabsContent>
             <TabsContent value="subscription">
               <SubscriptionTab />
+            </TabsContent>
+            <TabsContent value="appearance">
+              <AppearanceTab currentTheme={currentTheme} setTheme={setTheme} />
             </TabsContent>
             {isAdmin && (
               <TabsContent value="admin">

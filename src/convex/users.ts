@@ -67,6 +67,7 @@ export const updatePreferences = mutation({
     units: v.optional(v.union(v.literal("metric"), v.literal("imperial"))),
     currency: v.optional(v.string()),
     timezone: v.optional(v.string()),
+    theme: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -76,6 +77,7 @@ export const updatePreferences = mutation({
     if (args.units !== undefined) updates.units = args.units;
     if (args.currency !== undefined) updates.currency = args.currency;
     if (args.timezone !== undefined) updates.timezone = args.timezone;
+    if (args.theme !== undefined) updates.theme = args.theme;
 
     await ctx.db.patch(userId, updates);
     return { success: true };
@@ -96,6 +98,7 @@ export const getPreferences = query({
       units: user.units ?? "metric",
       currency: user.currency ?? "KES",
       timezone: user.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+      theme: user.theme ?? "green-fields",
     };
   },
 });

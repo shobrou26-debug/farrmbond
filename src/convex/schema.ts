@@ -139,6 +139,7 @@ const schema = defineSchema(
       currency: v.optional(v.string()),
       timezone: v.optional(v.string()),
       units: v.optional(v.union(v.literal("metric"), v.literal("imperial"))),
+      theme: v.optional(v.string()),
       
       // Subscription
       subscriptionTier: v.optional(subscriptionTierValidator),
