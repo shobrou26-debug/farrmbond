@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
 import { motion } from "framer-motion";
 import {
   Search,
@@ -151,6 +152,16 @@ export default function KnowledgeBase() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [difficultyFilter, setDifficultyFilter] = useState<string>("all");
   const [bookmarked, setBookmarked] = useState<Set<string>>(new Set());
+  const [liked, setLiked] = useState<Set<string>>(new Set());
+
+  // Real-time Convex mutations
+  const toggleBookmarkMutation = useMutation(api.knowledgeArticles.toggleBookmark);
+  const toggleLikeMutation = useMutation(api.knowledgeArticles.toggleLike);
+  const incrementViewsMutation = useMutation(api.knowledgeArticles.incrementViews);
+
+  // Fetch user bookmarks from Convex
+  const userBookmarkIds = useQuery(api.knowledgeArticles.getUserBookmarks);
+  const bookmarkSet = useMemo(() => new Set(userBookmarkIds ?? []), [userBookmarkIds]);
 
   // Fetch articles from Convex
   const rawArticles = useQuery(api.knowledgeArticles.listPublished, {
@@ -163,7 +174,7 @@ export default function KnowledgeBase() {
   const articles: Article[] = useMemo(() => {
     if (!rawArticles) return [];
     return rawArticles.map((a) => ({
-      id: a._id,
+      id: a._id as string,
       title: a.title,
       summary: a.summary,
       content: a.content,
@@ -225,15 +236,42 @@ export default function KnowledgeBase() {
     })).filter((cat) => cat.id === "all" || cat.count > 0);
   }, [articles]);
 
-  // Toggle bookmark
-  const toggleBookmark = (id: string, e: React.MouseEvent) => {
+  // Toggle bookmark via Convex
+  const handleToggleBookmark = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setBookmarked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    try {
+      const result = await toggleBookmarkMutation({ articleId: id as Id<"knowledgeArticles"> });
+      setBookmarked((prev) => {
+        const next = new Set(prev);
+        if (result.bookmarked) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    } catch (err) {
+      console.error("Bookmark error:", err);
+    }
+  };
+
+  // Like article via Convex
+  const handleLike = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (liked.has(id)) return; // Already liked
+    try {
+      await toggleLikeMutation({ articleId: id as Id<"knowledgeArticles"> });
+      setLiked((prev) => new Set(prev).add(id));
+    } catch (err) {
+      console.error("Like error:", err);
+    }
+  };
+
+  // Track article view via Convex
+  const handleViewArticle = async (article: Article) => {
+    setSelectedArticle(article);
+    try {
+      await incrementViewsMutation({ articleId: article.id as Id<"knowledgeArticles"> });
+    } catch (err) {
+      // Silently fail view tracking
+    }
   };
 
   // Render article content with markdown-like formatting
@@ -281,7 +319,7 @@ export default function KnowledgeBase() {
               <span>{selectedArticle.publishDate}</span>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={(e) => toggleBookmark(selectedArticle.id, e)} className={`p-2 rounded-lg border transition-colors ${bookmarked.has(selectedArticle.id) ? "bg-primary/10 border-primary/30 text-primary" : "border-border hover:bg-muted"}`}>
+              <button onClick={(e) => handleToggleBookmark(selectedArticle.id, e)} className={`p-2 rounded-lg border transition-colors ${bookmarked.has(selectedArticle.id) || bookmarkSet.has(selectedArticle.id as Id<"knowledgeArticles">) ? "bg-primary/10 border-primary/30 text-primary" : "border-border hover:bg-muted"}`}>
                 <Bookmark className="w-5 h-5" />
               </button>
               <button className="p-2 rounded-lg border border-border hover:bg-muted transition-colors"><Share2 className="w-5 h-5" /></button>
@@ -381,7 +419,7 @@ export default function KnowledgeBase() {
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {featuredArticles.map((article) => (
-                <motion.div key={article.id} whileHover={{ y: -4, scale: 1.02 }} onClick={() => setSelectedArticle(article)} className="cursor-pointer rounded-xl overflow-hidden bg-card border border-border shadow-sm hover:shadow-lg transition-all">
+                <motion.div key={article.id} whileHover={{ y: -4, scale: 1.02 }} onClick={() => handleViewArticle(article)} className="cursor-pointer rounded-xl overflow-hidden bg-card border border-border shadow-sm hover:shadow-lg transition-all">
                   <div className="p-3">
                     <Badge className="mb-2 text-xs" variant="secondary">{article.category}</Badge>
                     <h3 className="font-semibold text-sm text-foreground line-clamp-2 mb-1">{article.title}</h3>
@@ -439,7 +477,7 @@ export default function KnowledgeBase() {
                 key={article.id}
                 variants={itemVariants}
                 whileHover={{ y: viewMode === "grid" ? -4 : 0 }}
-                onClick={() => setSelectedArticle(article)}
+                onClick={() => handleViewArticle(article)}
                 className={`cursor-pointer bg-card rounded-xl border border-border overflow-hidden hover:shadow-lg transition-all ${viewMode === "list" ? "flex" : ""}`}
               >
                 <div className="p-4 flex-1">

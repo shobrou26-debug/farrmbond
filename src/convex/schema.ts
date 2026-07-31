@@ -1122,6 +1122,18 @@ const schema = defineSchema(
       .index("by_featured", ["featured"])
       .index("by_in_stock", ["inStock"]),
 
+    // ============================================================
+    // USER BOOKMARKS TABLE
+    // ============================================================
+    userBookmarks: defineTable({
+      userId: v.id("users"),
+      articleId: v.id("knowledgeArticles"),
+      createdAt: v.number(),
+    })
+      .index("by_user", ["userId"])
+      .index("by_article", ["articleId"])
+      .index("by_user_article", ["userId", "articleId"]),
+
     // INTELLIGENCE ENGINE TABLES
     // ============================================================
 
