@@ -94,7 +94,7 @@ const adminNavItems: NavItem[] = [
   { label: "Subscriptions", icon: TrendingUp, href: "/admin/subscriptions" },
   { label: "Support", icon: HelpCircle, href: "/admin/support" },
   { label: "Content", icon: Leaf, href: "/admin/content" },
-  { label: "Audit Logs", icon: Shield, href: "/admin/audit" },
+  { label: "Audit Logs", icon: Shield, href: "/audit-log" },
   { label: "Settings", icon: Settings, href: "/admin/settings" },
 ];
 

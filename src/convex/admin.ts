@@ -2,7 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { query, mutation, type QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
-import { roleValidator, subscriptionTierValidator } from "./schema";
+import { roleValidator, subscriptionTierValidator, type Role } from "./schema";
 import {
   requireAuth,
   requireAdmin,
@@ -103,10 +103,19 @@ export const listMyAuditLogs = query({
 });
 
 /**
+ * Pure decision: may this role view the platform-wide audit trail?
+ * Only admins/super_admins may; regular farmers/agronomists are scoped
+ * to their own entries by the callers.
+ */
+export function canViewAllAuditLogs(userRole: Role | undefined): boolean {
+  return hasRole(userRole, ROLES.ADMIN);
+}
+
+/**
  * Enrich raw audit log rows with the acting user's name and role.
  * Deduplicates user lookups so N rows cost at most N distinct user fetches.
  */
-async function enrichAuditLogs(ctx: QueryCtx, rows: Doc<"auditLogs">[]) {
+export async function enrichAuditLogs(ctx: QueryCtx, rows: Doc<"auditLogs">[]) {
   const userIds = [...new Set(rows.map((r) => r.userId))];
   const userDocs = await Promise.all(userIds.map((id) => ctx.db.get(id)));
   const userById = new Map(userDocs.filter((u): u is NonNullable<typeof u> => u !== null).map((u) => [u._id, u]));
@@ -131,7 +140,8 @@ export const listAuditLogsForViewer = query({
   handler: async (ctx, args) => {
     const { userId, user } = await requireAuth(ctx);
 
-    const isAdmin = user.role === "admin" || user.role === "super_admin";
+    // Admin/super_admin may view all logs; everyone else sees only their own.
+    const isAdmin = canViewAllAuditLogs(user.role);
     const limit = args.limit ?? 200;
 
     const rows = isAdmin
@@ -155,7 +165,7 @@ export const clearMyAuditLogs = mutation({
   handler: async (ctx, args) => {
     const { userId, user } = await requireAuth(ctx);
 
-    const isAdmin = user.role === "admin" || user.role === "super_admin";
+    const isAdmin = canViewAllAuditLogs(user.role);
     const canClearAll = args.all === true && isAdmin;
 
     const rows = canClearAll
