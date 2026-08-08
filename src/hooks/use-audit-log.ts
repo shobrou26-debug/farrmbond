@@ -1,4 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { exportAnalyticsData } from "@/lib/exports";
 
 // ============================================================
 // Types
@@ -85,213 +88,118 @@ export interface AuditLogStats {
 }
 
 // ============================================================
-// Mock Data
+// DB Row → Entry Mapping
 // ============================================================
-const mockAuditLogs: AuditLogEntry[] = [
-  {
-    id: "1",
-    timestamp: new Date("2026-07-27T10:30:00"),
-    userId: "u1",
-    userName: "John Kamau",
-    userRole: "farmer",
-    action: "create",
-    entityType: "farm",
-    entityId: "f1",
-    entityName: "Sunrise Ranch",
-    description: "Created new farm: Sunrise Ranch",
-    details: { area: 45, location: "Nakuru, Kenya" },
-    status: "success",
-  },
-  {
-    id: "2",
-    timestamp: new Date("2026-07-27T09:15:00"),
-    userId: "u1",
-    userName: "John Kamau",
-    userRole: "farmer",
-    action: "update",
-    entityType: "crop",
-    entityId: "c1",
-    entityName: "Maize Field A",
-    description: "Updated crop status from 'planted' to 'growing'",
-    details: { oldValue: "planted", newValue: "growing" },
-    status: "success",
-  },
-  {
-    id: "3",
-    timestamp: new Date("2026-07-26T16:45:00"),
-    userId: "u2",
-    userName: "Dr. Sarah Ochieng",
-    userRole: "agronomist",
-    action: "view",
-    entityType: "farm",
-    entityId: "f1",
-    entityName: "Sunrise Ranch",
-    description: "Viewed farm details",
-    status: "success",
-  },
-  {
-    id: "4",
-    timestamp: new Date("2026-07-26T14:20:00"),
-    userId: "u3",
-    userName: "Admin User",
-    userRole: "admin",
-    action: "export",
-    entityType: "report",
-    description: "Exported financial report as PDF",
-    details: { format: "pdf", dateRange: "2026-06-01 to 2026-06-30" },
-    status: "success",
-  },
-  {
-    id: "5",
-    timestamp: new Date("2026-07-26T11:00:00"),
-    userId: "u1",
-    userName: "John Kamau",
-    userRole: "farmer",
-    action: "payment",
-    entityType: "transaction",
-    entityId: "t1",
-    entityName: "Maize Sale",
-    description: "Recorded income: KES 12,000 from maize sale",
-    details: { amount: 12000, currency: "KES", category: "Harvest Sale" },
-    status: "success",
-  },
-  {
-    id: "6",
-    timestamp: new Date("2026-07-25T08:30:00"),
-    userId: "u1",
-    userName: "John Kamau",
-    userRole: "farmer",
-    action: "alert_triggered",
-    entityType: "weather",
-    description: "Weather alert triggered: Heavy Rain Warning",
-    details: { severity: "high", precipitation: 45 },
-    status: "success",
-  },
-  {
-    id: "7",
-    timestamp: new Date("2026-07-25T08:35:00"),
-    userId: "u1",
-    userName: "John Kamau",
-    userRole: "farmer",
-    action: "alert_acknowledged",
-    entityType: "alert",
-    entityId: "a1",
-    description: "Acknowledged weather alert: Heavy Rain Warning",
-    status: "success",
-  },
-  {
-    id: "8",
-    timestamp: new Date("2026-07-24T15:00:00"),
-    userId: "u3",
-    userName: "Admin User",
-    userRole: "admin",
-    action: "role_change",
-    entityType: "user",
-    entityId: "u4",
-    entityName: "New Farmer",
-    description: "Changed user role from 'viewer' to 'farmer'",
-    details: { oldRole: "viewer", newRole: "farmer" },
-    status: "success",
-  },
-  {
-    id: "9",
-    timestamp: new Date("2026-07-24T10:15:00"),
-    userId: "u1",
-    userName: "John Kamau",
-    userRole: "farmer",
-    action: "login",
-    entityType: "user",
-    description: "User logged in via email",
-    details: { method: "email" },
-    status: "success",
-  },
-  {
-    id: "10",
-    timestamp: new Date("2026-07-23T14:30:00"),
-    userId: "u2",
-    userName: "Dr. Sarah Ochieng",
-    userRole: "agronomist",
-    action: "create",
-    entityType: "community",
-    entityId: "p1",
-    entityName: "Pest Control Tips",
-    description: "Published new community post: Pest Control Tips",
-    status: "success",
-  },
-  {
-    id: "11",
-    timestamp: new Date("2026-07-23T09:00:00"),
-    userId: "u1",
-    userName: "John Kamau",
-    userRole: "farmer",
-    action: "settings_change",
-    entityType: "settings",
-    description: "Updated notification preferences",
-    details: { setting: "pushNotifications", oldValue: false, newValue: true },
-    status: "success",
-  },
-  {
-    id: "12",
-    timestamp: new Date("2026-07-22T16:00:00"),
-    userId: "u1",
-    userName: "John Kamau",
-    userRole: "farmer",
-    action: "delete",
-    entityType: "crop",
-    entityId: "c2",
-    entityName: "Old Tomato Plot",
-    description: "Deleted crop record: Old Tomato Plot",
-    status: "success",
-  },
-  {
-    id: "13",
-    timestamp: new Date("2026-07-22T11:30:00"),
-    userId: "u1",
-    userName: "John Kamau",
-    userRole: "farmer",
-    action: "share",
-    entityType: "farm",
-    entityId: "f1",
-    entityName: "Sunrise Ranch",
-    description: "Shared farm access with agronomist",
-    details: { sharedWith: "Dr. Sarah Ochieng", permission: "view" },
-    status: "success",
-  },
-  {
-    id: "14",
-    timestamp: new Date("2026-07-21T08:00:00"),
-    userId: "u1",
-    userName: "John Kamau",
-    userRole: "farmer",
-    action: "download",
-    entityType: "report",
-    description: "Downloaded crop yield report",
-    details: { format: "pdf", reportType: "crop_yield" },
-    status: "success",
-  },
-  {
-    id: "15",
-    timestamp: new Date("2026-07-20T14:00:00"),
-    userId: "u3",
-    userName: "Admin User",
-    userRole: "admin",
-    action: "update",
-    entityType: "user",
-    entityId: "u1",
-    entityName: "John Kamau",
-    description: "Updated user subscription to Premium",
-    details: { oldPlan: "Free", newPlan: "Premium" },
-    status: "success",
-  },
-];
+
+/** Map the snake_case DB action strings (e.g. "crop_created") onto the AuditAction union. */
+function mapAction(action: string): AuditAction {
+  if (action === "create") return "create";
+  if (action === "update") return "update";
+  if (action === "delete") return "delete";
+  if (action.endsWith("_created")) return "create";
+  if (action.endsWith("_updated")) return "update";
+  if (action.endsWith("_deleted")) return "delete";
+  if (action === "role_changed") return "role_change";
+  if (action.includes("subscription") || action.includes("trial")) return "subscription";
+  if (action.includes("payment") || action === "mobile_payment_completed") return "payment";
+  if (action.includes("warning_sent") || action.includes("reminder_sent")) return "notification_sent";
+  if (action.includes("notification")) return "notification_sent";
+  if (action.includes("alert")) return "alert_triggered";
+  if (action.includes("login")) return "login";
+  if (action.includes("logout")) return "logout";
+  if (action.includes("export")) return "export";
+  if (action.includes("share")) return "share";
+  if (action.includes("download")) return "download";
+  if (action.includes("upload")) return "upload";
+  if (action.includes("permission")) return "permission_change";
+  if (action.includes("settings") || action.includes("preference")) return "settings_change";
+  return "view";
+}
+
+/** Map the DB resource name (e.g. "farms") onto the AuditEntityType union. */
+function mapEntity(resource: string): AuditEntityType {
+  if (resource === "farms" || resource === "farm") return "farm";
+  if (resource === "crops" || resource === "crop") return "crop";
+  if (resource === "livestock") return "livestock";
+  if (resource === "transactions" || resource === "transaction") return "transaction";
+  if (resource === "users" || resource === "user") return "user";
+  if (resource === "community" || resource === "posts") return "community";
+  if (resource === "agronomist" || resource === "consultations" || resource === "consultation") return "agronomist";
+  if (resource === "calendar" || resource === "events" || resource === "farming_events") return "calendar";
+  if (resource === "weather") return "weather";
+  if (resource === "irrigation") return "irrigation";
+  if (resource === "notification" || resource === "notifications") return "notification";
+  if (resource === "alert" || resource === "alerts") return "alert";
+  if (resource === "report" || resource === "reports") return "report";
+  if (resource === "settings") return "settings";
+  return "system";
+}
+
+/** Build a human-readable description from the DB row fields. */
+function buildDescription(action: AuditAction, entityType: AuditEntityType, details?: Record<string, unknown>): string {
+  let desc = `${getActionLabel(action)} ${getEntityLabel(entityType).toLowerCase()}`;
+  if (details && typeof details === "object") {
+    const field = details.field as string | undefined;
+    if (field) {
+      const oldValue = details.oldValue as string | number | undefined;
+      const newValue = details.newValue as string | number | undefined;
+      desc += ` (${field}: ${oldValue ?? "—"} → ${newValue ?? "—"})`;
+    } else if (details.status) {
+      desc += ` (status: ${String(details.status)})`;
+    }
+  }
+  return desc;
+}
+
+/** Convert an enriched Convex auditLogs row into the hook's AuditLogEntry shape. */
+function mapRow(row: {
+  _id: string;
+  userId: string;
+  userName?: string;
+  userRole?: string;
+  action: string;
+  resource: string;
+  resourceId: string;
+  changes?: Record<string, unknown>;
+  ipAddress?: string;
+  userAgent?: string;
+  createdAt: number;
+}): AuditLogEntry {
+  const action = mapAction(row.action);
+  const entityType = mapEntity(row.resource);
+  const details = row.changes;
+  const entityName =
+    (details?.entityName as string | undefined) ??
+    (details?.userName as string | undefined) ??
+    (details?.name as string | undefined);
+
+  const userRole = ["farmer", "agronomist", "admin", "super_admin"].includes(
+    row.userRole ?? ""
+  )
+    ? (row.userRole as AuditLogEntry["userRole"])
+    : "farmer";
+
+  return {
+    id: row._id,
+    timestamp: new Date(row.createdAt),
+    userId: row.userId,
+    userName: row.userName || "Unknown User",
+    userRole,
+    action,
+    entityType,
+    entityId: row.resourceId || undefined,
+    entityName,
+    description: buildDescription(action, entityType, details),
+    details,
+    ipAddress: row.ipAddress,
+    userAgent: row.userAgent,
+    status: row.action.includes("failed") ? "failure" : "success",
+  };
+}
 
 // ============================================================
 // Helper Functions
 // ============================================================
-function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
-}
-
 function getActionLabel(action: AuditAction): string {
   const labels: Record<AuditAction, string> = {
     create: "Created",
@@ -405,40 +313,32 @@ interface UseAuditLogReturn {
 }
 
 export function useAuditLog(): UseAuditLogReturn {
-  const [logs, setLogs] = useState<AuditLogEntry[]>(() => {
-    const stored = localStorage.getItem("farmbond-audit-logs");
-    if (stored) {
-      try {
-        return JSON.parse(stored).map((log: AuditLogEntry) => ({
-          ...log,
-          timestamp: new Date(log.timestamp),
-        }));
-      } catch {
-        return mockAuditLogs;
-      }
-    }
-    return mockAuditLogs;
-  });
+  // Load real audit logs from Convex. Admins see all logs; regular users see
+  // their own. Rows arrive enriched with the actor's name and role.
+  const rawRows = useQuery(api.admin.listAuditLogsForViewer, { limit: 200 });
+  const clearMyAuditLogs = useMutation(api.admin.clearMyAuditLogs);
+  const [localEntries, setLocalEntries] = useState<AuditLogEntry[]>([]);
 
-  const [isLoading, setIsLoading] = useState(false);
+  // Map DB rows once — reactive updates flow straight through useQuery.
+  const logs = useMemo<AuditLogEntry[]>(() => {
+    const mapped = (rawRows ?? []).map(mapRow);
+    return [...mapped, ...localEntries];
+  }, [rawRows, localEntries]);
 
-  // Save to localStorage when logs change
-  useEffect(() => {
-    localStorage.setItem("farmbond-audit-logs", JSON.stringify(logs));
-  }, [logs]);
+  const isLoading = rawRows === undefined;
 
-  // Add new log entry
+  // Add new log entry (client-side only; server-side audit logging is done by
+  // Convex mutations via createAuditLog).
   const addLog = useCallback(
     (newLog: Omit<AuditLogEntry, "id" | "timestamp" | "ipAddress" | "userAgent">) => {
       const entry: AuditLogEntry = {
         ...newLog,
-        id: generateId(),
+        id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         timestamp: new Date(),
-        ipAddress: "192.168.1.1", // Would be real IP in production
+        ipAddress: undefined,
         userAgent: navigator.userAgent,
       };
-
-      setLogs((prev) => [entry, ...prev].slice(0, 1000)); // Keep last 1000 entries
+      setLocalEntries((prev) => [entry, ...prev].slice(0, 500));
     },
     []
   );
@@ -510,17 +410,24 @@ export function useAuditLog(): UseAuditLogReturn {
     [logs]
   );
 
-  // Clear all logs
+  // Clear logs — deletes the current user's own entries from the DB.
+  // (Admins' Clear button is intentionally scoped to their own actions to
+  // avoid wiping the platform-wide audit trail with one click.)
   const clearLogs = useCallback(() => {
-    setLogs([]);
-    localStorage.removeItem("farmbond-audit-logs");
-  }, []);
+    setLocalEntries([]);
+    void clearMyAuditLogs({ all: false }).catch(() => {
+      // Query stays reactive; on failure the logs simply remain visible.
+    });
+  }, [clearMyAuditLogs]);
 
-  // Export logs
+  // Export logs — uses the real PDF/Excel export utilities.
   const exportLogs = useCallback(
     (format: "pdf" | "excel") => {
-      // This would use the exports utility in production
-      console.log(`Exporting ${logs.length} logs as ${format}`);
+      const data = logs.map((log) => ({
+        ...log,
+        timestamp: log.timestamp.toISOString(),
+      }));
+      exportAnalyticsData(data, "Audit Logs", format);
     },
     [logs]
   );

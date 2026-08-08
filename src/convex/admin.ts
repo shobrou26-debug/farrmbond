@@ -1,5 +1,6 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { query, mutation } from "./_generated/server";
+import { query, mutation, type QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { roleValidator, subscriptionTierValidator } from "./schema";
 import {
@@ -91,11 +92,82 @@ export const listMyAuditLogs = query({
   handler: async (ctx, args) => {
     const { userId } = await requireAuth(ctx);
 
-    return await ctx.db
+    const rows = await ctx.db
       .query("auditLogs")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .order("desc")
       .take(args.limit ?? 100);
+
+    return enrichAuditLogs(ctx, rows);
+  },
+});
+
+/**
+ * Enrich raw audit log rows with the acting user's name and role.
+ * Deduplicates user lookups so N rows cost at most N distinct user fetches.
+ */
+async function enrichAuditLogs(ctx: QueryCtx, rows: Doc<"auditLogs">[]) {
+  const userIds = [...new Set(rows.map((r) => r.userId))];
+  const userDocs = await Promise.all(userIds.map((id) => ctx.db.get(id)));
+  const userById = new Map(userDocs.filter((u): u is NonNullable<typeof u> => u !== null).map((u) => [u._id, u]));
+
+  return rows.map((row) => {
+    const actor = userById.get(row.userId);
+    return {
+      ...row,
+      userName: actor?.name ?? actor?.email ?? "Unknown User",
+      userRole: actor?.role ?? "farmer",
+    };
+  });
+}
+
+/**
+ * List audit logs for the current viewer.
+ * Admins see all logs; regular users only see their own.
+ * Rows are enriched with the actor's name and role for display.
+ */
+export const listAuditLogsForViewer = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const { userId, user } = await requireAuth(ctx);
+
+    const isAdmin = user.role === "admin" || user.role === "super_admin";
+    const limit = args.limit ?? 200;
+
+    const rows = isAdmin
+      ? await ctx.db.query("auditLogs").order("desc").take(limit)
+      : await ctx.db
+          .query("auditLogs")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .order("desc")
+          .take(limit);
+
+    return enrichAuditLogs(ctx, rows);
+  },
+});
+
+/**
+ * Delete the current user's own audit log entries.
+ * Admins can optionally clear all logs via the `all` flag.
+ */
+export const clearMyAuditLogs = mutation({
+  args: { all: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
+    const { userId, user } = await requireAuth(ctx);
+
+    const isAdmin = user.role === "admin" || user.role === "super_admin";
+    const canClearAll = args.all === true && isAdmin;
+
+    const rows = canClearAll
+      ? await ctx.db.query("auditLogs").collect()
+      : await ctx.db
+          .query("auditLogs")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .collect();
+
+    await Promise.all(rows.map((r) => ctx.db.delete(r._id)));
+
+    return { deleted: rows.length, clearedAll: canClearAll };
   },
 });
 
