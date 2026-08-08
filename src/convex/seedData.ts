@@ -589,3 +589,153 @@ export const seedKnowledgeArticles = mutation({
     return { message: `Seeded ${count} knowledge articles`, count };
   },
 });
+
+// ============================================================
+// Farming Events Seed Data
+// Run: bunx convex run seedData:seedFarmingEvents
+// ============================================================
+
+/** Seed the farming events table with realistic public events */
+export const seedFarmingEvents = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const existing = await ctx.db.query("farmingEvents").first();
+    if (existing) return { message: "Already seeded", count: 0 };
+
+    const anyUser = await ctx.db.query("users").first();
+    if (!anyUser) return { message: "No users found", count: 0 };
+
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    type SeedEvent = {
+      title: string;
+      type: "training" | "expo" | "workshop" | "sponsored";
+      description: string;
+      location: string;
+      startDate: number;
+      endDate: number;
+      time: string;
+      organizer: string;
+      maxCapacity: number;
+      ticketPrice: string;
+      sponsored: boolean;
+      sponsorName?: string;
+      tags: string[];
+    };
+    const events: SeedEvent[] = [
+      {
+        title: "East Africa AgriTech Expo 2026",
+        type: "expo",
+        description: "Annual agricultural technology exhibition featuring the latest farming innovations, equipment, and digital solutions.",
+        location: "Kenyatta International Convention Centre, Nairobi",
+        startDate: now + 7 * day,
+        endDate: now + 9 * day,
+        time: "09:00 - 17:00",
+        organizer: "Kenya Agricultural Society",
+        maxCapacity: 5000,
+        ticketPrice: "Free",
+        sponsored: false,
+        tags: ["AgriTech", "Innovation", "Networking"],
+      },
+      {
+        title: "Organic Farming Certification Workshop",
+        type: "training",
+        description: "Learn how to get certified as an organic farm. Covers KEPHIS standards and international organic certification requirements.",
+        location: "Nairobi Agricultural Centre",
+        startDate: now - 3 * day,
+        endDate: now - 3 * day,
+        time: "08:00 - 16:00",
+        organizer: "Organic Farmers Association of Kenya",
+        maxCapacity: 50,
+        ticketPrice: "KES 2,500",
+        sponsored: false,
+        tags: ["Organic", "Certification", "Standards"],
+      },
+      {
+        title: "FarmBond x AgriGrow Fertilizer Demo Day",
+        type: "sponsored",
+        description: "Free demonstration of premium fertilizer products. First 100 farmers receive free soil testing and fertilizer samples.",
+        location: "Kasarani Show Ground, Nairobi",
+        startDate: now + 2 * day,
+        endDate: now + 2 * day,
+        time: "10:00 - 15:00",
+        organizer: "AgriGrow Fertilizers",
+        maxCapacity: 100,
+        ticketPrice: "Free",
+        sponsored: true,
+        sponsorName: "AgriGrow Fertilizers",
+        tags: ["Fertilizer", "Free Samples", "Soil Testing"],
+      },
+      {
+        title: "Smart Irrigation Systems Workshop",
+        type: "workshop",
+        description: "Hands-on workshop on setting up drip irrigation systems. Participants receive a starter kit worth KES 5,000.",
+        location: "Kabete Agricultural Training Centre",
+        startDate: now + 12 * day,
+        endDate: now + 13 * day,
+        time: "08:30 - 17:00",
+        organizer: "AquaFlow Irrigation",
+        maxCapacity: 30,
+        ticketPrice: "KES 3,500",
+        sponsored: false,
+        tags: ["Irrigation", "Hands-on", "Equipment"],
+      },
+      {
+        title: "Livestock Vaccination Drive",
+        type: "sponsored",
+        description: "Free FMD and Anthrax vaccination campaign for livestock in Machakos County. Open to all registered farmers.",
+        location: "Machakos County Agricultural Office",
+        startDate: now + 4 * day,
+        endDate: now + 5 * day,
+        time: "07:00 - 17:00",
+        organizer: "County Government of Machakos",
+        maxCapacity: 500,
+        ticketPrice: "Free",
+        sponsored: true,
+        sponsorName: "County Government",
+        tags: ["Vaccination", "Free", "Livestock"],
+      },
+      {
+        title: "Smallholder Farmer Digital Literacy Program",
+        type: "training",
+        description: "Learn to use smartphone apps for farm management, market access, and mobile banking. 3-day comprehensive program.",
+        location: "Kawangware Community Centre, Nairobi",
+        startDate: now + 17 * day,
+        endDate: now + 19 * day,
+        time: "09:00 - 16:00",
+        organizer: "Digital Farmers Kenya",
+        maxCapacity: 40,
+        ticketPrice: "Free",
+        sponsored: false,
+        tags: ["Digital", "Free", "Mobile"],
+      },
+    ];
+
+    let count = 0;
+    for (const event of events) {
+      await ctx.db.insert("farmingEvents", {
+        title: event.title,
+        type: event.type,
+        description: event.description,
+        location: event.location,
+        startDate: event.startDate,
+        endDate: event.endDate,
+        time: event.time,
+        organizer: event.organizer,
+        attendees: Math.min(80, event.maxCapacity),
+        maxCapacity: event.maxCapacity,
+        ticketPrice: event.ticketPrice,
+        sponsored: event.sponsored,
+        sponsorName: event.sponsorName,
+        tags: event.tags,
+        imageUrl: undefined,
+        isActive: true,
+        createdBy: anyUser._id,
+        createdAt: now,
+        updatedAt: now,
+      });
+      count++;
+    }
+    return { message: `Seeded ${count} farming events`, count };
+  },
+});

@@ -1,5 +1,10 @@
+import { useMemo } from "react";
 import { motion } from "framer-motion";
+import { useQuery } from "convex/react";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { api } from "@/convex/_generated/api";
+import { usePaginatedQuery } from "@/hooks/use-paginated-query";
+import { useCurrency } from "@/hooks/use-currency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,12 +15,11 @@ import {
   TrendingUp,
   TrendingDown,
   Calendar,
-  Download,
   Leaf,
   Beef,
   DollarSign,
-  Droplets,
-  ArrowUpRight,
+  Sprout,
+  Lightbulb,
 } from "lucide-react";
 
 const containerVariants = {
@@ -27,43 +31,131 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
-// Mock chart data
-const monthlyData = [
-  { month: "Jan", income: 18000, expenses: 12000, profit: 6000, yield: 12, farms: 3 },
-  { month: "Feb", income: 22000, expenses: 14000, profit: 8000, yield: 14, farms: 3 },
-  { month: "Mar", income: 28000, expenses: 16000, profit: 12000, yield: 18, farms: 4 },
-  { month: "Apr", income: 35000, expenses: 18000, profit: 17000, yield: 22, farms: 4 },
-  { month: "May", income: 32000, expenses: 15000, profit: 17000, yield: 20, farms: 4 },
-  { month: "Jun", income: 42000, expenses: 20000, profit: 22000, yield: 28, farms: 5 },
-  { month: "Jul", income: 38000, expenses: 17000, profit: 21000, yield: 25, farms: 5 },
-];
+type Crop = {
+  _id: string;
+  name: string;
+  type: string;
+  status: string;
+  healthScore: number;
+};
 
-const maxVal = Math.max(...monthlyData.map((d) => Math.max(d.income, d.expenses)));
+type Livestock = {
+  _id: string;
+  name: string;
+  status: string;
+};
 
 export default function Analytics() {
+  const { format } = useCurrency();
+  const financial = useQuery(api.transactions.getFinancialSummary);
+  const monthlyData = useQuery(api.transactions.getMonthlyFinancialSummary, { months: 7 });
+  const farmsResult = useQuery(api.farms.listUserFarms, {
+    paginationOpts: { numItems: 200, cursor: null },
+  });
+  const { results: crops } = usePaginatedQuery<Crop>(api.crops.listUserCrops);
+  const { results: livestock } = usePaginatedQuery<Livestock>(api.livestock.listUserLivestock);
+
+  const farmCount = farmsResult?.page?.length ?? 0;
+
+  const stats = useMemo(() => {
+    const totalIncome = financial?.totalIncome ?? 0;
+    const totalExpenses = financial?.totalExpenses ?? 0;
+    const netProfit = financial?.netProfit ?? 0;
+    const incomeChange = financial?.incomeChange ?? 0;
+
+    const activeCrops = crops.filter((c) => c.status !== "harvested" && c.status !== "failed");
+    const avgHealth =
+      activeCrops.length > 0
+        ? Math.round(activeCrops.reduce((s, c) => s + (c.healthScore || 0), 0) / activeCrops.length)
+        : 0;
+
+    const healthyLivestock = livestock.filter((l) => l.status === "healthy").length;
+    const livestockHealth =
+      livestock.length > 0 ? Math.round((healthyLivestock / livestock.length) * 100) : 0;
+
+    const bestCrops = [...activeCrops]
+      .sort((a, b) => (b.healthScore || 0) - (a.healthScore || 0))
+      .slice(0, 5);
+
+    const insights: { title: string; desc: string; badge: string; color: string }[] = [];
+    if (bestCrops.length > 0) {
+      insights.push({
+        title: `Best Performing Crop: ${bestCrops[0].name}`,
+        desc: `${bestCrops[0].name} has the highest health score at ${bestCrops[0].healthScore}% across ${activeCrops.length} active crop${activeCrops.length === 1 ? "" : "s"}.`,
+        badge: "Crop Health",
+        color: "bg-green-500/10 text-green-600",
+      });
+    }
+    if (netProfit > 0) {
+      insights.push({
+        title: "Farm is Profitable",
+        desc: `Net profit is ${format(netProfit)}. Keep tracking expenses closely to protect your margins.`,
+        badge: "Finance",
+        color: "bg-blue-500/10 text-blue-600",
+      });
+    } else if (totalExpenses > 0) {
+      insights.push({
+        title: "Expenses Exceed Income",
+        desc: `Expenses of ${format(totalExpenses)} currently exceed income. Review your cost categories to find savings.`,
+        badge: "Warning",
+        color: "bg-red-500/10 text-red-600",
+      });
+    }
+    if (financial && financial.expenseChange > 5) {
+      insights.push({
+        title: "Costs Rising",
+        desc: `Month-over-month expenses are up ${financial.expenseChange.toFixed(1)}%. Consider bulk purchasing or input alternatives.`,
+        badge: "Costs",
+        color: "bg-amber-500/10 text-amber-600",
+      });
+    }
+    if (livestock.length > 0) {
+      insights.push({
+        title: "Livestock Health",
+        desc: `${healthyLivestock} of ${livestock.length} animals are healthy (${livestockHealth}%). Keep vaccinations up to date to avoid disease outbreaks.`,
+        badge: "Livestock",
+        color: "bg-purple-500/10 text-purple-600",
+      });
+    }
+    if (insights.length === 0) {
+      insights.push({
+        title: "Add Some Data",
+        desc: "Register farms, crops, livestock, and transactions to unlock personalized insights.",
+        badge: "Getting Started",
+        color: "bg-gray-500/10 text-gray-600",
+      });
+    }
+
+    return { totalIncome, totalExpenses, netProfit, incomeChange, activeCrops: activeCrops.length, avgHealth, livestockHealth, insights };
+  }, [financial, crops, livestock, format]);
+
+  const chartData = monthlyData ?? [];
+  const maxVal = Math.max(1, ...chartData.map((d) => Math.max(d.income, d.expenses)));
+
   const handleExportPDF = () => {
-    const exportData = monthlyData.map((d) => ({
-      period: d.month,
-      revenue: d.income,
-      expenses: d.expenses,
-      profit: d.profit,
-      yield: d.yield,
-      farms: d.farms,
-    }));
-    exportAnalyticsData(exportData, "Analytics Report", "pdf");
+    exportAnalyticsData(
+      chartData.map((d) => ({ period: d.month, revenue: d.income, expenses: d.expenses, profit: d.profit })),
+      "Analytics Report",
+      "pdf"
+    );
   };
 
   const handleExportExcel = () => {
-    const exportData = monthlyData.map((d) => ({
-      period: d.month,
-      revenue: d.income,
-      expenses: d.expenses,
-      profit: d.profit,
-      yield: d.yield,
-      farms: d.farms,
-    }));
-    exportAnalyticsData(exportData, "Analytics Report", "excel");
+    exportAnalyticsData(
+      chartData.map((d) => ({ period: d.month, revenue: d.income, expenses: d.expenses, profit: d.profit })),
+      "Analytics Report",
+      "excel"
+    );
   };
+
+  const topCrops = useMemo(
+    () =>
+      [...crops]
+        .filter((c) => c.status !== "harvested" && c.status !== "failed")
+        .sort((a, b) => (b.healthScore || 0) - (a.healthScore || 0))
+        .slice(0, 5),
+    [crops]
+  );
 
   return (
     <AppLayout>
@@ -85,25 +177,26 @@ export default function Analytics() {
           {/* Summary Cards */}
           <motion.div variants={itemVariants} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { title: "Total Revenue", value: "$215,000", change: "+23.5%", icon: DollarSign, color: "bg-green-500" },
-              { title: "Crop Yield", value: "18.5 tons", change: "+12.8%", icon: Leaf, color: "bg-emerald-500" },
-              { title: "Livestock Health", value: "94%", change: "+2.1%", icon: Beef, color: "bg-amber-500" },
-              { title: "Water Usage", value: "45,200 L", change: "-15.3%", icon: Droplets, color: "bg-blue-500" },
+              { title: "Total Revenue", value: format(stats.totalIncome), change: `${stats.incomeChange >= 0 ? "+" : ""}${stats.incomeChange.toFixed(1)}%`, icon: DollarSign, color: "bg-green-500" },
+              { title: "Net Profit", value: format(stats.netProfit), change: `${stats.totalIncome > 0 ? ((stats.netProfit / stats.totalIncome) * 100).toFixed(1) : 0}% margin`, icon: TrendingUp, color: "bg-emerald-500" },
+              { title: "Active Crops", value: `${stats.activeCrops} · ${stats.avgHealth}% health`, change: `${farmCount} farm${farmCount === 1 ? "" : "s"}`, icon: Leaf, color: "bg-amber-500" },
+              { title: "Livestock Health", value: `${stats.livestockHealth}%`, change: `${livestock.length} animals`, icon: Beef, color: "bg-blue-500" },
             ].map((stat, i) => {
               const Icon = stat.icon;
+              const positive = !stat.change.startsWith("-");
               return (
                 <Card key={i} className="border-border/50 card-hover">
                   <CardContent className="p-5">
                     <div className="flex items-start justify-between">
-                      <div className="space-y-2">
+                      <div className="space-y-2 min-w-0">
                         <p className="text-sm text-muted-foreground">{stat.title}</p>
-                        <p className="text-2xl font-bold">{stat.value}</p>
+                        <p className="text-xl font-bold truncate">{stat.value}</p>
                         <div className="flex items-center gap-1">
-                          {stat.change.startsWith("+") ? <TrendingUp className="w-3.5 h-3.5 text-green-500" /> : <TrendingDown className="w-3.5 h-3.5 text-green-500" />}
-                          <span className="text-xs text-green-500">{stat.change}</span>
+                          {positive ? <TrendingUp className="w-3.5 h-3.5 text-green-500" /> : <TrendingDown className="w-3.5 h-3.5 text-red-500" />}
+                          <span className={`text-xs ${positive ? "text-green-500" : "text-red-500"}`}>{stat.change}</span>
                         </div>
                       </div>
-                      <div className={`flex items-center justify-center w-10 h-10 rounded-xl ${stat.color}`}>
+                      <div className={`flex items-center justify-center w-10 h-10 rounded-xl shrink-0 ${stat.color}`}>
                         <Icon className="w-5 h-5 text-white" />
                       </div>
                     </div>
@@ -127,23 +220,33 @@ export default function Analytics() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex items-end gap-2 h-48">
-                    {monthlyData.map((d, i) => (
-                      <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                        <div className="w-full flex gap-0.5 items-end justify-center" style={{ height: "160px" }}>
-                          <div
-                            className="w-3 bg-green-500 rounded-t-sm transition-all duration-500"
-                            style={{ height: `${(d.income / maxVal) * 100}%` }}
-                          />
-                          <div
-                            className="w-3 bg-red-400/70 rounded-t-sm transition-all duration-500"
-                            style={{ height: `${(d.expenses / maxVal) * 100}%` }}
-                          />
+                  {chartData.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-48 text-center">
+                      <BarChart3 className="w-10 h-10 text-muted-foreground/30 mb-3" />
+                      <p className="text-sm text-muted-foreground">No transactions recorded yet</p>
+                      <p className="text-xs text-muted-foreground/70 mt-1">Add income and expenses in Finances to see trends</p>
+                    </div>
+                  ) : (
+                    <div className="flex items-end gap-2 h-48">
+                      {chartData.map((d, i) => (
+                        <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                          <div className="w-full flex gap-0.5 items-end justify-center" style={{ height: "160px" }}>
+                            <div
+                              className="w-3 bg-green-500 rounded-t-sm transition-all duration-500"
+                              style={{ height: `${(d.income / maxVal) * 100}%` }}
+                              title={`Income: ${format(d.income)}`}
+                            />
+                            <div
+                              className="w-3 bg-red-400/70 rounded-t-sm transition-all duration-500"
+                              style={{ height: `${(d.expenses / maxVal) * 100}%` }}
+                              title={`Expenses: ${format(d.expenses)}`}
+                            />
+                          </div>
+                          <span className="text-[10px] text-muted-foreground">{d.month}</span>
                         </div>
-                        <span className="text-[10px] text-muted-foreground">{d.month}</span>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
@@ -151,24 +254,35 @@ export default function Analytics() {
             {/* Crop Performance */}
             <motion.div variants={itemVariants}>
               <Card className="border-border/50">
-                <CardHeader className="pb-3"><CardTitle className="text-base">Crop Performance</CardTitle></CardHeader>
+                <CardHeader className="pb-3"><CardTitle className="text-base">Crop Health Performance</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                  {[
-                    { name: "Tomatoes", yield: "2,400 kg", target: "2,500 kg", progress: 96 },
-                    { name: "Maize", yield: "7,800 kg", target: "8,000 kg", progress: 97.5 },
-                    { name: "Beans", yield: "1,100 kg", target: "1,200 kg", progress: 91.7 },
-                    { name: "Kale", yield: "750 kg", target: "800 kg", progress: 93.8 },
-                  ].map((crop, i) => (
-                    <div key={i} className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium">{crop.name}</span>
-                        <span className="text-muted-foreground">{crop.yield} / {crop.target}</span>
-                      </div>
-                      <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-green-500 to-emerald-500 rounded-full transition-all duration-700" style={{ width: `${crop.progress}%` }} />
-                      </div>
+                  {topCrops.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-48 text-center">
+                      <Sprout className="w-10 h-10 text-muted-foreground/30 mb-3" />
+                      <p className="text-sm text-muted-foreground">No active crops yet</p>
                     </div>
-                  ))}
+                  ) : (
+                    topCrops.map((crop) => (
+                      <div key={crop._id} className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-medium">{crop.name}</span>
+                          <span className="text-muted-foreground">{crop.healthScore || 0}% health</span>
+                        </div>
+                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-700 ${
+                              (crop.healthScore || 0) >= 90
+                                ? "bg-gradient-to-r from-green-500 to-emerald-500"
+                                : (crop.healthScore || 0) >= 70
+                                ? "bg-gradient-to-r from-amber-400 to-orange-500"
+                                : "bg-gradient-to-r from-red-400 to-red-600"
+                            }`}
+                            style={{ width: `${crop.healthScore || 0}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
@@ -177,13 +291,9 @@ export default function Analytics() {
           {/* Top Insights */}
           <motion.div variants={itemVariants}>
             <Card className="border-border/50">
-              <CardHeader className="pb-3"><CardTitle className="text-base">Key Insights & Recommendations</CardTitle></CardHeader>
+              <CardHeader className="pb-3"><CardTitle className="text-base flex items-center gap-2"><Lightbulb className="w-4 h-4 text-amber-500" />Key Insights & Recommendations</CardTitle></CardHeader>
               <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {[
-                  { title: "Best Performing Crop", desc: "Tomatoes generated 42% of total income. Consider expanding tomato cultivation.", badge: "Revenue", color: "bg-green-500/10 text-green-600" },
-                  { title: "Cost Optimization", desc: "Fertilizer costs increased 15%. Consider organic alternatives or bulk purchasing.", badge: "Savings", color: "bg-amber-500/10 text-amber-600" },
-                  { title: "Water Efficiency", desc: "Drip irrigation reduced water usage by 32%. Apply same strategy to other farms.", badge: "Efficiency", color: "bg-blue-500/10 text-blue-600" },
-                ].map((insight, i) => (
+                {stats.insights.map((insight, i) => (
                   <div key={i} className="p-4 rounded-xl bg-muted/30 space-y-2">
                     <Badge className={insight.color}>{insight.badge}</Badge>
                     <h4 className="text-sm font-semibold">{insight.title}</h4>

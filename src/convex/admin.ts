@@ -83,6 +83,22 @@ export const listAuditLogs = query({
   },
 });
 
+/**
+ * List the current user's own audit log entries (any authenticated user)
+ */
+export const listMyAuditLogs = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+
+    return await ctx.db
+      .query("auditLogs")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .order("desc")
+      .take(args.limit ?? 100);
+  },
+});
+
 // ============================================================
 // Admin Mutations
 // ============================================================

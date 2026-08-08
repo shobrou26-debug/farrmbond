@@ -19,18 +19,35 @@ const CROP_PRICES: Record<string, { min: number; max: number; unit: string; curr
   rice: { min: 80, max: 140, unit: "kg", currency: "KES" },
 };
 
-/** Get current market prices for crops */
+/**
+ * Deterministic pseudo-price trend: stable within a day, varies slowly
+ * between days based on the crop key. No randomness — the same inputs
+ * always produce the same output, so the UI never flickers.
+ */
+function deterministicVariation(crop: string, dayIndex: number): number {
+  let hash = 0;
+  for (let i = 0; i < crop.length; i++) {
+    hash = (hash * 31 + crop.charCodeAt(i)) % 1000;
+  }
+  // Slow sine wave: full cycle over ~24 days, amplitude ±10%
+  return Math.sin((dayIndex + hash / 100) * (Math.PI / 12)) * 0.1;
+}
+
+/** Get current market prices for crops (deterministic reference prices) */
 export const getMarketPrices = query({
   args: { cropTypes: v.optional(v.array(v.string())) },
   handler: async (ctx, args) => {
-    // In production, fetch from a real market API
-    // For now, return simulated prices with slight variations
     const crops = args.cropTypes ?? Object.keys(CROP_PRICES);
+    const dayIndex = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
 
     return crops.map((crop) => {
       const base = CROP_PRICES[crop.toLowerCase()] ?? { min: 50, max: 100, unit: "kg", currency: "KES" };
-      const variation = (Math.random() - 0.5) * 0.2;
-      const currentPrice = Math.round(base.min + (base.max - base.min) * (0.5 + variation));
+      const mid = (base.min + base.max) / 2;
+      const variation = deterministicVariation(crop.toLowerCase(), dayIndex);
+      const currentPrice = Math.round(mid * (1 + variation));
+      const prevPrice = Math.round(mid * (1 + deterministicVariation(crop.toLowerCase(), dayIndex - 1)));
+      const change = currentPrice - prevPrice;
+      const changePercent = prevPrice > 0 ? (change / prevPrice) * 100 : 0;
 
       return {
         crop: crop.toLowerCase(),
@@ -39,8 +56,8 @@ export const getMarketPrices = query({
         maxPrice: base.max,
         unit: base.unit,
         currency: base.currency,
-        change: Math.round(variation * 100),
-        trend: variation > 0.05 ? "up" : variation < -0.05 ? "down" : "stable",
+        change: Math.round(changePercent),
+        trend: changePercent > 1 ? "up" : changePercent < -1 ? "down" : "stable",
         lastUpdated: Date.now(),
       };
     });
@@ -61,11 +78,13 @@ export const getMarketInsights = query({
 
     const cropTypes = [...new Set(crops.map((c) => c.type?.toLowerCase() ?? "maize"))];
 
-    // Get current prices
+    // Get current prices (deterministic)
+    const dayIndex = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
     const prices = cropTypes.map((crop) => {
       const base = CROP_PRICES[crop] ?? { min: 50, max: 100, unit: "kg", currency: "KES" };
-      const variation = (Math.random() - 0.5) * 0.15;
-      const currentPrice = Math.round(base.min + (base.max - base.min) * (0.5 + variation));
+      const mid = (base.min + base.max) / 2;
+      const variation = deterministicVariation(crop, dayIndex);
+      const currentPrice = Math.round(mid * (1 + variation));
 
       return {
         crop,
@@ -74,7 +93,7 @@ export const getMarketInsights = query({
         maxPrice: base.max,
         unit: base.unit,
         currency: base.currency,
-        trend: variation > 0.05 ? "up" : variation < -0.05 ? "down" : "stable",
+        trend: variation > 0.02 ? "up" : variation < -0.02 ? "down" : "stable",
       };
     });
 

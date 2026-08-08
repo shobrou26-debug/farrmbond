@@ -102,6 +102,49 @@ export const getFinancialSummary = query({
   },
 });
 
+/**
+ * Monthly income/expense/profit breakdown for the last N months.
+ * Used by the Analytics page chart.
+ */
+export const getMonthlyFinancialSummary = query({
+  args: { months: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+
+    const transactions = await ctx.db
+      .query("transactions")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    const months = Math.min(12, Math.max(1, args.months ?? 7));
+    const now = new Date();
+    const result: { month: string; income: number; expenses: number; profit: number }[] = [];
+
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const start = d.getTime();
+      const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1).getTime();
+
+      const monthTx = transactions.filter((t) => t.date >= start && t.date < end);
+      const income = monthTx
+        .filter((t) => t.type === "income")
+        .reduce((sum, t) => sum + t.amount, 0);
+      const expenses = monthTx
+        .filter((t) => t.type === "expense")
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      result.push({
+        month: d.toLocaleString("en", { month: "short" }),
+        income,
+        expenses,
+        profit: income - expenses,
+      });
+    }
+
+    return result;
+  },
+});
+
 // ============================================================
 // Transaction Mutations
 // ============================================================

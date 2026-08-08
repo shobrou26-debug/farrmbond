@@ -86,6 +86,119 @@ export const getFarmStats = query({
 });
 
 // ============================================================
+// Farm Comparison Data
+// ============================================================
+
+/**
+ * Aggregated per-farm metrics for the Farm Comparison dashboard.
+ * Computes revenue, expenses, crop/livestock health, and satellite/soil
+ * scores for every farm the user owns in a single query.
+ */
+export const getFarmComparisonData = query({
+  args: {},
+  handler: async (ctx) => {
+    const { userId } = await requireAuth(ctx);
+
+    const farms = await ctx.db
+      .query("farms")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    const crops = await ctx.db
+      .query("crops")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    const livestock = await ctx.db
+      .query("livestock")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    const transactions = await ctx.db
+      .query("transactions")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    const soil = await ctx.db
+      .query("soilData")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    const satellite = await ctx.db
+      .query("satelliteData")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    const soilScore = (ph?: number) => {
+      if (!ph) return null;
+      if (ph >= 6 && ph <= 7.5) return 90;
+      if (ph >= 5.5 && ph < 6) return 75;
+      if (ph > 7.5 && ph <= 8.5) return 70;
+      return 50;
+    };
+
+    return farms.map((farm) => {
+      const farmCrops = crops.filter((c) => c.farmId === farm._id);
+      const activeCrops = farmCrops.filter(
+        (c) => c.status !== "harvested" && c.status !== "failed"
+      );
+      const farmLivestock = livestock.filter((l) => l.farmId === farm._id);
+      const healthyLivestock = farmLivestock.filter((l) => l.status === "healthy");
+      const farmTx = transactions.filter((t) => t.farmId === farm._id);
+
+      const revenue = farmTx
+        .filter((t) => t.type === "income")
+        .reduce((sum, t) => sum + t.amount, 0);
+      const expenses = farmTx
+        .filter((t) => t.type === "expense")
+        .reduce((sum, t) => sum + t.amount, 0);
+      const profit = revenue - expenses;
+
+      const soilEntry = soil.find((s) => s.farmId === farm._id);
+      const satEntry = satellite.find((s) => s.farmId === farm._id);
+      const ndvi = satEntry?.ndvi ?? null;
+      const cropHealth =
+        activeCrops.length > 0
+          ? Math.round(
+              activeCrops.reduce((sum, c) => sum + (c.healthScore || 0), 0) / activeCrops.length
+            )
+          : 0;
+
+      const location = [farm.location?.city, farm.location?.country]
+        .filter(Boolean)
+        .join(", ");
+
+      return {
+        farm: {
+          _id: farm._id,
+          name: farm.name,
+          location: location || farm.location?.address || "—",
+          size: farm.size,
+          sizeUnit: farm.sizeUnit,
+          established: farm.createdAt,
+          coverImage: farm.coverImage ?? null,
+          status: farm.status,
+        },
+        metrics: {
+          revenue,
+          expenses,
+          profit,
+          profitMargin: revenue > 0 ? (profit / revenue) * 100 : 0,
+          revenuePerHectare: farm.size > 0 ? revenue / farm.size : 0,
+          totalCrops: farmCrops.length,
+          activeCrops: activeCrops.length,
+          cropHealth,
+          livestockCount: farmLivestock.length,
+          healthyLivestock: healthyLivestock.length,
+          livestockHealth:
+            farmLivestock.length > 0
+              ? Math.round((healthyLivestock.length / farmLivestock.length) * 100)
+              : 0,
+          soilHealth: soilScore(soilEntry?.ph),
+          ndvi: ndvi !== null ? Math.round(ndvi * 100) : null,
+          cropDiversity: new Set(farmCrops.map((c) => c.type)).size,
+        },
+      };
+    });
+  },
+});
+
+// ============================================================
 // Farm Mutations
 // ============================================================
 

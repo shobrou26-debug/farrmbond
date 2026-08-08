@@ -50,6 +50,7 @@ const FarmingEvents = lazy(() => import("./pages/FarmingEvents.tsx"));
 const WeeklyAIReport = lazy(() => import("./pages/WeeklyAIReport.tsx"));
 const SeedManagement = lazy(() => import("./pages/SeedManagement.tsx"));
 const MyConsultations = lazy(() => import("./pages/MyConsultations.tsx"));
+const Profile = lazy(() => import("./pages/Profile.tsx"));
 
 // ============================================================
 // Loading fallback
@@ -174,10 +175,9 @@ createRoot(document.getElementById("root")!).render(
               {/* Agronomist Routes */}
               <Route path="/marketplace" element={<RequireAuth><AgronomistMarketplace /></RequireAuth>} />
               <Route path="/my-consultations" element={<RequireAuth><MyConsultations /></RequireAuth>} />
-              <Route path="/profile" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
+              <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
               <Route path="/consultations" element={<RequireAuth><MyConsultations /></RequireAuth>} />
               <Route path="/messages" element={<RequireAuth><Community /></RequireAuth>} />
-              <Route path="/knowledge" element={<RequireAuth><Community /></RequireAuth>} />
 
               {/* Admin Routes */}
               <Route path="/admin" element={<RequireAuth><AdminDashboard /></RequireAuth>} />

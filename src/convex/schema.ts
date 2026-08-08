@@ -1135,6 +1135,63 @@ const schema = defineSchema(
       .index("by_article", ["articleId"])
       .index("by_user_article", ["userId", "articleId"]),
 
+    // ============================================================
+    // COMMUNITY LIKES TABLE (per-user like tracking)
+    // ============================================================
+    communityLikes: defineTable({
+      postId: v.id("communityPosts"),
+      userId: v.id("users"),
+      createdAt: v.number(),
+    })
+      .index("by_post", ["postId"])
+      .index("by_user", ["userId"])
+      .index("by_post_user", ["postId", "userId"]),
+
+    // ============================================================
+    // FARMING EVENTS TABLE (public events, trainings, expos)
+    // ============================================================
+    farmingEvents: defineTable({
+      title: v.string(),
+      type: v.union(
+        v.literal("training"),
+        v.literal("expo"),
+        v.literal("workshop"),
+        v.literal("sponsored"),
+      ),
+      description: v.string(),
+      location: v.string(),
+      startDate: v.number(),
+      endDate: v.number(),
+      time: v.string(),
+      organizer: v.string(),
+      attendees: v.number(),
+      maxCapacity: v.number(),
+      ticketPrice: v.string(),
+      sponsored: v.boolean(),
+      sponsorName: v.optional(v.string()),
+      tags: v.array(v.string()),
+      imageUrl: v.optional(v.string()),
+      isActive: v.boolean(),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_type", ["type"])
+      .index("by_start_date", ["startDate"])
+      .index("by_active", ["isActive"]),
+
+    // ============================================================
+    // EVENT REGISTRATIONS TABLE
+    // ============================================================
+    eventRegistrations: defineTable({
+      eventId: v.id("farmingEvents"),
+      userId: v.id("users"),
+      createdAt: v.number(),
+    })
+      .index("by_event", ["eventId"])
+      .index("by_user", ["userId"])
+      .index("by_event_user", ["eventId", "userId"]),
+
     // INTELLIGENCE ENGINE TABLES
     // ============================================================
 
