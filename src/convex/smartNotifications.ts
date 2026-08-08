@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { query, mutation, action } from "./_generated/server";
+import { api } from "./_generated/api";
 import { requireAuth } from "./authHelpers";
 
 // ============================================================
@@ -594,12 +595,11 @@ export const getNotificationSummary = query({
 /** Mark notifications as read */
 export const markNotificationsRead = mutation({
   args: {
-    notificationIds: v.optional(v.array(v.string())),
+    notificationIds: v.optional(v.array(v.id("notifications"))),
     markAll: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const { userId } = await requireAuth(ctx);
-    const now = Date.now();
 
     if (args.markAll) {
       const notifications = await ctx.db
@@ -617,20 +617,12 @@ export const markNotificationsRead = mutation({
     if (args.notificationIds) {
       let marked = 0;
       for (const id of args.notificationIds) {
-        // Note: In Convex, we'd need to use db.get with the ID
-        // For simplicity, we'll mark all unread as read
-        const notifications = await ctx.db
-          .query("notifications")
-          .withIndex("by_user", (q) => q.eq("userId", userId))
-          .collect();
-
-        for (const n of notifications) {
-          if (!n.isRead) {
-            await ctx.db.patch(n._id, { isRead: true });
-            marked++;
-          }
+        // Only mark notifications owned by the current user
+        const notification = await ctx.db.get(id);
+        if (notification && notification.userId === userId && !notification.isRead) {
+          await ctx.db.patch(id, { isRead: true });
+          marked++;
         }
-        break; // Only process once
       }
       return { marked };
     }
@@ -638,5 +630,3 @@ export const markNotificationsRead = mutation({
     return { marked: 0 };
   },
 });
-
-import { api } from "./_generated/api";

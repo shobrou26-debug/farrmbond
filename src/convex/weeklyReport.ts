@@ -198,11 +198,12 @@ export const getReportHistory = query({
       .order("desc")
       .collect();
 
-    return reports.map((r: any) => ({
+    const max = args.limit ?? 20;
+    return reports.slice(0, max).map((r) => ({
       id: r._id,
       generatedAt: r.generatedAt,
-      overallHealth: r.report?.summary?.overallHealth ?? 0,
-      status: r.status,
+      overallHealth: r.healthScore ?? 0,
+      status: "completed" as const,
     }));
   },
 });
