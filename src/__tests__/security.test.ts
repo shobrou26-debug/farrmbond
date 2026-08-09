@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { shouldApplyStatusUpdate } from "../convex/mobileMoney";
+import { shouldApplyStatusUpdate, extractConfirmedAmount, isFullPricedSubscriptionPayment } from "../convex/mobileMoney";
 import { verifyWebhookSignature, computeWebhookSignature } from "../convex/mobileMoneyWebhook";
 import { isAccountSuspended, isSubscriptionActive, isProActive } from "../convex/authHelpers";
 import { getAiDailyLimit } from "../convex/aiAssistant";
@@ -31,6 +31,45 @@ describe("shouldApplyStatusUpdate — payment idempotency", () => {
 
   test("missing/unknown current status allows the transition", () => {
     expect(shouldApplyStatusUpdate(undefined, "completed")).toBe(true);
+  });
+});
+
+// ============================================================
+// P2 fix — the Pro grant is price-guarded: a completed payment
+// only unlocks Pro when it covers the full $5/month
+// ============================================================
+
+describe("isFullPricedSubscriptionPayment — Pro grant price guard", () => {
+  test("full price grants Pro", () => {
+    expect(isFullPricedSubscriptionPayment(5)).toBe(true);
+    expect(isFullPricedSubscriptionPayment(5.0)).toBe(true);
+  });
+
+  test("underpriced payments never grant Pro", () => {
+    expect(isFullPricedSubscriptionPayment(0.01)).toBe(false);
+    expect(isFullPricedSubscriptionPayment(4.99)).toBe(false);
+  });
+
+  test("missing/unparseable amounts fail closed", () => {
+    expect(isFullPricedSubscriptionPayment(null)).toBe(false);
+    expect(isFullPricedSubscriptionPayment(undefined)).toBe(false);
+  });
+});
+
+describe("extractConfirmedAmount — provider amount echo", () => {
+  test("MTN echoes amount at top level (number or string)", () => {
+    expect(extractConfirmedAmount({ amount: 5 })).toBe(5);
+    expect(extractConfirmedAmount({ amount: "5" })).toBe(5);
+  });
+
+  test("Airtel nests amount under data", () => {
+    expect(extractConfirmedAmount({ data: { amount: 5 } })).toBe(5);
+  });
+
+  test("absent or invalid amounts return null", () => {
+    expect(extractConfirmedAmount({ status: "SUCCESSFUL" })).toBe(null);
+    expect(extractConfirmedAmount(null)).toBe(null);
+    expect(extractConfirmedAmount("nope")).toBe(null);
   });
 });
 
