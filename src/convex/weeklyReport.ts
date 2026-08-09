@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { query, mutation, action } from "./_generated/server";
 import { api } from "./_generated/api";
-import { requireAuth } from "./authHelpers";
+import { requireAuth, createAuditLog, sanitizeInput, validateString } from "./authHelpers";
 
 // ============================================================
 // Weekly AI Report Generator
@@ -205,6 +205,54 @@ export const getReportHistory = query({
       overallHealth: r.healthScore ?? 0,
       status: "completed" as const,
     }));
+  },
+});
+
+/**
+ * Apply a report recommendation by creating a farm calendar task.
+ * Ownership is verified server-side; the action is audit-logged.
+ */
+export const applyRecommendation = mutation({
+  args: {
+    farmId: v.id("farms"),
+    title: v.string(),
+    description: v.optional(v.string()),
+    priority: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    const farm = await ctx.db.get(args.farmId);
+    if (!farm || farm.userId !== userId) throw new Error("Unauthorized");
+
+    const title = sanitizeInput(validateString(args.title, "Title", 200));
+    const description = args.description
+      ? sanitizeInput(validateString(args.description, "Description", 500))
+      : undefined;
+    const priority = args.priority ?? "medium";
+
+    const now = Date.now();
+    const eventId = await ctx.db.insert("farmCalendar", {
+      userId,
+      farmId: args.farmId,
+      title,
+      description,
+      eventType: "other",
+      startDate: now,
+      isRecurring: false,
+      isCompleted: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await createAuditLog(ctx, {
+      userId,
+      action: "recommendation_applied",
+      resource: "weeklyReports",
+      resourceId: eventId,
+      changes: { title, priority, farmId: args.farmId },
+    });
+
+    return true;
   },
 });
 

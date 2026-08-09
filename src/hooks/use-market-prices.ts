@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useMemo } from "react";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 
 // ============================================================
 // Types
@@ -20,11 +22,6 @@ export interface CommodityPrice {
   source: string;
 }
 
-export interface PriceHistory {
-  date: string;
-  price: number;
-}
-
 export interface MarketPricesData {
   commodities: CommodityPrice[];
   lastUpdated: Date;
@@ -32,214 +29,81 @@ export interface MarketPricesData {
 }
 
 // ============================================================
-// Local Market Prices (Simulated for East African Markets)
+// Mapping from backend reference prices to display model
 // ============================================================
 
-const localMarketPrices: CommodityPrice[] = [
-  {
-    id: "maize",
-    name: "Maize (White)",
-    category: "cereal",
-    unit: "90kg bag",
-    currency: "KES",
-    currentPrice: 4100,
-    previousPrice: 3800,
-    change: 300,
-    changePercent: 7.9,
-    trend: "up",
-    lastUpdated: new Date().toISOString(),
-    region: "Nairobi",
-    source: "NAFARM",
-  },
-  {
-    id: "beans",
-    name: "Beans (Rose Coco)",
-    category: "legume",
-    unit: "90kg bag",
-    currency: "KES",
-    currentPrice: 8500,
-    previousPrice: 8200,
-    change: 300,
-    changePercent: 3.7,
-    trend: "up",
-    lastUpdated: new Date().toISOString(),
-    region: "Nairobi",
-    source: "NAFARM",
-  },
-  {
-    id: "wheat",
-    name: "Wheat",
-    category: "cereal",
-    unit: "90kg bag",
-    currency: "KES",
-    currentPrice: 5200,
-    previousPrice: 5400,
-    change: -200,
-    changePercent: -3.7,
-    trend: "down",
-    lastUpdated: new Date().toISOString(),
-    region: "Nairobi",
-    source: "NAFARM",
-  },
-  {
-    id: "tomatoes",
-    name: "Tomatoes",
-    category: "vegetable",
-    unit: "kg",
-    currency: "KES",
-    currentPrice: 85,
-    previousPrice: 70,
-    change: 15,
-    changePercent: 21.4,
-    trend: "up",
-    lastUpdated: new Date().toISOString(),
-    region: "Nairobi",
-    source: "Local Market",
-  },
-  {
-    id: "potatoes",
-    name: "Potatoes (Irish)",
-    category: "vegetable",
-    unit: "50kg bag",
-    currency: "KES",
-    currentPrice: 2800,
-    previousPrice: 3000,
-    change: -200,
-    changePercent: -6.7,
-    trend: "down",
-    lastUpdated: new Date().toISOString(),
-    region: "Nairobi",
-    source: "Local Market",
-  },
-  {
-    id: "milk",
-    name: "Fresh Milk",
-    category: "dairy",
-    unit: "litre",
-    currency: "KES",
-    currentPrice: 55,
-    previousPrice: 52,
-    change: 3,
-    changePercent: 5.8,
-    trend: "up",
-    lastUpdated: new Date().toISOString(),
-    region: "Nairobi",
-    source: "Dairy Board",
-  },
-  {
-    id: "eggs",
-    name: "Eggs (Tray of 30)",
-    category: "poultry" as const,
-    unit: "tray",
-    currency: "KES",
-    currentPrice: 480,
-    previousPrice: 450,
-    change: 30,
-    changePercent: 6.7,
-    trend: "up",
-    lastUpdated: new Date().toISOString(),
-    region: "Nairobi",
-    source: "Local Market",
-  },
-  {
-    id: "chicken",
-    name: "Live Chicken",
-    category: "livestock",
-    unit: "kg",
-    currency: "KES",
-    currentPrice: 450,
-    previousPrice: 420,
-    change: 30,
-    changePercent: 7.1,
-    trend: "up",
-    lastUpdated: new Date().toISOString(),
-    region: "Nairobi",
-    source: "Local Market",
-  },
-  {
-    id: "goat",
-    name: "Goat (Live)",
-    category: "livestock",
-    unit: "head",
-    currency: "KES",
-    currentPrice: 8500,
-    previousPrice: 8000,
-    change: 500,
-    changePercent: 6.3,
-    trend: "up",
-    lastUpdated: new Date().toISOString(),
-    region: "Nairobi",
-    source: "Local Market",
-  },
-  {
-    id: "cattle",
-    name: "Cattle (Live)",
-    category: "livestock",
-    unit: "head",
-    currency: "KES",
-    currentPrice: 85000,
-    previousPrice: 82000,
-    change: 3000,
-    changePercent: 3.7,
-    trend: "up",
-    lastUpdated: new Date().toISOString(),
-    region: "Nairobi",
-    source: "Local Market",
-  },
-  {
-    id: "sorghum",
-    name: "Sorghum",
-    category: "cereal",
-    unit: "90kg bag",
-    currency: "KES",
-    currentPrice: 3800,
-    previousPrice: 3600,
-    change: 200,
-    changePercent: 5.6,
-    trend: "up",
-    lastUpdated: new Date().toISOString(),
-    region: "Nairobi",
-    source: "NAFARM",
-  },
-  {
-    id: "cassava",
-    name: "Cassava (Fresh)",
-    category: "tuber" as const,
-    unit: "kg",
-    currency: "KES",
-    currentPrice: 35,
-    previousPrice: 38,
-    change: -3,
-    changePercent: -7.9,
-    trend: "down",
-    lastUpdated: new Date().toISOString(),
-    region: "Nairobi",
-    source: "Local Market",
-  },
-];
-
-// ============================================================
-// World Bank Commodity Price Indicators
-// ============================================================
-
-const worldBankIndicators: Record<string, string> = {
-  wheat: "PC.WHEAT.MT",
-  maize: "PC.CORN.MT",
-  rice: "PC.RICE.MT",
-  soybean: "PC.SOYBEAN.MT",
-  sugar: "PC.SUGAR.US",
-  cotton: "PC.COTTON.MT",
+const CATEGORY_BY_CROP: Record<string, CommodityPrice["category"]> = {
+  maize: "cereal",
+  wheat: "cereal",
+  rice: "cereal",
+  sorghum: "cereal",
+  beans: "legume",
+  soybean: "legume",
+  tomato: "vegetable",
+  potato: "vegetable",
+  cassava: "tuber",
+  avocado: "fruit",
+  mango: "fruit",
+  coffee: "fruit",
+  tea: "cereal",
 };
+
+function titleCase(crop: string): string {
+  return crop.charAt(0).toUpperCase() + crop.slice(1);
+}
+
+/**
+ * Map a backend marketIntelligence price row to the display model.
+ *
+ * NOTE ON DATA ACCURACY: the backend returns deterministic *reference*
+ * prices derived from regional price benchmarks (min/max ranges with a
+ * slow daily trend). This is reference/planning data — NOT live exchange
+ * data. The `source` field reflects that so the UI never claims real-time
+ * pricing.
+ */
+function mapBackendPrice(row: {
+  crop: string;
+  currentPrice: number;
+  minPrice: number;
+  maxPrice: number;
+  unit: string;
+  currency: string;
+  change: number; // percent, rounded
+  trend: string;
+  lastUpdated: number;
+}): CommodityPrice {
+  const changePercent = row.change;
+  // Reconstruct previous price from the reported percent change
+  const previousPrice = Math.round(row.currentPrice / (1 + changePercent / 100));
+  const change = row.currentPrice - previousPrice;
+  const trend: CommodityPrice["trend"] =
+    row.trend === "up" || row.trend === "down" || row.trend === "stable"
+      ? row.trend
+      : "stable";
+
+  return {
+    id: row.crop,
+    name: titleCase(row.crop),
+    category: CATEGORY_BY_CROP[row.crop] ?? "cereal",
+    unit: row.unit,
+    currency: row.currency,
+    currentPrice: row.currentPrice,
+    previousPrice,
+    change,
+    changePercent,
+    trend,
+    lastUpdated: new Date(row.lastUpdated).toISOString(),
+    region: "Regional benchmark",
+    source: "Reference market data",
+  };
+}
 
 // ============================================================
 // Hook
 // ============================================================
 
 interface UseMarketPricesOptions {
-  region?: string;
   category?: string;
-  autoRefresh?: boolean;
-  refreshInterval?: number;
 }
 
 interface UseMarketPricesReturn {
@@ -254,99 +118,71 @@ interface UseMarketPricesReturn {
 }
 
 export function useMarketPrices(options: UseMarketPricesOptions = {}): UseMarketPricesReturn {
-  const {
-    region = "Nairobi",
-    category,
-    autoRefresh = true,
-    refreshInterval = 300000, // 5 minutes
-  } = options;
+  const { category } = options;
 
-  const [data, setData] = useState<MarketPricesData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Reactive subscription to the backend reference prices. Convex keeps
+  // this fresh automatically — no manual polling, no fabricated variation.
+  const backendPrices = useQuery(api.marketIntelligence.getMarketPrices, {});
 
-  const fetchPrices = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  const isLoading = backendPrices === undefined;
+  const error = null;
 
-    try {
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 800));
+  const commodities = useMemo<CommodityPrice[]>(() => {
+    if (!backendPrices) return [];
+    return backendPrices.map(mapBackendPrice);
+  }, [backendPrices]);
 
-      // Add some random variation to simulate real-time price changes
-      const prices = localMarketPrices.map((price) => {
-        const variation = (Math.random() - 0.5) * 0.02; // ±1% variation
-        const newPrice = Math.round(price.currentPrice * (1 + variation));
-        const change = newPrice - price.previousPrice;
-        const changePercent = (change / price.previousPrice) * 100;
-        const newTrend: "up" | "down" | "stable" = change > 0 ? "up" : change < 0 ? "down" : "stable";
+  const data = useMemo<MarketPricesData | null>(() => {
+    if (!backendPrices) return null;
+    const lastTs = backendPrices.reduce(
+      (max, row) => Math.max(max, row.lastUpdated),
+      0
+    );
+    return {
+      commodities,
+      lastUpdated: lastTs > 0 ? new Date(lastTs) : new Date(),
+      source: "Reference market data",
+    };
+  }, [backendPrices, commodities]);
 
-        return {
-          ...price,
-          currentPrice: newPrice,
-          change,
-          changePercent: parseFloat(changePercent.toFixed(1)),
-          trend: newTrend,
-          lastUpdated: new Date().toISOString(),
-        };
-      });
-
-      setData({
-        commodities: prices,
-        lastUpdated: new Date(),
-        source: "NAFARM + Local Markets",
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch market prices");
-    } finally {
-      setIsLoading(false);
-    }
+  // Data is reactive via Convex — no client-side refetch needed.
+  const refetch = useCallback(() => {
+    // Intentionally a no-op: the query re-subscribes automatically when
+    // the underlying data changes in Convex.
   }, []);
 
-  useEffect(() => {
-    fetchPrices();
-
-    if (autoRefresh) {
-      const interval = setInterval(fetchPrices, refreshInterval);
-      return () => clearInterval(interval);
-    }
-  }, [fetchPrices, autoRefresh, refreshInterval]);
-
   const getCommodity = useCallback(
-    (id: string) => data?.commodities.find((c) => c.id === id),
-    [data]
+    (id: string) => commodities.find((c) => c.id === id),
+    [commodities]
   );
 
   const getByCategory = useCallback(
-    (cat: string) => data?.commodities.filter((c) => c.category === cat) || [],
-    [data]
+    (cat: string) => commodities.filter((c) => c.category === cat),
+    [commodities]
   );
 
   const getTopGainers = useCallback(
     (limit = 5) =>
-      data
-        ? [...data.commodities]
-            .sort((a, b) => b.changePercent - a.changePercent)
-            .slice(0, limit)
-        : [],
-    [data]
+      [...commodities].sort((a, b) => b.changePercent - a.changePercent).slice(0, limit),
+    [commodities]
   );
 
   const getTopLosers = useCallback(
     (limit = 5) =>
-      data
-        ? [...data.commodities]
-            .sort((a, b) => a.changePercent - b.changePercent)
-            .slice(0, limit)
-        : [],
-    [data]
+      [...commodities].sort((a, b) => a.changePercent - b.changePercent).slice(0, limit),
+    [commodities]
   );
 
+  const filteredByCategory = useMemo(() => {
+    if (!category || category === "all") return commodities;
+    return getByCategory(category);
+  }, [category, commodities, getByCategory]);
+
   return {
-    data,
+    data: data ? { ...data, commodities: filteredByCategory } : null,
     isLoading,
     error,
-    refetch: fetchPrices,
+    refetch,
     getCommodity,
     getByCategory,
     getTopGainers,

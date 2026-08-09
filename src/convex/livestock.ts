@@ -1243,3 +1243,115 @@ export const getCoverageTrendsByFarm = query({
     return { farmTrends, vaccineNames, months };
   },
 });
+
+// ============================================================
+// Disease Alerts (derived from real livestock health records)
+// ============================================================
+
+/**
+ * Derive disease alerts from the user's actual livestock records:
+ * - animals with status "sick" → high-severity alert
+ * - animals with status "quarantine" → critical-severity alert
+ * - herd-level alert when 2+ animals of the same type are sick/quarantine
+ *
+ * Alerts are user-scoped (requireAuth) and include the farm name and the
+ * affected head count. No fabricated outbreaks — only real record-derived
+ * signals.
+ */
+export const getDiseaseAlerts = query({
+  args: {},
+  handler: async (ctx) => {
+    const { userId } = await requireAuth(ctx);
+
+    const animals = await ctx.db
+      .query("livestock")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .order("desc")
+      .collect();
+
+    // Load farm names for alert locations
+    const farmIds = [...new Set(animals.map((a) => a.farmId))];
+    const farms = await Promise.all(farmIds.map((id) => ctx.db.get(id)));
+    const farmNames = new Map(
+      farms.filter((f) => f !== null).map((f) => [f._id, f.name])
+    );
+
+    const SEVERITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    const alerts: {
+      id: string;
+      disease: string;
+      severity: "critical" | "high" | "medium" | "low";
+      affectedCount: number;
+      location: string;
+      symptoms: string[];
+      preventionTips: string[];
+      reportedDate: string;
+    }[] = [];
+
+    const sickByType = new Map<string, { count: number; animals: typeof animals }>();
+
+    for (const animal of animals) {
+      if (animal.status !== "sick" && animal.status !== "quarantine") continue;
+
+      const isQuarantine = animal.status === "quarantine";
+      const severity: "critical" | "high" =
+        isQuarantine || (animal.healthScore !== undefined && animal.healthScore < 40)
+          ? "critical"
+          : "high";
+      const history = animal.medicalHistory ?? [];
+      const lastEntry = history[history.length - 1];
+
+      const symptoms: string[] = [];
+      if (lastEntry?.description) symptoms.push(lastEntry.description);
+      symptoms.push("Reduced appetite or activity");
+
+      const typeKey = animal.type.toLowerCase();
+      const existing = sickByType.get(typeKey);
+      sickByType.set(typeKey, {
+        count: (existing?.count ?? 0) + animal.quantity,
+        animals: [...(existing?.animals ?? []), animal],
+      });
+
+      alerts.push({
+        id: animal._id,
+        disease: `${animal.name} (${animal.type}) — ${isQuarantine ? "under quarantine" : "showing illness signs"}`,
+        severity,
+        affectedCount: animal.quantity,
+        location: farmNames.get(animal.farmId) ?? "Unknown farm",
+        symptoms,
+        preventionTips: [
+          "Isolate affected animals from the rest of the herd",
+          "Disinfect housing, feeding and watering equipment",
+          "Contact your veterinarian for a diagnosis and treatment plan",
+        ],
+        reportedDate: new Date(lastEntry?.date ?? animal.updatedAt).toISOString().split("T")[0],
+      });
+    }
+
+    // Herd-level alerts: multiple sick animals of the same type
+    for (const [typeKey, group] of sickByType) {
+      if (group.animals.length < 2) continue;
+      alerts.push({
+        id: `herd-${typeKey}`,
+        disease: `Possible ${typeKey} disease outbreak in your herd`,
+        severity: group.animals.some((a) => a.status === "quarantine") ? "critical" : "high",
+        affectedCount: group.count,
+        location: "Across your farms",
+        symptoms: [
+          "Multiple animals of the same type showing illness signs",
+          "Monitor the whole group for spreading symptoms",
+        ],
+        preventionTips: [
+          "Separate the affected group immediately",
+          "Step up biosecurity and disinfection",
+          "Request a veterinary visit for the whole group",
+        ],
+        reportedDate: new Date().toISOString().split("T")[0],
+      });
+    }
+
+    return alerts.sort(
+      (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]
+    );
+  },
+});
