@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -814,6 +816,257 @@ function RecordIrrigationModal({
 }
 
 // ============================================================
+// Soil Test Modal (record real lab/field soil measurements)
+// ============================================================
+
+interface SoilTestForm {
+  ph: string;
+  organicMatter: string;
+  nitrogen: string;
+  phosphorus: string;
+  potassium: string;
+  soilMoisture: string;
+  drainage: string;
+  texture: string;
+}
+
+function SoilTestModal({
+  isOpen,
+  onClose,
+  farmName,
+  isSubmitting,
+  onSubmit,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  farmName: string;
+  isSubmitting: boolean;
+  onSubmit: (data: {
+    ph: number;
+    organicMatter: number;
+    nitrogen: number;
+    phosphorus: number;
+    potassium: number;
+    soilMoisture: number;
+    drainage: string;
+    texture: string;
+  }) => Promise<void>;
+}) {
+  const [form, setForm] = useState<SoilTestForm>({
+    ph: "",
+    organicMatter: "",
+    nitrogen: "",
+    phosphorus: "",
+    potassium: "",
+    soilMoisture: "",
+    drainage: "well_drained",
+    texture: "loamy",
+  });
+  const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setForm({
+        ph: "",
+        organicMatter: "",
+        nitrogen: "",
+        phosphorus: "",
+        potassium: "",
+        soilMoisture: "",
+        drainage: "well_drained",
+        texture: "loamy",
+      });
+      setFormError(null);
+    }
+  }, [isOpen]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+
+    const ph = Number(form.ph);
+    const organicMatter = Number(form.organicMatter);
+    const nitrogen = Number(form.nitrogen);
+    const phosphorus = Number(form.phosphorus);
+    const potassium = Number(form.potassium);
+    const soilMoisture = Number(form.soilMoisture);
+
+    if (form.ph === "" || isNaN(ph) || ph < 0 || ph > 14)
+      return setFormError("Soil pH must be between 0 and 14.");
+    if (form.organicMatter === "" || isNaN(organicMatter) || organicMatter < 0 || organicMatter > 50)
+      return setFormError("Organic matter must be between 0 and 50%.");
+    if (form.nitrogen === "" || isNaN(nitrogen) || nitrogen < 0 || nitrogen > 5)
+      return setFormError("Nitrogen must be between 0 and 5%.");
+    if (form.phosphorus === "" || isNaN(phosphorus) || phosphorus < 0 || phosphorus > 500)
+      return setFormError("Phosphorus must be between 0 and 500 ppm.");
+    if (form.potassium === "" || isNaN(potassium) || potassium < 0 || potassium > 2000)
+      return setFormError("Potassium must be between 0 and 2000 ppm.");
+    if (form.soilMoisture === "" || isNaN(soilMoisture) || soilMoisture < 0 || soilMoisture > 100)
+      return setFormError("Soil moisture must be between 0 and 100%.");
+
+    try {
+      await onSubmit({
+        ph,
+        organicMatter,
+        nitrogen,
+        phosphorus,
+        potassium,
+        soilMoisture,
+        drainage: form.drainage,
+        texture: form.texture,
+      });
+      onClose();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Failed to save soil data.");
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Sprout className="w-5 h-5 text-green-500" />
+            Record Soil Test{farmName ? ` — ${farmName}` : ""}
+          </DialogTitle>
+          <DialogDescription>
+            Enter the results of a lab or field soil test. These real measurements power soil
+            analysis, fertility ratings, and irrigation recommendations.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="soil-ph">Soil pH *</Label>
+              <Input
+                id="soil-ph"
+                type="number"
+                step="0.1"
+                min="0"
+                max="14"
+                placeholder="e.g. 6.2"
+                value={form.ph}
+                onChange={(e) => setForm((f) => ({ ...f, ph: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="soil-om">Organic Matter (%) *</Label>
+              <Input
+                id="soil-om"
+                type="number"
+                step="0.1"
+                min="0"
+                max="50"
+                placeholder="e.g. 3.5"
+                value={form.organicMatter}
+                onChange={(e) => setForm((f) => ({ ...f, organicMatter: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="soil-n">Nitrogen (%) *</Label>
+              <Input
+                id="soil-n"
+                type="number"
+                step="0.01"
+                min="0"
+                max="5"
+                placeholder="e.g. 0.15"
+                value={form.nitrogen}
+                onChange={(e) => setForm((f) => ({ ...f, nitrogen: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="soil-p">Phosphorus (ppm) *</Label>
+              <Input
+                id="soil-p"
+                type="number"
+                min="0"
+                max="500"
+                placeholder="e.g. 25"
+                value={form.phosphorus}
+                onChange={(e) => setForm((f) => ({ ...f, phosphorus: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="soil-k">Potassium (ppm) *</Label>
+              <Input
+                id="soil-k"
+                type="number"
+                min="0"
+                max="2000"
+                placeholder="e.g. 180"
+                value={form.potassium}
+                onChange={(e) => setForm((f) => ({ ...f, potassium: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="soil-moist">Soil Moisture (%) *</Label>
+              <Input
+                id="soil-moist"
+                type="number"
+                step="0.1"
+                min="0"
+                max="100"
+                placeholder="e.g. 45"
+                value={form.soilMoisture}
+                onChange={(e) => setForm((f) => ({ ...f, soilMoisture: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="soil-drain">Drainage *</Label>
+              <Select value={form.drainage} onValueChange={(v) => setForm((f) => ({ ...f, drainage: v }))}>
+                <SelectTrigger id="soil-drain">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="well_drained">Well drained</SelectItem>
+                  <SelectItem value="moderate">Moderate</SelectItem>
+                  <SelectItem value="poor">Poor</SelectItem>
+                  <SelectItem value="excessive">Excessive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="soil-texture">Texture *</Label>
+              <Select value={form.texture} onValueChange={(v) => setForm((f) => ({ ...f, texture: v }))}>
+                <SelectTrigger id="soil-texture">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sandy">Sandy</SelectItem>
+                  <SelectItem value="loamy">Loamy</SelectItem>
+                  <SelectItem value="clay">Clay</SelectItem>
+                  <SelectItem value="silt">Silt</SelectItem>
+                  <SelectItem value="sandy_loam">Sandy loam</SelectItem>
+                  <SelectItem value="clay_loam">Clay loam</SelectItem>
+                  <SelectItem value="silty_loam">Silty loam</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {formError && (
+            <p className="text-sm text-red-600 flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4" /> {formError}
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSubmitting} className="gradient-primary">
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sprout className="w-4 h-4" />}
+              {isSubmitting ? "Saving..." : "Save Soil Test"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
 // Schedule Card
 // ============================================================
 
@@ -935,6 +1188,9 @@ export default function Irrigation() {
   const [isDeleting, setIsDeleting] = useState<Id<"irrigationSchedules"> | null>(null);
   const [togglingId, setTogglingId] = useState<Id<"irrigationSchedules"> | null>(null);
   const [view, setView] = useState<"schedules" | "history">("schedules");
+  const [soilTestFarmId, setSoilTestFarmId] = useState<Id<"farms"> | undefined>(undefined);
+
+  const storeSoilData = useMutation(api.soil.storeSoilData);
 
   const {
     schedules,
@@ -1073,6 +1329,29 @@ export default function Irrigation() {
       toast.success("Irrigation recorded");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to record irrigation");
+      throw err;
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleStoreSoil = async (data: {
+    ph: number;
+    organicMatter: number;
+    nitrogen: number;
+    phosphorus: number;
+    potassium: number;
+    soilMoisture: number;
+    drainage: string;
+    texture: string;
+  }) => {
+    if (!soilTestFarmId) return;
+    setIsSubmitting(true);
+    try {
+      await storeSoilData({ farmId: soilTestFarmId, ...data });
+      toast.success("Soil test recorded — analysis updated");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to record soil test");
       throw err;
     } finally {
       setIsSubmitting(false);
@@ -1267,8 +1546,20 @@ export default function Irrigation() {
                       </div>
                     ) : (
                       <p className="text-sm text-muted-foreground">
-                        No soil analysis available for this farm yet.
+                        No soil analysis available for this farm yet. Record a lab or field soil
+                        test to enable moisture-based irrigation recommendations.
                       </p>
+                    )}
+                    {selectedFarmId !== undefined && soil !== undefined && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full mt-3"
+                        onClick={() => setSoilTestFarmId(selectedFarmId)}
+                      >
+                        <Sprout className="w-3.5 h-3.5 mr-1" />
+                        {soil ? "Update Soil Test" : "Record Soil Test"}
+                      </Button>
                     )}
                   </CardContent>
                 </Card>
@@ -1340,6 +1631,13 @@ export default function Irrigation() {
         onClose={() => setRecordingSchedule(null)}
         isSubmitting={isSubmitting}
         onSubmit={handleRecord}
+      />
+      <SoilTestModal
+        isOpen={soilTestFarmId !== undefined}
+        onClose={() => setSoilTestFarmId(undefined)}
+        farmName={soilTestFarmId ? (farmMap.get(soilTestFarmId) ?? "") : ""}
+        isSubmitting={isSubmitting}
+        onSubmit={handleStoreSoil}
       />
     </AppLayout>
   );

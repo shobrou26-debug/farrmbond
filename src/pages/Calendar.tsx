@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useMutation } from "convex/react";
+import { toast } from "sonner";
 import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { api } from "@/convex/_generated/api";
 import { useTimezone } from "@/hooks/use-timezone";
@@ -9,6 +10,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { Id } from "@/convex/_generated/dataModel";
 import {
   Calendar as CalendarIcon,
   Plus,
@@ -29,6 +48,7 @@ import {
   Filter,
   X,
   Loader2,
+  Trash2,
 } from "lucide-react";
 import { useWeather } from "@/hooks/use-weather";
 
@@ -206,11 +226,13 @@ function EventList({
   events,
   selectedDate,
   onComplete,
+  onDelete,
   timezone,
 }: {
   events: CalendarEvent[];
   selectedDate: Date | null;
   onComplete: (id: string) => void;
+  onDelete: (id: string, title: string) => void;
   timezone: string;
 }) {
   const filteredEvents = selectedDate
@@ -272,16 +294,28 @@ function EventList({
                     </p>
                   )}
                 </div>
-                {!event.isCompleted && (
+                <div className="flex items-center gap-1 shrink-0">
+                  {!event.isCompleted && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => onComplete(event._id)}
+                      aria-label="Mark event complete"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-green-500" />
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7 shrink-0"
-                    onClick={() => onComplete(event._id)}
+                    className="h-7 w-7"
+                    onClick={() => onDelete(event._id, event.title)}
+                    aria-label={`Delete event ${event.title}`}
                   >
-                    <CheckCircle2 className="w-4 h-4 text-green-500" />
+                    <Trash2 className="w-4 h-4 text-destructive" />
                   </Button>
-                )}
+                </div>
               </motion.div>
             );
           })
@@ -404,7 +438,22 @@ export default function Calendar() {
   const { results: calendarEvents, isLoading: isLoadingEvents } = usePaginatedQuery(api.farmCalendar.listUserEvents);
   const { results: farms } = usePaginatedQuery(api.farms.listUserFarms);
   const completeEventMutation = useMutation(api.farmCalendar.completeEvent);
+  const createEventMutation = useMutation(api.farmCalendar.createEvent);
+  const deleteEventMutation = useMutation(api.farmCalendar.deleteEvent);
   const { timezone, formatTime, formatDateTime } = useTimezone();
+
+  // Create-event dialog state
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [submittingEvent, setSubmittingEvent] = useState(false);
+  const [eventForm, setEventForm] = useState({
+    title: "",
+    description: "",
+    eventType: "planting" as EventType,
+    farmId: "",
+    date: "",
+    reminderDaysBefore: "",
+  });
+  const [eventFormError, setEventFormError] = useState<string | null>(null);
 
   // Real weather data
   const weather = useWeather();
@@ -440,8 +489,52 @@ export default function Calendar() {
   const handleCompleteEvent = async (id: string) => {
     try {
       await completeEventMutation({ eventId: id as any });
+      toast.success("Event marked as complete");
     } catch (error) {
-      console.error("Failed to complete event:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to complete event");
+    }
+  };
+
+  const handleDeleteEvent = async (id: string, title: string) => {
+    if (!window.confirm(`Delete event "${title}"? This cannot be undone.`)) return;
+    try {
+      await deleteEventMutation({ eventId: id as any });
+      toast.success("Event deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete event");
+    }
+  };
+
+  const handleCreateEvent = async () => {
+    setEventFormError(null);
+    const title = eventForm.title.trim();
+    if (!title) return setEventFormError("Event title is required.");
+    if (!eventForm.farmId) return setEventFormError("Select a farm for this event.");
+    const startDate = new Date(eventForm.date);
+    if (!eventForm.date || isNaN(startDate.getTime()))
+      return setEventFormError("Pick a valid date and time.");
+
+    setSubmittingEvent(true);
+    try {
+      await createEventMutation({
+        farmId: eventForm.farmId as Id<"farms">,
+        title,
+        description: eventForm.description.trim() || undefined,
+        eventType: eventForm.eventType,
+        startDate: startDate.getTime(),
+        isRecurring: false,
+        reminderDaysBefore:
+          eventForm.reminderDaysBefore === ""
+            ? undefined
+            : Math.max(0, Math.min(30, Number(eventForm.reminderDaysBefore))),
+      });
+      toast.success("Calendar event created");
+      setShowAddModal(false);
+      setEventForm({ title: "", description: "", eventType: "planting", farmId: "", date: "", reminderDaysBefore: "" });
+    } catch (error) {
+      setEventFormError(error instanceof Error ? error.message : "Failed to create event");
+    } finally {
+      setSubmittingEvent(false);
     }
   };
 
@@ -457,6 +550,16 @@ export default function Calendar() {
               <h1 className="text-3xl font-bold tracking-tight">Farm Calendar</h1>
               <p className="text-muted-foreground mt-1">Plan and track your farming activities with weather insights</p>
             </div>
+            <Button
+              className="gradient-primary"
+              onClick={() => {
+                setEventForm((f) => ({ ...f, farmId: farms?.[0]?._id ?? "" }));
+                setShowAddModal(true);
+              }}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add Event
+            </Button>
           </div>
         </motion.div>
 
@@ -531,6 +634,7 @@ export default function Calendar() {
                   events={filteredEvents}
                   selectedDate={selectedDate}
                   onComplete={handleCompleteEvent}
+                  onDelete={handleDeleteEvent}
                   timezone={timezone}
                 />
               )}
@@ -568,6 +672,113 @@ export default function Calendar() {
           </div>
         </div>
       </div>
+
+      {/* Add Event Dialog */}
+      <Dialog open={showAddModal} onOpenChange={(open) => !open && setShowAddModal(false)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add Calendar Event</DialogTitle>
+            <DialogDescription>
+              Schedule a farming activity for one of your farms.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="ev-title">Title *</Label>
+              <Input
+                id="ev-title"
+                placeholder="e.g. Plant maize — north field"
+                value={eventForm.title}
+                onChange={(e) => setEventForm((f) => ({ ...f, title: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ev-desc">Description</Label>
+              <Input
+                id="ev-desc"
+                placeholder="Optional notes"
+                value={eventForm.description}
+                onChange={(e) => setEventForm((f) => ({ ...f, description: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Farm *</Label>
+                <Select
+                  value={eventForm.farmId}
+                  onValueChange={(v) => setEventForm((f) => ({ ...f, farmId: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select farm" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(farms ?? []).map((farm: { _id: string; name: string }) => (
+                      <SelectItem key={farm._id} value={farm._id}>
+                        {farm.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Event Type</Label>
+                <Select
+                  value={eventForm.eventType}
+                  onValueChange={(v) => setEventForm((f) => ({ ...f, eventType: v as EventType }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(eventTypeConfig) as EventType[]).map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {eventTypeConfig[type].label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="ev-date">Date & Time *</Label>
+                <Input
+                  id="ev-date"
+                  type="datetime-local"
+                  value={eventForm.date}
+                  onChange={(e) => setEventForm((f) => ({ ...f, date: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ev-remind">Remind (days before)</Label>
+                <Input
+                  id="ev-remind"
+                  type="number"
+                  min="0"
+                  max="30"
+                  placeholder="e.g. 2"
+                  value={eventForm.reminderDaysBefore}
+                  onChange={(e) => setEventForm((f) => ({ ...f, reminderDaysBefore: e.target.value }))}
+                />
+              </div>
+            </div>
+            {eventFormError && (
+              <p className="text-sm text-red-600 flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4" /> {eventFormError}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddModal(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateEvent} disabled={submittingEvent} className="gradient-primary">
+              {submittingEvent ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+              {submittingEvent ? "Creating..." : "Create Event"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }
