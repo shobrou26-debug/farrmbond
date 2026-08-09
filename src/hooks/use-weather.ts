@@ -45,11 +45,11 @@ export interface DailyForecast {
 
 export interface SoilData {
   temperature0cm: number;
-  temperature6cm: number;
+  temperature6cm?: number;
   moisture0to1cm: number;
-  moisture1to3cm: number;
-  moisture3to9cm: number;
-  et0FaoEvapotranspiration: number;
+  moisture1to3cm?: number;
+  moisture3to9cm?: number;
+  et0FaoEvapotranspiration?: number;
 }
 
 export interface WeatherLocation {
@@ -319,7 +319,7 @@ export function useWeather(options?: UseWeatherOptions): UseWeatherReturn {
       windDirection: cachedWeather.windDirection ?? 0,
       precipitation: cachedWeather.precipitation,
       uvIndex: cachedWeather.uvIndex ?? 0,
-      weatherCode: 0,
+      weatherCode: cachedWeather.weatherCode ?? 0,
       time: now.toISOString(),
       isDay: now.getHours() >= 6 && now.getHours() < 19,
     };
@@ -340,9 +340,9 @@ export function useWeather(options?: UseWeatherOptions): UseWeatherReturn {
         humidity: cachedWeather.humidity,
         windSpeed: cachedWeather.windSpeed,
         precipitation: dailyForHour?.precipitation ?? 0,
-        precipitationProbability: 0,
+        precipitationProbability: dailyForHour?.precipitationProbability ?? 0,
         uvIndex: current.uvIndex,
-        weatherCode: 0,
+        weatherCode: dailyForHour?.weatherCode ?? cachedWeather.weatherCode ?? 0,
         isDay: hourDate.getHours() >= 6 && hourDate.getHours() < 19,
       });
     }
@@ -352,24 +352,35 @@ export function useWeather(options?: UseWeatherOptions): UseWeatherReturn {
       tempMax: f.tempHigh,
       tempMin: f.tempLow,
       precipitationSum: f.precipitation,
-      precipitationProbabilityMax: 0,
+      precipitationProbabilityMax: f.precipitationProbability ?? 0,
       windSpeedMax: f.windSpeed,
-      uvIndexMax: current.uvIndex,
-      weatherCode: 0,
-      sunrise: "",
-      sunset: "",
+      uvIndexMax: f.uvIndexMax ?? 0,
+      weatherCode: f.weatherCode ?? 0,
+      sunrise: f.sunrise ? new Date(f.sunrise).toISOString() : "",
+      sunset: f.sunset ? new Date(f.sunset).toISOString() : "",
     }));
 
-    // Honest soil data: null when the backend has no soil record. No
-    // invented/fixed values are ever shown as if they were measurements.
-    const soil: SoilData | null = cachedWeather.soil ? {
-      temperature0cm: cachedWeather.soil.temperature0cm,
-      temperature6cm: cachedWeather.soil.temperature6cm,
-      moisture0to1cm: cachedWeather.soil.moisture0to1cm,
-      moisture1to3cm: cachedWeather.soil.moisture1to3cm,
-      moisture3to9cm: cachedWeather.soil.moisture3to9cm,
-      et0FaoEvapotranspiration: cachedWeather.soil.et0FaoEvapotranspiration,
-    } : null;
+    // Honest soil data: null when the backend has no soil record. Only
+    // fields the provider actually returned are carried through — missing
+    // fields stay absent instead of being invented.
+    const soil: SoilData | null = cachedWeather.soil
+      ? {
+          temperature0cm: cachedWeather.soil.temperature0cm,
+          moisture0to1cm: cachedWeather.soil.moisture0to1cm,
+          ...(cachedWeather.soil.temperature6cm !== undefined && {
+            temperature6cm: cachedWeather.soil.temperature6cm,
+          }),
+          ...(cachedWeather.soil.moisture1to3cm !== undefined && {
+            moisture1to3cm: cachedWeather.soil.moisture1to3cm,
+          }),
+          ...(cachedWeather.soil.moisture3to9cm !== undefined && {
+            moisture3to9cm: cachedWeather.soil.moisture3to9cm,
+          }),
+          ...(cachedWeather.soil.et0FaoEvapotranspiration !== undefined && {
+            et0FaoEvapotranspiration: cachedWeather.soil.et0FaoEvapotranspiration,
+          }),
+        }
+      : null;
 
     const alerts: WeatherAlert[] = (cachedWeather.alerts || []).map((a) => ({
       type: a.type,

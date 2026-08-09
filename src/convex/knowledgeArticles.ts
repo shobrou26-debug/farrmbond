@@ -94,23 +94,50 @@ export const incrementViews = mutation({
   },
 });
 
-/** Like an article (toggle) */
+/**
+ * Pure: compute the new like count for a toggle.
+ * Never goes below 0, never trusts a missing/NaN stored count.
+ */
+export function nextLikeCount(currentLikes: number | undefined, isNowLiked: boolean): number {
+  const base = typeof currentLikes === "number" && !isNaN(currentLikes) ? currentLikes : 0;
+  return isNowLiked ? base + 1 : Math.max(0, base - 1);
+}
+
+/** Like an article (real per-user toggle) */
 export const toggleLike = mutation({
   args: { articleId: v.id("knowledgeArticles") },
   handler: async (ctx, args) => {
     const { userId } = await requireAuth(ctx);
     const article = await ctx.db.get(args.articleId);
     if (!article) throw new Error("Article not found");
-    // Check if already liked
+
+    // Per-user like record (kind "like" — independent from bookmarks)
     const existing = await ctx.db
       .query("userBookmarks")
       .withIndex("by_user_article", (q) =>
         q.eq("userId", userId).eq("articleId", args.articleId)
       )
+      .filter((q) => q.eq(q.field("kind"), "like"))
       .first();
-    // For simplicity, likes just increment (no per-user like tracking in this version)
-    await ctx.db.patch(args.articleId, { likes: article.likes + 1 });
-    return { success: true, likes: article.likes + 1 };
+
+    if (existing) {
+      // Unlike
+      await ctx.db.delete(existing._id);
+      const likes = nextLikeCount(article.likes, false);
+      await ctx.db.patch(args.articleId, { likes });
+      return { success: true, liked: false, likes };
+    }
+
+    // Like
+    await ctx.db.insert("userBookmarks", {
+      userId,
+      articleId: args.articleId,
+      kind: "like",
+      createdAt: Date.now(),
+    });
+    const likes = nextLikeCount(article.likes, true);
+    await ctx.db.patch(args.articleId, { likes });
+    return { success: true, liked: true, likes };
   },
 });
 
@@ -121,12 +148,14 @@ export const toggleBookmark = mutation({
     const { userId } = await requireAuth(ctx);
     const article = await ctx.db.get(args.articleId);
     if (!article) throw new Error("Article not found");
-    // Check if already bookmarked
+    // Check if already bookmarked (kind "bookmark" only — likes live in
+    // the same table with kind "like" and must not collide)
     const existing = await ctx.db
       .query("userBookmarks")
       .withIndex("by_user_article", (q) =>
         q.eq("userId", userId).eq("articleId", args.articleId)
       )
+      .filter((q) => q.eq(q.field("kind"), "bookmark"))
       .first();
     if (existing) {
       // Remove bookmark
@@ -134,10 +163,11 @@ export const toggleBookmark = mutation({
       await ctx.db.patch(args.articleId, { bookmarks: Math.max(0, article.bookmarks - 1) });
       return { bookmarked: false, bookmarks: Math.max(0, article.bookmarks - 1) };
     } else {
-      // Add bookmark
+      // Add bookmark (kind discriminator keeps likes and bookmarks separate)
       await ctx.db.insert("userBookmarks", {
         userId,
         articleId: args.articleId,
+        kind: "bookmark",
         createdAt: Date.now(),
       });
       await ctx.db.patch(args.articleId, { bookmarks: article.bookmarks + 1 });
@@ -155,6 +185,7 @@ export const getUserBookmarks = query({
     const bookmarks = await ctx.db
       .query("userBookmarks")
       .withIndex("by_user", (q) => q.eq("userId", userId))
+      .filter((q) => q.eq(q.field("kind"), "bookmark"))
       .collect();
     return bookmarks.map((b) => b.articleId);
   },

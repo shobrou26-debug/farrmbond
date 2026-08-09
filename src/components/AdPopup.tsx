@@ -8,15 +8,11 @@ import { Button } from "@/components/ui/button";
 import {
   X,
   Sparkles,
-  TrendingUp,
   Megaphone,
   Crown,
   ArrowRight,
   Zap,
   Gift,
-  Percent,
-  Shield,
-  Sprout,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -58,85 +54,9 @@ const adTypeConfigs: Record<string, AdConfig> = {
   },
 };
 
-// ============================================================
-// Fallback Demo Ads (shown when no backend ads exist)
-// ============================================================
-
-const demoAds = [
-  {
-    id: "demo_pro_upgrade",
-    adType: "pro_upgrade" as const,
-    title: "Unlock FarmBond Pro",
-    description:
-      "Get unlimited AI assistant, satellite monitoring, and advanced analytics for just $5/month.",
-    ctaText: "Upgrade Now",
-    ctaUrl: "/settings?tab=subscription",
-    gradient: "from-emerald-500 to-green-600",
-    icon: Crown,
-    badge: "Special Offer",
-    badgeColor: "bg-amber-500/20 text-amber-700",
-    features: ["Unlimited AI Queries", "Satellite NDVI", "Priority Support"],
-  },
-  {
-    id: "demo_seed_supplier",
-    adType: "sponsor" as const,
-    title: "Premium Seeds for Every Season",
-    description:
-      "High-yield seed varieties from AgriSeeds Co. Perfect for East African climates.",
-    ctaText: "Shop Seeds",
-    ctaUrl: "#",
-    gradient: "from-blue-500 to-indigo-600",
-    icon: Sprout,
-    badge: "Sponsored",
-    badgeColor: "bg-blue-500/20 text-blue-700",
-    sponsorName: "AgriSeeds Co.",
-    features: ["Certified Seeds", "Climate-Resistant", "Free Delivery"],
-  },
-  {
-    id: "demo_fertilizer",
-    adType: "sponsor" as const,
-    title: "Boost Your Harvest by 40%",
-    description:
-      "GreenGrow fertilizers are scientifically formulated for maximum crop yield.",
-    ctaText: "Learn More",
-    ctaUrl: "#",
-    gradient: "from-green-500 to-emerald-600",
-    icon: TrendingUp,
-    badge: "Sponsored",
-    badgeColor: "bg-green-500/20 text-green-700",
-    sponsorName: "GreenGrow Fertilizers",
-    features: ["Organic Options", "Lab Tested", "Bulk Discounts"],
-  },
-  {
-    id: "demo_seasonal",
-    adType: "seasonal" as const,
-    title: "Rainy Season Special — 20% Off",
-    description:
-      "Prepare your farm with our exclusive irrigation equipment sale.",
-    ctaText: "View Deals",
-    ctaUrl: "#",
-    gradient: "from-purple-500 to-pink-600",
-    icon: Percent,
-    badge: "Limited Time",
-    badgeColor: "bg-purple-500/20 text-purple-700",
-    features: ["Drip Irrigation Kits", "Water Pumps", "Scheduling"],
-  },
-  {
-    id: "demo_insurance",
-    adType: "cross_sell" as const,
-    title: "Protect Your Farm with Insurance",
-    description:
-      "Comprehensive crop and livestock insurance starting at just $2/month.",
-    ctaText: "Get Protected",
-    ctaUrl: "#",
-    gradient: "from-orange-500 to-red-600",
-    icon: Shield,
-    badge: "Recommended",
-    badgeColor: "bg-orange-500/20 text-orange-700",
-    sponsorName: "FarmShield Insurance",
-    features: ["Weather Protection", "Pest Coverage", "Fast Claims"],
-  },
-];
+// NOTE: Ad inventory is served exclusively from the backend `ads` table
+// (managed by admins). Fabricated "demo sponsor" ads were removed — showing
+// invented businesses as real sponsors is misleading production content.
 
 // ============================================================
 // Top Banner Ad Component (auto-dismisses after 30 seconds)
@@ -153,8 +73,8 @@ export function AdPopup() {
   const backendAds = useQuery(api.ads?.getActiveAds, user ? {} : "skip");
   const recordImpression = useMutation(api.ads?.recordImpression);
 
-  // Determine which ads to show
-  const ads = backendAds && backendAds.length > 0 ? backendAds : demoAds;
+  // Only real backend ads are ever shown — never fabricated sponsors.
+  const ads = backendAds || [];
 
   // Show banner after 30 seconds
   useEffect(() => {
@@ -311,7 +231,7 @@ export function SidebarAdBanner() {
   const [isDismissed, setIsDismissed] = useState(false);
 
   const backendAds = useQuery(api.ads?.getActiveAds, user ? {} : "skip");
-  const ads = backendAds && backendAds.length > 0 ? backendAds : demoAds;
+  const ads = backendAds || [];
 
   useEffect(() => {
     if (isDismissed || !ads || ads.length === 0) return;
@@ -393,7 +313,7 @@ export function InlineAdBanner({ className }: { className?: string }) {
   const [currentAd, setCurrentAd] = useState<any>(null);
 
   const backendAds = useQuery(api.ads?.getActiveAds, user ? {} : "skip");
-  const ads = backendAds && backendAds.length > 0 ? backendAds : demoAds;
+  const ads = backendAds || [];
 
   useEffect(() => {
     if (!ads || ads.length === 0) return;

@@ -310,12 +310,14 @@ function SoilConditions({ soil, tempUnit, unitSystem }: { soil: import("@/hooks/
     );
   }
 
+  // Only render rows for fields the provider actually returned — never
+  // invented moisture/ET₀ values dressed up as measurements.
   const conditions = [
     { label: "Soil Moisture (Surface)", value: soil.moisture0to1cm * 100, unit: "%", max: 100, icon: Droplets },
     { label: "Soil Temperature (Surface)", value: soil.temperature0cm, unit: tempUnit, max: unitSystem === "metric" ? 50 : 120, icon: Thermometer },
-    { label: "Soil Moisture (Root Zone)", value: soil.moisture1to3cm * 100, unit: "%", max: 100, icon: Droplets },
+    { label: "Soil Moisture (Root Zone)", value: soil.moisture1to3cm !== undefined ? soil.moisture1to3cm * 100 : undefined, unit: "%", max: 100, icon: Droplets },
     { label: "Evapotranspiration (ET₀)", value: soil.et0FaoEvapotranspiration, unit: "mm/day", max: 12, icon: Sun },
-  ];
+  ].filter((c) => c.value !== undefined) as Array<{ label: string; value: number; unit?: string; max: number; icon: React.ComponentType<{ className?: string }> }>;
 
   return (
     <Card className="border-border/50">

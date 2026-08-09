@@ -688,25 +688,24 @@ function SubscriptionTab() {
             {[
               { label: "Farms", used: usageStats?.farms ?? null, limit: tier === "free" ? 1 : "∞" },
               { label: "Crops Tracked", used: usageStats?.crops ?? null, limit: tier === "free" ? 5 : "∞" },
-              { label: "AI Queries", used: usageStats?.aiSessions ?? null, limit: tier === "free" ? 10 : "∞" },
+              // AI quota is enforced per day (5 chat / 3 disease detections on
+              // Free) — displayed honestly instead of a misleading count.
+              { label: "AI Queries", used: null, limit: tier === "free" ? "5 / day" : "Unlimited" },
             ].map((item, i) => (
               <div key={i} className="space-y-1">
                 <div className="flex items-center justify-between text-sm">
                   <span>{item.label}</span>
                   <span className="text-muted-foreground">
-                    {item.used === null ? "—" : `${item.used} / ${item.limit}`}
+                    {item.used === null ? item.limit : `${item.used} / ${item.limit}`}
                   </span>
                 </div>
                 <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-primary rounded-full transition-all"
-                    style={{
-                      width:
-                        item.used === null || typeof item.limit !== "number"
-                          ? 5
-                          : `${Math.min(100, (item.used / item.limit) * 100)}%`,
-                    }}
-                  />
+                  {item.used !== null && typeof item.limit === "number" ? (
+                    <div
+                      className="h-full bg-primary rounded-full transition-all"
+                      style={{ width: `${Math.min(100, (item.used / item.limit) * 100)}%` }}
+                    />
+                  ) : null}
                 </div>
               </div>
             ))}

@@ -347,6 +347,7 @@ const schema = defineSchema(
       windSpeed: v.number(),
       windDirection: v.optional(v.number()),
       precipitation: v.number(),
+      weatherCode: v.optional(v.number()),
       cloudCover: v.optional(v.number()),
       uvIndex: v.optional(v.number()),
       pressure: v.optional(v.number()),
@@ -360,6 +361,11 @@ const schema = defineSchema(
         humidity: v.number(),
         windSpeed: v.number(),
         condition: v.string(),
+        weatherCode: v.optional(v.number()),
+        precipitationProbability: v.optional(v.number()),
+        uvIndexMax: v.optional(v.number()),
+        sunrise: v.optional(v.number()),
+        sunset: v.optional(v.number()),
       }))),
       
       // Alerts
@@ -371,14 +377,15 @@ const schema = defineSchema(
         endTime: v.number(),
       }))),
       
-      // Soil data
+      // Soil data — only fields actually returned by Open-Meteo are stored;
+      // every field is optional so a partial/missing record stays honest.
       soil: v.optional(v.object({
         temperature0cm: v.number(),
-        temperature6cm: v.number(),
+        temperature6cm: v.optional(v.number()),
         moisture0to1cm: v.number(),
-        moisture1to3cm: v.number(),
-        moisture3to9cm: v.number(),
-        et0FaoEvapotranspiration: v.number(),
+        moisture1to3cm: v.optional(v.number()),
+        moisture3to9cm: v.optional(v.number()),
+        et0FaoEvapotranspiration: v.optional(v.number()),
       })),
       
       // Metadata
@@ -1192,6 +1199,9 @@ const schema = defineSchema(
     userBookmarks: defineTable({
       userId: v.id("users"),
       articleId: v.id("knowledgeArticles"),
+      // "like" or "bookmark" — separates the two per-user signals that
+      // previously collided in this single table.
+      kind: v.string(),
       createdAt: v.number(),
     })
       .index("by_user", ["userId"])

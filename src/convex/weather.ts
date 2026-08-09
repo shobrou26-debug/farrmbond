@@ -16,11 +16,11 @@ const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 interface SoilData {
   temperature0cm: number;
-  temperature6cm: number;
+  temperature6cm?: number;
   moisture0to1cm: number;
-  moisture1to3cm: number;
-  moisture3to9cm: number;
-  et0FaoEvapotranspiration: number;
+  moisture1to3cm?: number;
+  moisture3to9cm?: number;
+  et0FaoEvapotranspiration?: number;
 }
 
 interface ForecastDay {
@@ -31,6 +31,11 @@ interface ForecastDay {
   humidity: number;
   windSpeed: number;
   condition: string;
+  weatherCode: number;
+  precipitationProbability: number;
+  uvIndexMax: number;
+  sunrise: number;
+  sunset: number;
 }
 
 interface WeatherAlert {
@@ -48,9 +53,89 @@ interface WeatherResult {
   windDirection: number;
   precipitation: number;
   uvIndex: number;
-  soil: SoilData;
+  weatherCode: number;
+  /** Null when Open-Meteo returned no soil record — never invented values. */
+  soil: SoilData | null;
   forecast: ForecastDay[];
   alerts: WeatherAlert[];
+}
+
+/**
+ * Pure: extract the REAL soil record from an Open-Meteo response.
+ * Open-Meteo only provides 0cm temperature and 0-1cm moisture from this
+ * request; deeper/ET₀ values were previously fabricated and are now absent
+ * (undefined) rather than invented. Returns null when the provider gave
+ * no soil data at all.
+ */
+export function extractSoilFromOpenMeteo(json: any): SoilData | null {
+  const hourly = json?.hourly;
+  const soilTemp = hourly?.soil_temperature_0cm;
+  const soilMoisture = hourly?.soil_moisture_0_to_1cm;
+  if (!Array.isArray(soilTemp) || !Array.isArray(soilMoisture)) {
+    return null;
+  }
+  const index = Math.min(new Date().getHours(), Math.min(soilTemp.length, soilMoisture.length) - 1);
+  const temperature0cm = soilTemp[index];
+  const moisture0to1cm = soilMoisture[index];
+  if (typeof temperature0cm !== "number" || typeof moisture0to1cm !== "number") {
+    return null;
+  }
+  return { temperature0cm, moisture0to1cm };
+}
+
+/**
+ * Pure: map Open-Meteo `daily` arrays into honest forecast days.
+ * Every field is copied from the provider response — no hardcoded humidity,
+ * no invented probabilities, no fabricated weather codes.
+ */
+export function mapForecastDays(
+  json: any,
+  currentHumidity: number
+): ForecastDay[] {
+  const daily = json?.daily;
+  if (!daily || !Array.isArray(daily.time)) return [];
+
+  const humidityMax: number[] = Array.isArray(daily.relative_humidity_2m_max)
+    ? daily.relative_humidity_2m_max
+    : daily.time.map(() => currentHumidity);
+
+  return daily.time.map((date: string, i: number) => {
+    const code: number = daily.weather_code?.[i] ?? 0;
+    const condition: string =
+      code === 0
+        ? "clear"
+        : code <= 3
+        ? "partly_cloudy"
+        : code === 45 || code === 48
+        ? "fog"
+        : code >= 51 && code <= 67
+        ? "rain"
+        : code >= 71 && code <= 77
+        ? "snow"
+        : code >= 80 && code <= 82
+        ? "rain_showers"
+        : code >= 95
+        ? "thunderstorm"
+        : "clear";
+
+    const sunriseTs = daily.sunrise?.[i] ? Date.parse(daily.sunrise[i]) : undefined;
+    const sunsetTs = daily.sunset?.[i] ? Date.parse(daily.sunset[i]) : undefined;
+
+    return {
+      date: Math.floor(new Date(date).getTime() / 1000) * 1000,
+      tempHigh: daily.temperature_2m_max?.[i] ?? 0,
+      tempLow: daily.temperature_2m_min?.[i] ?? 0,
+      precipitation: daily.precipitation_sum?.[i] ?? 0,
+      humidity: humidityMax[i] ?? currentHumidity,
+      windSpeed: daily.wind_speed_10m_max?.[i] ?? 0,
+      condition,
+      weatherCode: code,
+      precipitationProbability: daily.precipitation_probability_max?.[i] ?? 0,
+      uvIndexMax: daily.uv_index_max?.[i] ?? 0,
+      sunrise: sunriseTs ?? 0,
+      sunset: sunsetTs ?? 0,
+    };
+  });
 }
 
 async function fetchOpenMeteoWeather(latitude: number, longitude: number): Promise<WeatherResult> {
@@ -74,6 +159,7 @@ async function fetchOpenMeteoWeather(latitude: number, longitude: number): Promi
       "temperature_2m_min",
       "precipitation_sum",
       "precipitation_probability_max",
+      "relative_humidity_2m_max",
       "wind_speed_10m_max",
       "uv_index_max",
       "sunrise",
@@ -101,61 +187,14 @@ async function fetchOpenMeteoWeather(latitude: number, longitude: number): Promi
   const windDirection: number = json.current.wind_direction_10m ?? 0;
   const precipitation: number = json.current.precipitation;
   const uvIndex: number = json.current.uv_index ?? 0;
+  const weatherCode: number = json.current.weather_code ?? 0;
 
-  const forecast: ForecastDay[] = json.daily.time.map((date: string, i: number) => {
-    const code: number = json.daily.weather_code[i];
-    const condition: string =
-      code === 0
-        ? "clear"
-        : code <= 3
-        ? "partly_cloudy"
-        : code === 45 || code === 48
-        ? "fog"
-        : code >= 51 && code <= 67
-        ? "rain"
-        : code >= 71 && code <= 77
-        ? "snow"
-        : code >= 80 && code <= 82
-        ? "rain_showers"
-        : code >= 95
-        ? "thunderstorm"
-        : "clear";
+  // Real daily forecast (honest codes, probabilities, UV max, sun times)
+  const forecast: ForecastDay[] = mapForecastDays(json, humidity);
 
-    return {
-      date: Math.floor(new Date(date).getTime() / 1000) * 1000,
-      tempHigh: json.daily.temperature_2m_max[i],
-      tempLow: json.daily.temperature_2m_min[i],
-      precipitation: json.daily.precipitation_sum[i],
-      humidity: 50,
-      windSpeed: json.daily.wind_speed_10m_max[i],
-      condition,
-    };
-  });
-
-  // Soil data from Open-Meteo hourly soil parameters (use first available)
-  let soil: SoilData = {
-    temperature0cm: 20,
-    temperature6cm: 18,
-    moisture0to1cm: 0.3,
-    moisture1to3cm: 0.35,
-    moisture3to9cm: 0.4,
-    et0FaoEvapotranspiration: 3,
-  };
-
-  if (json.hourly && json.hourly.soil_temperature_0cm && json.hourly.soil_moisture_0_to_1cm) {
-    // Get the current hour's soil data
-    const currentHour = new Date().getHours();
-    const soilTemp = json.hourly.soil_temperature_0cm[currentHour] ?? 20;
-    const soilMoisture = json.hourly.soil_moisture_0_to_1cm[currentHour] ?? 0.3;
-    soil = {
-      temperature0cm: soilTemp,
-      temperature6cm: soilTemp - 2, // Approximate: deeper soil is ~2°C cooler
-      moisture0to1cm: soilMoisture,
-      moisture1to3cm: Math.min(1, soilMoisture * 1.15), // Slightly more moisture deeper
-      moisture3to9cm: Math.min(1, soilMoisture * 1.3), // More moisture at depth
-      et0FaoEvapotranspiration: 3,
-    };
-  }
+  // Real soil record only — null when Open-Meteo returned none. No invented
+  // defaults, no "approximate" deeper values, no fabricated ET₀.
+  const soil: SoilData | null = extractSoilFromOpenMeteo(json);
 
   const alerts: WeatherAlert[] = [];
 
@@ -187,6 +226,7 @@ async function fetchOpenMeteoWeather(latitude: number, longitude: number): Promi
     windDirection,
     precipitation,
     uvIndex,
+    weatherCode,
     soil,
     forecast,
     alerts,
@@ -236,6 +276,7 @@ export const upsertWeather = mutation({
     windSpeed: v.number(),
     windDirection: v.optional(v.number()),
     precipitation: v.number(),
+    weatherCode: v.optional(v.number()),
     uvIndex: v.optional(v.number()),
     forecast: v.optional(
       v.array(
@@ -247,6 +288,11 @@ export const upsertWeather = mutation({
           humidity: v.number(),
           windSpeed: v.number(),
           condition: v.string(),
+          weatherCode: v.optional(v.number()),
+          precipitationProbability: v.optional(v.number()),
+          uvIndexMax: v.optional(v.number()),
+          sunrise: v.optional(v.number()),
+          sunset: v.optional(v.number()),
         })
       )
     ),
@@ -264,11 +310,11 @@ export const upsertWeather = mutation({
     soil: v.optional(
       v.object({
         temperature0cm: v.number(),
-        temperature6cm: v.number(),
+        temperature6cm: v.optional(v.number()),
         moisture0to1cm: v.number(),
-        moisture1to3cm: v.number(),
-        moisture3to9cm: v.number(),
-        et0FaoEvapotranspiration: v.number(),
+        moisture1to3cm: v.optional(v.number()),
+        moisture3to9cm: v.optional(v.number()),
+        et0FaoEvapotranspiration: v.optional(v.number()),
       })
     ),
   },
@@ -295,6 +341,7 @@ export const upsertWeather = mutation({
       windSpeed: args.windSpeed,
       windDirection: args.windDirection,
       precipitation: args.precipitation,
+      weatherCode: args.weatherCode,
       uvIndex: args.uvIndex,
       forecast: args.forecast,
       alerts: args.alerts,
@@ -327,6 +374,7 @@ export const fetchAndCacheWeather = action({
       latitude: latRounded,
       longitude: lonRounded,
       ...weatherData,
+      soil: weatherData.soil ?? undefined,
     });
 
     return weatherData;
@@ -354,6 +402,7 @@ export const prefetchAllFarmWeather = action({
           latitude: loc.latitude,
           longitude: loc.longitude,
           ...weatherData,
+          soil: weatherData.soil ?? undefined,
         });
 
         successCount++;
