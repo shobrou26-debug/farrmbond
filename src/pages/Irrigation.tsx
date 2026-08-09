@@ -1,166 +1,162 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
+import type { Id } from "@/convex/_generated/dataModel";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useWeather } from "@/hooks/use-weather";
+import { useIrrigation } from "@/hooks/use-irrigation";
 import {
   Droplets,
   Plus,
   Clock,
-  Calendar,
   AlertTriangle,
   CheckCircle2,
   Sun,
   Cloud,
   CloudRain,
-  Thermometer,
   Wind,
   Leaf,
   Power,
   PowerOff,
-  Settings,
   TrendingDown,
   TrendingUp,
   Activity,
   Bell,
   Trash2,
   Edit,
+  Inbox,
+  Loader2,
+  History,
+  Sprout,
 } from "lucide-react";
 
 // ============================================================
 // Types
 // ============================================================
 
-interface IrrigationSchedule {
-  id: string;
+interface ScheduleDoc {
+  _id: Id<"irrigationSchedules">;
+  farmId: Id<"farms">;
+  userId: string;
+  cropId?: string;
   name: string;
-  zone: string;
-  frequency: "daily" | "alternate_days" | "weekly" | "custom";
+  frequency: string;
+  customDays?: number[];
   startTime: string;
-  duration: number; // minutes
-  waterAmount: number; // liters
+  duration: number;
+  waterAmount: number;
+  waterSource?: string;
+  zone?: string;
+  soilMoistureTarget?: number;
+  weatherDependent?: boolean;
   isActive: boolean;
-  lastRun?: Date;
-  nextRun: Date;
-  soilMoistureTarget: number; // percentage
-  weatherDependent: boolean;
+  lastRunAt?: number;
+  nextRunAt: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
-interface IrrigationAlert {
+interface DerivedAlert {
   id: string;
-  type: "low_moisture" | "high_moisture" | "rain_expected" | "schedule_due" | "system_error";
+  type: string;
   severity: "high" | "medium" | "low";
   title: string;
   message: string;
-  timestamp: Date;
-  acknowledged: boolean;
+  timestamp: number;
 }
 
 // ============================================================
-// Mock Data
+// Helpers
 // ============================================================
 
-const mockSchedules: IrrigationSchedule[] = [
-  {
-    id: "1",
-    name: "Vegetable Garden Drip",
-    zone: "Zone A - Vegetables",
-    frequency: "daily",
-    startTime: "06:00",
-    duration: 30,
-    waterAmount: 200,
-    isActive: true,
-    lastRun: new Date(2026, 6, 26, 6, 0),
-    nextRun: new Date(2026, 6, 27, 6, 0),
-    soilMoistureTarget: 65,
-    weatherDependent: true,
-  },
-  {
-    id: "2",
-    name: "Maize Field Sprinkler",
-    zone: "Zone B - Maize",
-    frequency: "alternate_days",
-    startTime: "05:30",
-    duration: 45,
-    waterAmount: 500,
-    isActive: true,
-    lastRun: new Date(2026, 6, 25, 5, 30),
-    nextRun: new Date(2026, 6, 27, 5, 30),
-    soilMoistureTarget: 55,
-    weatherDependent: true,
-  },
-  {
-    id: "3",
-    name: "Tomato Bed Micro-Sprinkler",
-    zone: "Zone C - Tomatoes",
-    frequency: "daily",
-    startTime: "06:30",
-    duration: 20,
-    waterAmount: 150,
-    isActive: false,
-    lastRun: new Date(2026, 6, 20, 6, 30),
-    nextRun: new Date(2026, 6, 27, 6, 30),
-    soilMoistureTarget: 70,
-    weatherDependent: true,
-  },
-  {
-    id: "4",
-    name: "Livestock Watering",
-    zone: "Livestock Area",
-    frequency: "daily",
-    startTime: "07:00",
-    duration: 15,
-    waterAmount: 100,
-    isActive: true,
-    lastRun: new Date(2026, 6, 26, 7, 0),
-    nextRun: new Date(2026, 6, 27, 7, 0),
-    soilMoistureTarget: 0,
-    weatherDependent: false,
-  },
-];
+const FREQUENCY_LABELS: Record<string, string> = {
+  daily: "Daily",
+  alternate_days: "Alternate days",
+  weekly: "Weekly",
+  custom: "Custom",
+};
 
-const mockAlerts: IrrigationAlert[] = [
-  {
-    id: "1",
-    type: "low_moisture",
-    severity: "high",
-    title: "Low Soil Moisture - Zone A",
-    message: "Soil moisture dropped to 28%. Immediate irrigation recommended.",
-    timestamp: new Date(2026, 6, 26, 14, 30),
-    acknowledged: false,
-  },
-  {
-    id: "2",
-    type: "rain_expected",
-    severity: "medium",
-    title: "Rain Expected Tomorrow",
-    message: "Heavy rain forecasted. Consider skipping scheduled irrigation.",
-    timestamp: new Date(2026, 6, 26, 10, 0),
-    acknowledged: false,
-  },
-  {
-    id: "3",
-    type: "schedule_due",
-    severity: "low",
-    title: "Irrigation Due in 30 Minutes",
-    message: "Zone B - Maize scheduled irrigation at 05:30.",
-    timestamp: new Date(2026, 6, 26, 5, 0),
-    acknowledged: true,
-  },
-];
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+const formatDate = (ts?: number) =>
+  ts ? new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "Never";
+
+const formatDateTime = (ts: number) =>
+  new Date(ts).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 
 // ============================================================
-// Water Usage Stats
+// Water Usage Stats (computed from real irrigation history)
 // ============================================================
 
-function WaterUsageStats({ soilMoisture }: { soilMoisture: number }) {
+interface HistoryRow {
+  _id: string;
+  date: number;
+  duration: number;
+  waterAmount: number;
+  method?: string;
+  status: string;
+  scheduleName?: string;
+}
+
+function WaterUsageStats({
+  history,
+  soilMoisture,
+  soilSource,
+}: {
+  history: HistoryRow[];
+  soilMoisture: number | null;
+  soilSource: string | null;
+}) {
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const today = history.filter((r) => r.date >= todayStart.getTime()).reduce((s, r) => s + r.waterAmount, 0);
+  const week = history.filter((r) => r.date >= now - 7 * day).reduce((s, r) => s + r.waterAmount, 0);
+  const month = history.filter((r) => r.date >= now - 30 * day).reduce((s, r) => s + r.waterAmount, 0);
+
   const stats = [
-    { label: "Today's Usage", value: "850 L", change: "-12%", trend: "down", icon: Droplets, color: "bg-blue-500" },
-    { label: "Weekly Usage", value: "5.2 kL", change: "+8%", trend: "up", icon: Activity, color: "bg-cyan-500" },
-    { label: "Monthly Usage", value: "18.5 kL", change: "-5%", trend: "down", icon: TrendingDown, color: "bg-indigo-500" },
-    { label: "Soil Moisture", value: `${soilMoisture}%`, change: soilMoisture < 40 ? "Low" : "Optimal", trend: soilMoisture < 40 ? "down" : "stable", icon: Leaf, color: soilMoisture < 40 ? "bg-amber-500" : "bg-green-500" },
+    { label: "Today's Usage", value: `${(today / 1000).toFixed(1)} kL`, sub: `${history.filter((r) => r.date >= todayStart.getTime()).length} runs`, icon: Droplets, color: "bg-blue-500" },
+    { label: "Weekly Usage", value: `${(week / 1000).toFixed(1)} kL`, sub: `${history.filter((r) => r.date >= now - 7 * day).length} runs`, icon: Activity, color: "bg-cyan-500" },
+    { label: "Monthly Usage", value: `${(month / 1000).toFixed(1)} kL`, sub: `${history.filter((r) => r.date >= now - 30 * day).length} runs`, icon: TrendingDown, color: "bg-indigo-500" },
+    {
+      label: "Soil Moisture",
+      value: soilMoisture === null ? "—" : `${Math.round(soilMoisture)}%`,
+      sub:
+        soilMoisture === null
+          ? "Select a farm to view"
+          : soilSource === "estimated"
+          ? "Estimated"
+          : "SoilGrids / lab",
+      icon: Leaf,
+      color: soilMoisture !== null && soilMoisture < 40 ? "bg-amber-500" : "bg-green-500",
+    },
   ];
 
   return (
@@ -174,14 +170,7 @@ function WaterUsageStats({ soilMoisture }: { soilMoisture: number }) {
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">{stat.label}</p>
                   <p className="text-2xl font-bold">{stat.value}</p>
-                  <div className="flex items-center gap-1">
-                    {stat.trend === "up" ? (
-                      <TrendingUp className="w-3.5 h-3.5 text-green-500" />
-                    ) : (
-                      <TrendingDown className="w-3.5 h-3.5 text-green-500" />
-                    )}
-                    <span className="text-xs text-green-500">{stat.change}</span>
-                  </div>
+                  <p className="text-xs text-muted-foreground">{stat.sub}</p>
                 </div>
                 <div className={`flex items-center justify-center w-10 h-10 rounded-xl ${stat.color}`}>
                   <Icon className="w-5 h-5 text-white" />
@@ -196,7 +185,7 @@ function WaterUsageStats({ soilMoisture }: { soilMoisture: number }) {
 }
 
 // ============================================================
-// Smart Recommendations
+// Smart Recommendations (real weather + soil data)
 // ============================================================
 
 function SmartRecommendations({
@@ -204,7 +193,7 @@ function SmartRecommendations({
   soilMoisture,
 }: {
   weather: ReturnType<typeof useWeather>["data"];
-  soilMoisture: number;
+  soilMoisture: number | null;
 }) {
   const recommendations = useMemo(() => {
     const recs: Array<{
@@ -215,37 +204,52 @@ function SmartRecommendations({
       color: string;
     }> = [];
 
-    // Rain expected - skip irrigation
     if (weather?.daily.some((d) => d.precipitationSum > 10)) {
       recs.push({
         title: "Skip Tomorrow's Irrigation",
-        description: "Heavy rain expected. Watering now would waste resources and may cause waterlogging.",
+        description: "Significant rain expected. Watering now may waste resources and cause waterlogging.",
         priority: "high",
         icon: CloudRain,
         color: "bg-blue-500/10 text-blue-600 border-blue-500/20",
       });
     }
 
-    // Low soil moisture
-    if (soilMoisture < 30) {
-      recs.push({
-        title: "Increase Irrigation Frequency",
-        description: "Soil moisture is critically low. Consider watering twice daily until levels recover.",
-        priority: "high",
-        icon: Droplets,
-        color: "bg-amber-500/10 text-amber-600 border-amber-500/20",
-      });
-    } else if (soilMoisture < 40) {
-      recs.push({
-        title: "Extend Irrigation Duration",
-        description: "Soil moisture is below optimal. Add 10 minutes to your next irrigation cycle.",
-        priority: "medium",
-        icon: Droplets,
-        color: "bg-amber-500/10 text-amber-600 border-amber-500/20",
-      });
+    if (soilMoisture !== null) {
+      if (soilMoisture < 30) {
+        recs.push({
+          title: "Increase Irrigation Frequency",
+          description: `Soil moisture is ${Math.round(soilMoisture)}% — critically low. Consider irrigating sooner.`,
+          priority: "high",
+          icon: Droplets,
+          color: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+        });
+      } else if (soilMoisture < 40) {
+        recs.push({
+          title: "Irrigate Soon",
+          description: `Soil moisture is ${Math.round(soilMoisture)}% — below the optimal 50-70% band.`,
+          priority: "medium",
+          icon: Droplets,
+          color: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+        });
+      } else if (soilMoisture > 75) {
+        recs.push({
+          title: "Delay Irrigation",
+          description: `Soil moisture is ${Math.round(soilMoisture)}% — high waterlogging risk. Hold off watering.`,
+          priority: "medium",
+          icon: CloudRain,
+          color: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+        });
+      } else {
+        recs.push({
+          title: "Conditions Optimal",
+          description: "Soil moisture is within the healthy 50-70% band. Continue your current schedule.",
+          priority: "low",
+          icon: CheckCircle2,
+          color: "bg-green-500/10 text-green-600 border-green-500/20",
+        });
+      }
     }
 
-    // High UV - water early
     if (weather?.current.uvIndex && weather.current.uvIndex > 7) {
       recs.push({
         title: "Water Early Morning",
@@ -256,22 +260,10 @@ function SmartRecommendations({
       });
     }
 
-    // Optimal conditions
-    if (soilMoisture >= 50 && soilMoisture <= 70) {
-      recs.push({
-        title: "Conditions Optimal",
-        description: "Soil moisture levels are healthy. Continue current irrigation schedule.",
-        priority: "low",
-        icon: CheckCircle2,
-        color: "bg-green-500/10 text-green-600 border-green-500/20",
-      });
-    }
-
-    // High wind - reduce spray
     if (weather?.current.windSpeed && weather.current.windSpeed > 20) {
       recs.push({
         title: "Reduce Spray Irrigation",
-        description: "Strong winds detected. Switch to drip irrigation to prevent water drift.",
+        description: "Strong winds detected. Prefer drip irrigation to prevent water drift.",
         priority: "medium",
         icon: Wind,
         color: "bg-purple-500/10 text-purple-600 border-purple-500/20",
@@ -286,14 +278,18 @@ function SmartRecommendations({
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <Leaf className="w-4 h-4 text-green-500" />
-          Smart Recommendations
+          Recommendations
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {recommendations.length === 0 ? (
           <div className="text-center py-6 text-muted-foreground">
             <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-green-500" />
-            <p className="text-sm">All systems operating normally</p>
+            <p className="text-sm">
+              {soilMoisture === null
+                ? "Select a farm to see soil-based recommendations"
+                : "No current irrigation recommendations"}
+            </p>
           </div>
         ) : (
           recommendations.map((rec, i) => {
@@ -323,17 +319,520 @@ function SmartRecommendations({
 }
 
 // ============================================================
+// Derived Irrigation Alerts
+// ============================================================
+
+function IrrigationAlerts({ alerts }: { alerts: DerivedAlert[] }) {
+  if (alerts.length === 0) return null;
+
+  return (
+    <Card className="border-amber-500/30 bg-amber-500/5">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Bell className="w-4 h-4 text-amber-500" />
+            Active Alerts
+          </CardTitle>
+          <Badge variant="secondary" className="bg-amber-500/10 text-amber-600">
+            {alerts.length}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {alerts.map((alert) => (
+          <div
+            key={alert.id}
+            className={`p-3 rounded-xl border-l-4 ${
+              alert.severity === "high"
+                ? "border-red-500 bg-red-500/5"
+                : alert.severity === "medium"
+                ? "border-amber-500 bg-amber-500/5"
+                : "border-blue-500 bg-blue-500/5"
+            }`}
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground" />
+              <div>
+                <h4 className="text-sm font-semibold">{alert.title}</h4>
+                <p className="text-xs text-muted-foreground mt-0.5">{alert.message}</p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================
+// Schedule Modal (create + edit)
+// ============================================================
+
+interface ScheduleForm {
+  name: string;
+  farmId: string;
+  zone: string;
+  frequency: string;
+  customDays: number[];
+  startTime: string;
+  duration: string;
+  waterAmount: string;
+  waterSource: string;
+  soilMoistureTarget: string;
+  weatherDependent: boolean;
+}
+
+/** Normalized payload handed to create/update handlers (numeric duration/water). */
+interface SchedulePayload {
+  name: string;
+  farmId: string;
+  zone: string;
+  frequency: string;
+  customDays: number[];
+  startTime: string;
+  duration: number;
+  waterAmount: number;
+  waterSource: string;
+  soilMoistureTarget: string;
+  weatherDependent: boolean;
+}
+
+function ScheduleModal({
+  isOpen,
+  onClose,
+  farms,
+  schedule,
+  defaultFarmId,
+  isSubmitting,
+  onSubmit,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  farms: { _id: string; name: string }[];
+  schedule: ScheduleDoc | null;
+  defaultFarmId: string;
+  isSubmitting: boolean;
+  onSubmit: (data: SchedulePayload) => Promise<void>;
+}) {
+  const [form, setForm] = useState<ScheduleForm>({
+    name: schedule?.name ?? "",
+    farmId: schedule?.farmId ?? defaultFarmId,
+    zone: schedule?.zone ?? "",
+    frequency: schedule?.frequency ?? "daily",
+    customDays: schedule?.customDays ?? [1, 3, 5],
+    startTime: schedule?.startTime ?? "06:00",
+    duration: schedule ? String(schedule.duration) : "30",
+    waterAmount: schedule ? String(schedule.waterAmount) : "200",
+    waterSource: schedule?.waterSource ?? "",
+    soilMoistureTarget: schedule?.soilMoistureTarget !== undefined ? String(schedule.soilMoistureTarget) : "",
+    weatherDependent: schedule?.weatherDependent ?? true,
+  });
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Sync form when switching between create/edit targets
+  useEffect(() => {
+    setForm({
+      name: schedule?.name ?? "",
+      farmId: schedule?.farmId ?? defaultFarmId,
+      zone: schedule?.zone ?? "",
+      frequency: schedule?.frequency ?? "daily",
+      customDays: schedule?.customDays ?? [1, 3, 5],
+      startTime: schedule?.startTime ?? "06:00",
+      duration: schedule ? String(schedule.duration) : "30",
+      waterAmount: schedule ? String(schedule.waterAmount) : "200",
+      waterSource: schedule?.waterSource ?? "",
+      soilMoistureTarget: schedule?.soilMoistureTarget !== undefined ? String(schedule.soilMoistureTarget) : "",
+      weatherDependent: schedule?.weatherDependent ?? true,
+    });
+    setFormError(null);
+  }, [schedule, defaultFarmId, isOpen]);
+
+  const toggleDay = (day: number) => {
+    setForm((f) => ({
+      ...f,
+      customDays: f.customDays.includes(day)
+        ? f.customDays.filter((d) => d !== day)
+        : [...f.customDays, day].sort(),
+    }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+
+    if (!form.name.trim()) return setFormError("Please enter a schedule name.");
+    if (!form.farmId) return setFormError("Please select a farm.");
+    const duration = Number(form.duration);
+    const waterAmount = Number(form.waterAmount);
+    if (!duration || duration < 1 || duration > 600) return setFormError("Duration must be between 1 and 600 minutes.");
+    if (!waterAmount || waterAmount < 1 || waterAmount > 100000) return setFormError("Water amount must be between 1 and 100,000 liters.");
+    if (form.frequency === "custom" && form.customDays.length === 0)
+      return setFormError("Select at least one day for a custom schedule.");
+    const target = form.soilMoistureTarget === "" ? undefined : Number(form.soilMoistureTarget);
+    if (target !== undefined && (isNaN(target) || target < 0 || target > 100))
+      return setFormError("Soil moisture target must be between 0 and 100.");
+
+    try {
+      await onSubmit({ ...form, duration, waterAmount, soilMoistureTarget: target === undefined ? "" : String(target) });
+      onClose();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Failed to save schedule.");
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{schedule ? "Edit Irrigation Schedule" : "Add Irrigation Schedule"}</DialogTitle>
+          <DialogDescription>
+            {schedule ? "Update the details of this irrigation schedule." : "Create a new irrigation schedule for one of your farms."}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="sch-name">Schedule Name *</Label>
+            <Input
+              id="sch-name"
+              placeholder="e.g. Vegetable Garden Drip"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="sch-farm">Farm *</Label>
+              <Select value={form.farmId} onValueChange={(v) => setForm((f) => ({ ...f, farmId: v }))}>
+                <SelectTrigger id="sch-farm">
+                  <SelectValue placeholder="Select farm" />
+                </SelectTrigger>
+                <SelectContent>
+                  {farms.map((farm) => (
+                    <SelectItem key={farm._id} value={farm._id}>
+                      {farm.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sch-zone">Zone</Label>
+              <Input
+                id="sch-zone"
+                placeholder="e.g. Zone A - Vegetables"
+                value={form.zone}
+                onChange={(e) => setForm((f) => ({ ...f, zone: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="sch-frequency">Frequency *</Label>
+              <Select value={form.frequency} onValueChange={(v) => setForm((f) => ({ ...f, frequency: v }))}>
+                <SelectTrigger id="sch-frequency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="daily">Daily</SelectItem>
+                  <SelectItem value="alternate_days">Alternate days</SelectItem>
+                  <SelectItem value="weekly">Weekly</SelectItem>
+                  <SelectItem value="custom">Custom days</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sch-time">Start Time *</Label>
+              <Input
+                id="sch-time"
+                type="time"
+                value={form.startTime}
+                onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          {form.frequency === "custom" && (
+            <div className="space-y-2">
+              <Label>Days of the week</Label>
+              <div className="flex gap-2 flex-wrap">
+                {DAY_LABELS.map((label, day) => (
+                  <button
+                    key={day}
+                    type="button"
+                    onClick={() => toggleDay(day)}
+                    className={`w-10 h-10 rounded-lg text-xs font-medium transition-all ${
+                      form.customDays.includes(day)
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted/70"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="sch-duration">Duration (min) *</Label>
+              <Input
+                id="sch-duration"
+                type="number"
+                min="1"
+                max="600"
+                value={form.duration}
+                onChange={(e) => setForm((f) => ({ ...f, duration: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sch-water">Water (L) *</Label>
+              <Input
+                id="sch-water"
+                type="number"
+                min="1"
+                value={form.waterAmount}
+                onChange={(e) => setForm((f) => ({ ...f, waterAmount: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="sch-source">Method</Label>
+              <Select value={form.waterSource} onValueChange={(v) => setForm((f) => ({ ...f, waterSource: v }))}>
+                <SelectTrigger id="sch-source">
+                  <SelectValue placeholder="Select method" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="drip">Drip</SelectItem>
+                  <SelectItem value="sprinkler">Sprinkler</SelectItem>
+                  <SelectItem value="flood">Flood</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sch-target">Soil Moisture Target (%)</Label>
+              <Input
+                id="sch-target"
+                type="number"
+                min="0"
+                max="100"
+                placeholder="e.g. 65"
+                value={form.soilMoistureTarget}
+                onChange={(e) => setForm((f) => ({ ...f, soilMoistureTarget: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.weatherDependent}
+              onChange={(e) => setForm((f) => ({ ...f, weatherDependent: e.target.checked }))}
+              className="rounded border-input"
+            />
+            Pause automatically when significant rain is forecast
+          </label>
+
+          {formError && (
+            <p className="text-sm text-red-600 flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4" /> {formError}
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSubmitting} className="gradient-primary">
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              {isSubmitting ? "Saving..." : schedule ? "Save Changes" : "Create Schedule"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
+// Record Irrigation Modal
+// ============================================================
+
+function RecordIrrigationModal({
+  schedule,
+  isOpen,
+  onClose,
+  isSubmitting,
+  onSubmit,
+}: {
+  schedule: ScheduleDoc | null;
+  isOpen: boolean;
+  onClose: () => void;
+  isSubmitting: boolean;
+  onSubmit: (data: {
+    date: number;
+    duration: number;
+    waterAmount: number;
+    method?: string;
+    status: "completed" | "skipped" | "manual";
+    notes?: string;
+  }) => Promise<void>;
+}) {
+  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [duration, setDuration] = useState("");
+  const [waterAmount, setWaterAmount] = useState("");
+  const [method, setMethod] = useState("");
+  const [status, setStatus] = useState<"completed" | "manual">("completed");
+  const [notes, setNotes] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (schedule) {
+      setDuration(String(schedule.duration));
+      setWaterAmount(String(schedule.waterAmount));
+      setMethod(schedule.waterSource ?? "");
+      setStatus("completed");
+      setNotes("");
+      setFormError(null);
+    }
+  }, [schedule, isOpen]);
+
+  if (!schedule) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    const dur = Number(duration);
+    const water = Number(waterAmount);
+    if (!dur || dur < 1 || dur > 600) return setFormError("Duration must be between 1 and 600 minutes.");
+    if (!water || water < 1) return setFormError("Water amount must be greater than 0.");
+    if (!date) return setFormError("Select a date.");
+
+    try {
+      await onSubmit({
+        date: new Date(date + "T" + (schedule.startTime || "06:00")).getTime(),
+        duration: dur,
+        waterAmount: water,
+        method: method || undefined,
+        status,
+        notes: notes.trim() || undefined,
+      });
+      onClose();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Failed to record irrigation.");
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Droplets className="w-5 h-5 text-blue-500" />
+            Record Irrigation — {schedule.name}
+          </DialogTitle>
+          <DialogDescription>
+            Record that this schedule was run, skipped, or completed manually.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="run-date">Date *</Label>
+              <Input id="run-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="run-status">Status</Label>
+              <Select value={status} onValueChange={(v) => setStatus(v as "completed" | "manual")}>
+                <SelectTrigger id="run-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
+                  <SelectItem value="skipped">Skipped</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="run-duration">Duration (min) *</Label>
+              <Input id="run-duration" type="number" min="1" value={duration} onChange={(e) => setDuration(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="run-water">Water (L) *</Label>
+              <Input id="run-water" type="number" min="1" value={waterAmount} onChange={(e) => setWaterAmount(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="run-method">Method</Label>
+            <Select value={method} onValueChange={(v) => setMethod(v)}>
+              <SelectTrigger id="run-method">
+                <SelectValue placeholder="Select method" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="drip">Drip</SelectItem>
+                <SelectItem value="sprinkler">Sprinkler</SelectItem>
+                <SelectItem value="flood">Flood</SelectItem>
+                <SelectItem value="manual">Manual</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="run-notes">Notes</Label>
+            <Input id="run-notes" placeholder="e.g. Split into two passes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+
+          {formError && (
+            <p className="text-sm text-red-600 flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4" /> {formError}
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSubmitting} className="gradient-primary">
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Droplets className="w-4 h-4" />}
+              {isSubmitting ? "Saving..." : "Record"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
 // Schedule Card
 // ============================================================
 
 function ScheduleCard({
   schedule,
+  farmName,
+  isBusy,
   onToggle,
+  onEdit,
   onDelete,
+  onRecord,
 }: {
-  schedule: IrrigationSchedule;
-  onToggle: (id: string) => void;
-  onDelete: (id: string) => void;
+  schedule: ScheduleDoc;
+  farmName: string;
+  isBusy: boolean;
+  onToggle: (schedule: ScheduleDoc) => void;
+  onEdit: (schedule: ScheduleDoc) => void;
+  onDelete: (schedule: ScheduleDoc) => void;
+  onRecord: (schedule: ScheduleDoc) => void;
 }) {
   return (
     <Card className={`border-border/50 card-hover ${!schedule.isActive ? "opacity-60" : ""}`}>
@@ -341,17 +840,19 @@ function ScheduleCard({
         <div className="flex items-start justify-between mb-3">
           <div>
             <h3 className="text-sm font-semibold">{schedule.name}</h3>
-            <p className="text-xs text-muted-foreground">{schedule.zone}</p>
+            <p className="text-xs text-muted-foreground">{schedule.zone || farmName}</p>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="text-[10px]">
-              {schedule.frequency.replace("_", " ")}
+              {FREQUENCY_LABELS[schedule.frequency] ?? schedule.frequency}
             </Badge>
             <Button
               variant="ghost"
               size="icon"
               className="h-7 w-7"
-              onClick={() => onToggle(schedule.id)}
+              disabled={isBusy}
+              onClick={() => onToggle(schedule)}
+              aria-label={schedule.isActive ? "Disable schedule" : "Enable schedule"}
             >
               {schedule.isActive ? (
                 <Power className="w-4 h-4 text-green-500" />
@@ -375,93 +876,46 @@ function ScheduleCard({
           </div>
           <div className="p-2 rounded-lg bg-muted/30">
             <Leaf className="w-4 h-4 mx-auto text-green-400 mb-1" />
-            <p className="text-xs font-medium">{schedule.soilMoistureTarget}%</p>
+            <p className="text-xs font-medium">
+              {schedule.soilMoistureTarget !== undefined ? `${schedule.soilMoistureTarget}%` : "—"}
+            </p>
             <p className="text-[10px] text-muted-foreground">target</p>
           </div>
         </div>
 
         <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
-          <span>Last: {schedule.lastRun?.toLocaleDateString() || "Never"}</span>
-          <span>Next: {schedule.nextRun.toLocaleDateString()}</span>
+          <span>Last: {formatDate(schedule.lastRunAt)}</span>
+          <span className={schedule.nextRunAt < Date.now() && schedule.isActive ? "text-amber-500 font-medium" : ""}>
+            Next: {formatDateTime(schedule.nextRunAt)}
+          </span>
         </div>
 
         {schedule.weatherDependent && (
-          <Badge variant="outline" className="text-[10px] w-full justify-center">
+          <Badge variant="outline" className="text-[10px] w-full justify-center mb-3">
             <Cloud className="w-3 h-3 mr-1" />
-            Weather-dependent
+            Weather-aware
           </Badge>
         )}
 
-        <div className="flex gap-2 mt-3">
-          <Button variant="outline" size="sm" className="flex-1">
+        <div className="flex gap-2 mt-1">
+          <Button variant="outline" size="sm" className="flex-1" onClick={() => onEdit(schedule)}>
             <Edit className="w-3.5 h-3.5 mr-1" />
             Edit
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => onDelete(schedule.id)}>
+          <Button variant="outline" size="sm" className="flex-1" onClick={() => onRecord(schedule)}>
+            <Droplets className="w-3.5 h-3.5 mr-1" />
+            Record
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={isBusy}
+            onClick={() => onDelete(schedule)}
+            aria-label={`Delete schedule ${schedule.name}`}
+          >
             <Trash2 className="w-3.5 h-3.5 text-destructive" />
           </Button>
         </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ============================================================
-// Irrigation Alerts
-// ============================================================
-
-function IrrigationAlerts({
-  alerts,
-  onAcknowledge,
-}: {
-  alerts: IrrigationAlert[];
-  onAcknowledge: (id: string) => void;
-}) {
-  const unacknowledged = alerts.filter((a) => !a.acknowledged);
-
-  if (unacknowledged.length === 0) return null;
-
-  return (
-    <Card className="border-amber-500/30 bg-amber-500/5">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Bell className="w-4 h-4 text-amber-500" />
-            Active Alerts
-          </CardTitle>
-          <Badge variant="secondary" className="bg-amber-500/10 text-amber-600">
-            {unacknowledged.length} New
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {unacknowledged.map((alert) => (
-          <div
-            key={alert.id}
-            className={`p-3 rounded-xl border-l-4 ${
-              alert.severity === "high"
-                ? "border-red-500 bg-red-500/5"
-                : alert.severity === "medium"
-                ? "border-amber-500 bg-amber-500/5"
-                : "border-blue-500 bg-blue-500/5"
-            }`}
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <h4 className="text-sm font-semibold">{alert.title}</h4>
-                <p className="text-xs text-muted-foreground mt-0.5">{alert.message}</p>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onAcknowledge(alert.id)}
-                className="text-xs"
-              >
-                Dismiss
-              </Button>
-            </div>
-          </div>
-        ))}
       </CardContent>
     </Card>
   );
@@ -473,26 +927,156 @@ function IrrigationAlerts({
 
 export default function Irrigation() {
   const { data: weatherData } = useWeather();
-  const [schedules, setSchedules] = useState(mockSchedules);
-  const [alerts, setAlerts] = useState(mockAlerts);
+  const [selectedFarmId, setSelectedFarmId] = useState<Id<"farms"> | undefined>(undefined);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState<ScheduleDoc | null>(null);
+  const [recordingSchedule, setRecordingSchedule] = useState<ScheduleDoc | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState<Id<"irrigationSchedules"> | null>(null);
+  const [togglingId, setTogglingId] = useState<Id<"irrigationSchedules"> | null>(null);
+  const [view, setView] = useState<"schedules" | "history">("schedules");
 
-  // Simulated soil moisture (in real app, would come from sensors/API)
-  const [soilMoisture, setSoilMoisture] = useState(38);
+  const {
+    schedules,
+    history,
+    alerts,
+    soil,
+    farms,
+    isLoading,
+    createSchedule,
+    updateSchedule,
+    deleteSchedule,
+    enableSchedule,
+    disableSchedule,
+    recordIrrigation,
+  } = useIrrigation(selectedFarmId);
 
-  const handleToggle = (id: string) => {
-    setSchedules((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, isActive: !s.isActive } : s))
-    );
+  const farmMap = useMemo(() => {
+    const map = new Map<string, string>();
+    farms.forEach((f) => map.set(f._id, f.name));
+    return map;
+  }, [farms]);
+
+  const soilMoisture = useMemo(() => {
+    if (!soil || typeof soil.soilMoisture !== "number") return null;
+    return soil.soilMoisture;
+  }, [soil]);
+
+  const soilSource = useMemo(() => {
+    if (!soil) return null;
+    return (soil as { lastUpdated?: number | null }).lastUpdated ? "measured" : "estimated";
+  }, [soil]);
+
+  const alertsList = useMemo<DerivedAlert[]>(() => alerts, [alerts]);
+
+  // ============================================================
+  // Handlers
+  // ============================================================
+
+  const handleCreate = async (data: SchedulePayload) => {
+    setIsSubmitting(true);
+    try {
+      await createSchedule({
+        farmId: data.farmId as Id<"farms">,
+        name: data.name.trim(),
+        frequency: data.frequency,
+        customDays: data.frequency === "custom" ? data.customDays : undefined,
+        startTime: data.startTime,
+        duration: data.duration,
+        waterAmount: data.waterAmount,
+        waterSource: data.waterSource || undefined,
+        zone: data.zone.trim() || undefined,
+        soilMoistureTarget: data.soilMoistureTarget === "" ? undefined : Number(data.soilMoistureTarget),
+        weatherDependent: data.weatherDependent,
+      });
+      toast.success("Irrigation schedule created");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create schedule");
+      throw err;
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleDelete = (id: string) => {
-    setSchedules((prev) => prev.filter((s) => s.id !== id));
+  const handleUpdate = async (data: SchedulePayload) => {
+    if (!editingSchedule) return;
+    setIsSubmitting(true);
+    try {
+      await updateSchedule({
+        scheduleId: editingSchedule._id,
+        farmId: data.farmId as Id<"farms">,
+        name: data.name.trim(),
+        frequency: data.frequency,
+        customDays: data.frequency === "custom" ? data.customDays : undefined,
+        startTime: data.startTime,
+        duration: data.duration,
+        waterAmount: data.waterAmount,
+        waterSource: data.waterSource || undefined,
+        zone: data.zone.trim() || undefined,
+        soilMoistureTarget: data.soilMoistureTarget === "" ? undefined : Number(data.soilMoistureTarget),
+        weatherDependent: data.weatherDependent,
+      });
+      toast.success("Irrigation schedule updated");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update schedule");
+      throw err;
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleAcknowledgeAlert = (id: string) => {
-    setAlerts((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, acknowledged: true } : a))
-    );
+  const handleToggle = async (schedule: ScheduleDoc) => {
+    setTogglingId(schedule._id);
+    try {
+      if (schedule.isActive) {
+        await disableSchedule({ scheduleId: schedule._id });
+        toast.success("Schedule disabled");
+      } else {
+        await enableSchedule({ scheduleId: schedule._id });
+        toast.success("Schedule enabled");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update schedule");
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  const handleDelete = async (schedule: ScheduleDoc) => {
+    if (!window.confirm(`Delete irrigation schedule "${schedule.name}"? This cannot be undone.`)) return;
+    setIsDeleting(schedule._id);
+    try {
+      await deleteSchedule({ scheduleId: schedule._id });
+      toast.success("Schedule deleted");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete schedule");
+    } finally {
+      setIsDeleting(null);
+    }
+  };
+
+  const handleRecord = async (data: {
+    date: number;
+    duration: number;
+    waterAmount: number;
+    method?: string;
+    status: "completed" | "skipped" | "manual";
+    notes?: string;
+  }) => {
+    if (!recordingSchedule) return;
+    setIsSubmitting(true);
+    try {
+      await recordIrrigation({
+        scheduleId: recordingSchedule._id,
+        ...data,
+      });
+      toast.success("Irrigation recorded");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to record irrigation");
+      throw err;
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -509,13 +1093,51 @@ export default function Irrigation() {
             <div>
               <h1 className="text-3xl font-bold tracking-tight">Irrigation Scheduling</h1>
               <p className="text-muted-foreground mt-1">
-                Smart irrigation based on soil moisture and weather data
+                Plan irrigation runs for your farms with weather and soil awareness
               </p>
             </div>
-            <Button className="gradient-primary">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Schedule
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setView(view === "schedules" ? "history" : "schedules")}
+              >
+                {view === "schedules" ? (
+                  <>
+                    <History className="w-4 h-4 mr-2" />
+                    Irrigation History
+                  </>
+                ) : (
+                  <>
+                    <Droplets className="w-4 h-4 mr-2" />
+                    Schedules
+                  </>
+                )}
+              </Button>
+              <Button className="gradient-primary" onClick={() => { setEditingSchedule(null); setShowAddModal(true); }}>
+                <Plus className="w-4 h-4 mr-2" />
+                Add Schedule
+              </Button>
+            </div>
+          </div>
+
+          {/* Farm filter */}
+          <div className="mt-4 max-w-xs">
+            <Select
+              value={selectedFarmId ?? "all"}
+              onValueChange={(v) => setSelectedFarmId(v === "all" ? undefined : (v as Id<"farms">))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All farms</SelectItem>
+                {farms.map((farm) => (
+                  <SelectItem key={farm._id} value={farm._id}>
+                    {farm.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </motion.div>
 
@@ -526,86 +1148,199 @@ export default function Irrigation() {
           className="space-y-6"
         >
           {/* Water Usage Stats */}
-          <WaterUsageStats soilMoisture={soilMoisture} />
+          <WaterUsageStats
+            history={history as unknown as HistoryRow[]}
+            soilMoisture={soilMoisture}
+            soilSource={soilSource}
+          />
 
-          {/* Alerts */}
-          <IrrigationAlerts alerts={alerts} onAcknowledge={handleAcknowledgeAlert} />
+          {/* Derived Alerts */}
+          <IrrigationAlerts alerts={alertsList} />
 
-          {/* Main Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Schedules */}
-            <div className="lg:col-span-2 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Active Schedules</h2>
-                <Badge variant="secondary">{schedules.length}</Badge>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {schedules.map((schedule) => (
-                  <ScheduleCard
-                    key={schedule.id}
-                    schedule={schedule}
-                    onToggle={handleToggle}
-                    onDelete={handleDelete}
-                  />
-                ))}
-              </div>
-            </div>
+          {view === "schedules" ? (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Schedules */}
+              <div className="lg:col-span-2 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Schedules</h2>
+                  <Badge variant="secondary">{schedules.length}</Badge>
+                </div>
 
-            {/* Recommendations */}
-            <div className="space-y-6">
-              <SmartRecommendations weather={weatherData} soilMoisture={soilMoisture} />
-
-              {/* Quick Moisture Adjust */}
-              <Card className="border-border/50">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm">Adjust Soil Moisture Target</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Current Level</span>
-                      <span className={`text-lg font-bold ${soilMoisture < 40 ? "text-amber-500" : "text-green-500"}`}>
-                        {soilMoisture}%
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={soilMoisture}
-                      onChange={(e) => setSoilMoisture(parseInt(e.target.value))}
-                      className="w-full"
-                    />
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Dry</span>
-                      <span>Optimal (50-70%)</span>
-                      <span>Wet</span>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => setSoilMoisture(Math.max(0, soilMoisture - 10))}
-                      >
-                        -10%
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => setSoilMoisture(Math.min(100, soilMoisture + 10))}
-                      >
-                        +10%
-                      </Button>
-                    </div>
+                {isLoading ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {[1, 2].map((i) => (
+                      <div key={i} className="h-48 bg-muted/50 rounded-xl animate-pulse" />
+                    ))}
                   </div>
-                </CardContent>
-              </Card>
+                ) : schedules.length === 0 ? (
+                  <Card className="border-border/50">
+                    <CardContent className="flex flex-col items-center justify-center py-14 text-center">
+                      <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-3">
+                        <Droplets className="w-6 h-6 text-muted-foreground" />
+                      </div>
+                      <p className="font-medium">
+                        {farms.length === 0 ? "No farms registered" : "No irrigation schedules yet"}
+                      </p>
+                      <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+                        {farms.length === 0
+                          ? "Register a farm first, then create irrigation schedules for it."
+                          : "Create your first irrigation schedule to start tracking water usage."}
+                      </p>
+                      {farms.length > 0 && (
+                        <Button
+                          className="mt-4 gradient-primary"
+                          size="sm"
+                          onClick={() => { setEditingSchedule(null); setShowAddModal(true); }}
+                        >
+                          <Plus className="w-4 h-4 mr-2" />Add Schedule
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {schedules.map((schedule) => (
+                      <ScheduleCard
+                        key={schedule._id}
+                        schedule={schedule}
+                        farmName={farmMap.get(schedule.farmId) ?? "Unknown farm"}
+                        isBusy={isDeleting === schedule._id || togglingId === schedule._id}
+                        onToggle={handleToggle}
+                        onEdit={(s) => { setEditingSchedule(s); setShowAddModal(true); }}
+                        onDelete={handleDelete}
+                        onRecord={setRecordingSchedule}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Recommendations + Soil */}
+              <div className="space-y-6">
+                <SmartRecommendations weather={weatherData} soilMoisture={soilMoisture} />
+
+                <Card className="border-border/50">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Sprout className="w-4 h-4 text-green-500" />
+                      Soil Status
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {selectedFarmId === undefined ? (
+                      <p className="text-sm text-muted-foreground">
+                        Select a farm to view its soil analysis.
+                      </p>
+                    ) : soil === undefined ? (
+                      <div className="h-20 bg-muted/40 rounded-xl animate-pulse" />
+                    ) : soil ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Moisture</span>
+                          <span className={`text-lg font-bold ${soilMoisture !== null && soilMoisture < 40 ? "text-amber-500" : "text-green-600"}`}>
+                            {soilMoisture !== null ? `${Math.round(soilMoisture)}%` : "—"}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div className="p-2 rounded-lg bg-muted/30">
+                            <p className="text-xs text-muted-foreground">Drainage</p>
+                            <p className="font-medium capitalize">{soil.drainage ?? "—"}</p>
+                          </div>
+                          <div className="p-2 rounded-lg bg-muted/30">
+                            <p className="text-xs text-muted-foreground">Texture</p>
+                            <p className="font-medium capitalize">{soil.texture ?? "—"}</p>
+                          </div>
+                          <div className="p-2 rounded-lg bg-muted/30">
+                            <p className="text-xs text-muted-foreground">Fertility</p>
+                            <p className="font-medium capitalize">{soil.fertility ?? "—"}</p>
+                          </div>
+                          <div className="p-2 rounded-lg bg-muted/30">
+                            <p className="text-xs text-muted-foreground">pH</p>
+                            <p className="font-medium">{soil.ph ?? "—"}</p>
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          {soilSource === "estimated"
+                            ? "Soil values are estimated from the farm's location (SoilGrids baseline)."
+                            : "Soil values from the latest soil analysis."}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        No soil analysis available for this farm yet.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
             </div>
-          </div>
+          ) : (
+            /* History view */
+            <Card className="border-border/50">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <History className="w-4 h-4 text-blue-500" />
+                  Irrigation History
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {history.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Inbox className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
+                    <p className="font-medium">No irrigation records yet</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Record an irrigation run from a schedule card to start building history.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {history.map((run) => (
+                      <div
+                        key={run._id}
+                        className="flex items-center gap-4 p-3 rounded-xl hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-blue-500/10">
+                          <Droplets className="w-5 h-5 text-blue-500" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{run.scheduleName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(run.date).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
+                            {" • "}{run.status}
+                            {run.method ? ` • ${run.method}` : ""}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-bold">{run.waterAmount.toLocaleString()} L</p>
+                          <p className="text-xs text-muted-foreground">{run.duration} min</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </motion.div>
       </div>
+
+      {/* Modals */}
+      <ScheduleModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        farms={farms}
+        schedule={editingSchedule}
+        defaultFarmId={farms[0]?._id ?? ""}
+        isSubmitting={isSubmitting}
+        onSubmit={editingSchedule ? handleUpdate : handleCreate}
+      />
+      <RecordIrrigationModal
+        schedule={recordingSchedule}
+        isOpen={recordingSchedule !== null}
+        onClose={() => setRecordingSchedule(null)}
+        isSubmitting={isSubmitting}
+        onSubmit={handleRecord}
+      />
     </AppLayout>
   );
 }

@@ -801,6 +801,11 @@ const schema = defineSchema(
       // Water
       waterAmount: v.number(), // liters per session
       waterSource: v.optional(v.string()),
+
+      // Optional display/planning fields (used by the Irrigation page)
+      zone: v.optional(v.string()), // e.g. "Zone A - Vegetables"
+      soilMoistureTarget: v.optional(v.number()), // target soil moisture percentage
+      weatherDependent: v.optional(v.boolean()),
       
       // Status
       isActive: v.boolean(),
@@ -815,6 +820,30 @@ const schema = defineSchema(
       .index("by_user", ["userId"])
       .index("by_crop", ["cropId"])
       .index("by_next_run", ["nextRunAt"]),
+
+    // ============================================================
+    // IRRIGATION RUNS TABLE (actual irrigation history)
+    // ============================================================
+    irrigationRuns: defineTable({
+      scheduleId: v.id("irrigationSchedules"),
+      farmId: v.id("farms"),
+      userId: v.id("users"),
+
+      // Run details
+      date: v.number(),
+      duration: v.number(), // minutes
+      waterAmount: v.number(), // liters
+      method: v.optional(v.string()), // "drip", "sprinkler", "flood", "manual"
+      status: v.union(v.literal("completed"), v.literal("skipped"), v.literal("manual")),
+      notes: v.optional(v.string()),
+
+      // Metadata
+      createdAt: v.number(),
+    })
+      .index("by_user", ["userId"])
+      .index("by_farm", ["farmId"])
+      .index("by_schedule", ["scheduleId"])
+      .index("by_date", ["date"]),
 
     // ============================================================
     // PLANTING/HARVEST CALENDARS TABLE
