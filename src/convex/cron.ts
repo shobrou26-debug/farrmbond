@@ -107,6 +107,16 @@ crons.interval(
 );
 
 /**
+ * Generate weather alerts every 30 minutes for users with an enabled
+ * weather-alert config. Per-subtype cooldowns prevent duplicate alerts.
+ */
+crons.interval(
+  "weather_alerts",
+  { minutes: 30 },
+  api.weatherAlerts.generateWeatherAlertsForAllUsers
+);
+
+/**
  * Generate weekly reports every Monday at 6 AM.
  */
 crons.interval(

@@ -275,6 +275,25 @@ export async function verifyIrrigationOwnership(
 }
 
 /**
+ * Verify that the current user owns a specific notification.
+ */
+export async function verifyNotificationOwnership(
+  ctx: QueryCtx | MutationCtx,
+  notificationId: Id<"notifications"> | string,
+  userId: string
+) {
+  const notificationDoc = await ctx.db.get(notificationId as Id<"notifications">);
+  if (!notificationDoc) {
+    throw new Error("Resource not found: Notification does not exist");
+  }
+  const notification = notificationDoc as Doc<"notifications">;
+  if (notification.userId !== userId) {
+    throw new Error("Access denied: You do not own this notification");
+  }
+  return notification;
+}
+
+/**
  * Verify that the current user owns a specific AI chat.
  */
 export async function verifyChatOwnership(

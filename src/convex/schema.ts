@@ -655,6 +655,11 @@ const schema = defineSchema(
       
       // Status
       isRead: v.boolean(),
+
+      // Rich weather-alert metadata (used by Weather Alerts page)
+      severity: v.optional(v.union(v.literal("critical"), v.literal("high"), v.literal("medium"), v.literal("low"))),
+      details: v.optional(v.string()), // JSON payload: category, icon, recommendations, affectedCrops, etc.
+      dismissedAt: v.optional(v.number()),
       
       // Metadata
       createdAt: v.number(),
@@ -662,6 +667,34 @@ const schema = defineSchema(
       .index("by_user", ["userId"])
       .index("by_read", ["isRead"])
       .index("by_created", ["createdAt"]),
+
+    // ============================================================
+    // WEATHER ALERT CONFIG TABLE (per-user preferences)
+    // ============================================================
+    weatherAlertConfigs: defineTable({
+      userId: v.id("users"),
+
+      // Alert settings
+      enabled: v.boolean(),
+      types: v.array(v.string()), // AlertType[] e.g. "heavy_rain", "frost", "drought"
+      severityThreshold: v.union(v.literal("low"), v.literal("medium"), v.literal("high")),
+
+      // Delivery
+      pushNotifications: v.boolean(),
+      emailNotifications: v.boolean(),
+      checkInterval: v.number(), // minutes
+
+      // Location
+      location: v.object({
+        latitude: v.number(),
+        longitude: v.number(),
+      }),
+
+      // Metadata
+      lastCheckedAt: v.optional(v.number()),
+      updatedAt: v.number(),
+    })
+      .index("by_user", ["userId"]),
 
     // ============================================================
     // SUPPORT TICKETS TABLE

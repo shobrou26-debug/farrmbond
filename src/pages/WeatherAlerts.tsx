@@ -1,6 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
+import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { exportAnalyticsData } from "@/lib/exports";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -85,6 +87,7 @@ export default function WeatherAlerts() {
   const [expandedAlert, setExpandedAlert] = useState<string | null>(null);
   const [filterCategory, setFilterCategory] = useState<"all" | "severe" | "advisory" | "opportunity">("all");
   const [showSettings, setShowSettings] = useState(false);
+  const [dismissedError, setDismissedError] = useState(false);
 
   // Filtered alerts
   const filteredAlerts = useMemo(() => {
@@ -97,6 +100,29 @@ export default function WeatherAlerts() {
   const highAlerts = alerts.filter((a) => a.severity === "high");
   const mediumAlerts = alerts.filter((a) => a.severity === "medium");
   const lowAlerts = alerts.filter((a) => a.severity === "low");
+
+  // Export the actual loaded alert history (no fabricated data)
+  const handleExport = useCallback(() => {
+    if (alertHistory.length === 0) {
+      toast.error("No alert history to export yet");
+      return;
+    }
+    const rows = alertHistory.map((h) => ({
+      Type: h.alert.type,
+      Severity: h.alert.severity,
+      Title: h.alert.title,
+      Message: h.alert.message,
+      Triggered: h.triggeredAt.toLocaleString(),
+      Expires: h.alert.expiresAt.toLocaleString(),
+      Status: h.alert.acknowledged ? "Acknowledged" : "Active",
+    }));
+    try {
+      exportAnalyticsData(rows, "Weather Alerts", "excel");
+      toast.success("Alert history exported");
+    } catch {
+      toast.error("Failed to export alert history");
+    }
+  }, [alertHistory]);
 
   // Format time ago
   const formatTimeAgo = (date: Date) => {
@@ -425,7 +451,15 @@ export default function WeatherAlerts() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={checkNow} disabled={isLoading}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  checkNow()
+                    .then(() => toast.success("Weather alerts updated"))
+                    .catch((err) => toast.error(err instanceof Error ? err.message : "Failed to check weather alerts"));
+                }}
+                disabled={isLoading}
+              >
                 <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
                 Check Now
               </Button>
@@ -436,6 +470,25 @@ export default function WeatherAlerts() {
             </div>
           </div>
         </motion.div>
+
+        {/* Error banner */}
+        {error && !dismissedError && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4 p-3 rounded-xl border border-red-500/30 bg-red-500/5 flex items-center gap-2 text-sm text-red-600"
+          >
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>{error}</span>
+            <button
+              onClick={() => setDismissedError(true)}
+              className="ml-auto p-1 rounded-lg hover:bg-red-500/10 transition-colors"
+              aria-label="Dismiss error"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
 
         {/* Stats */}
         <motion.div
@@ -640,11 +693,19 @@ export default function WeatherAlerts() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">Alert History</h2>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" onClick={handleExport}>
                   <Download className="w-4 h-4 mr-2" />
                   Export
                 </Button>
-                <Button variant="outline" size="sm" onClick={clearHistory}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (!window.confirm("Clear your entire weather alert history? This cannot be undone.")) return;
+                    clearHistory();
+                    toast.success("Alert history cleared");
+                  }}
+                >
                   <Trash2 className="w-4 h-4 mr-2" />
                   Clear History
                 </Button>
