@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { query, mutation, action } from "./_generated/server";
 import { api } from "./_generated/api";
 import { requireAuth } from "./authHelpers";
+import type { Id } from "./_generated/dataModel";
 
 // ============================================================
 // Sentinel-2 Satellite Intelligence Module
@@ -192,21 +193,28 @@ async function computeNDVI(
 
   const buffer = await response.arrayBuffer();
   const bytes = new Uint8Array(buffer);
-  return estimateNdviFromBuffer(bytes);
+  const stats = estimateNdviFromBuffer(bytes);
+  if (!stats) {
+    throw new Error("Sentinel-2 response contained no usable NDVI pixels");
+  }
+  return stats;
 }
 
-/**
- * Estimate NDVI statistics from raw TIFF response buffer
- */
-function estimateNdviFromBuffer(bytes: Uint8Array): {
+export type NdviStats = {
   meanNdvi: number;
   minNdvi: number;
   maxNdvi: number;
   pixelCount: number;
-} {
-  if (bytes.length < 100) {
-    return { meanNdvi: 0.5, minNdvi: 0.2, maxNdvi: 0.8, pixelCount: 0 };
-  }
+};
+
+/**
+ * Estimate NDVI statistics from raw TIFF response buffer.
+ * Returns null when no valid pixel values can be decoded — the caller
+ * must treat that as a failed analysis (never invent NDVI values).
+ * Exported for unit testing (pure, no I/O).
+ */
+export function estimateNdviFromBuffer(bytes: Uint8Array): NdviStats | null {
+  if (bytes.length < 100) return null;
 
   const isLittleEndian = bytes[0] === 0x49 && bytes[1] === 0x49;
   const dataView = new DataView(bytes.buffer);
@@ -239,15 +247,19 @@ function estimateNdviFromBuffer(bytes: Uint8Array): {
     }
   }
 
-  if (values.length === 0) {
-    return { meanNdvi: 0.5, minNdvi: 0.2, maxNdvi: 0.8, pixelCount: 0 };
-  }
+  if (values.length === 0) return null;
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  // Zero variance (e.g. an all-zero buffer) means there is no usable
+  // vegetation signal — report failure instead of inventing a reading.
+  if (max - min < 1e-9) return null;
 
   const sum = values.reduce((a, b) => a + b, 0);
   return {
     meanNdvi: Math.round((sum / values.length) * 1000) / 1000,
-    minNdvi: Math.round(Math.min(...values) * 1000) / 1000,
-    maxNdvi: Math.round(Math.max(...values) * 1000) / 1000,
+    minNdvi: Math.round(min * 1000) / 1000,
+    maxNdvi: Math.round(max * 1000) / 1000,
     pixelCount: values.length,
   };
 }
@@ -372,30 +384,43 @@ export const getNDVIHistory = query({
 // Satellite Actions (Server-side API calls)
 // ============================================================
 
+export type SatelliteAnalysisResult =
+  | {
+      ok: true;
+      ndvi: number;
+      vegetationCoverage: number;
+      healthStatus: string;
+      source: string;
+      sceneName: string;
+      sceneDate: string;
+      cloudCover: number | null;
+      pixelCount: number;
+      minNdvi: number;
+      maxNdvi: number;
+      wmsUrl: string | null;
+    }
+  | {
+      ok: false;
+      reason: string;
+    };
+
 /**
- * Analyze farm using real Sentinel-2 satellite imagery via Copernicus API.
- * Fetches the latest cloud-free scene, computes NDVI, and stores results.
- * Falls back to intelligent estimation if API is unavailable.
+ * Server-safe core of analyzeFarmSatellite — exported for testing.
+ * Runs the real Copernicus pipeline for one farm.
+ *
+ * DATA HONESTY: when the Copernicus API is unreachable (missing
+ * credentials, no scenes, processing failure) it returns
+ * `{ ok: false, reason }` and persists NOTHING. It never fabricates
+ * NDVI values or writes invented scores to the database.
  */
-export const analyzeFarmSatellite = action({
-  args: { farmId: v.id("farms") },
-  handler: async (ctx, args): Promise<{
-    ndvi: number;
-    vegetationCoverage: number;
-    healthStatus: string;
-    source: string;
-    sceneName: string;
-    sceneDate: string;
-    cloudCover: number | null;
-    pixelCount: number;
-    minNdvi: number;
-    maxNdvi: number;
-    wmsUrl: string | null;
-  }> => {
-    const farm = await ctx.runQuery(api.farms.getFarm, {
-      farmId: args.farmId,
-    });
-    if (!farm) throw new Error("Farm not found");
+export async function analyzeFarmSatelliteCore(
+  ctx: any,
+  farmId: Id<"farms">
+): Promise<SatelliteAnalysisResult> {
+  const farm = await ctx.runQuery(api.farms.getFarm, {
+    farmId,
+  });
+  if (!farm) throw new Error("Farm not found");
 
     const lat = farm.location?.latitude ?? -1.2921;
     const lon = farm.location?.longitude ?? 36.8219;
@@ -435,9 +460,11 @@ export const analyzeFarmSatellite = action({
           35
         );
         if (fallbackScenes.length === 0) {
-          throw new Error(
-            "No Sentinel-2 scenes available for this location in the last 90 days"
-          );
+          return {
+            ok: false,
+            reason:
+              "No Sentinel-2 scenes available for this location in the last 90 days.",
+          };
         }
         return await processScene(
           ctx,
@@ -455,9 +482,20 @@ export const analyzeFarmSatellite = action({
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Unknown error";
-      console.error("Copernicus API error, using estimation:", message);
-      return await fallbackAnalysis(ctx, farm, lat, lon);
+      // Honest failure: do NOT fabricate NDVI or persist anything.
+      console.error("Copernicus API error:", message);
+      return { ok: false, reason: message };
     }
+}
+
+/**
+ * Analyze farm using real Sentinel-2 satellite imagery via Copernicus API.
+ * Delegates to the server-safe core (see analyzeFarmSatelliteCore).
+ */
+export const analyzeFarmSatellite = action({
+  args: { farmId: v.id("farms") },
+  handler: async (ctx, args): Promise<SatelliteAnalysisResult> => {
+    return analyzeFarmSatelliteCore(ctx, args.farmId);
   },
 });
 
@@ -473,11 +511,14 @@ async function processScene(
   },
   bbox: [number, number, number, number],
   token: string
-) {
+): Promise<Extract<SatelliteAnalysisResult, { ok: true }>> {
   const sceneDate = scene.date.split("T")[0];
 
   // Compute NDVI using the Process API
   const ndviResult = await computeNDVI(token, bbox, sceneDate);
+  if (!ndviResult) {
+    throw new Error("Sentinel-2 processing returned no usable NDVI data");
+  }
 
   const ndvi = Math.max(0, Math.min(1, ndviResult.meanNdvi));
   const vegetationCoverage = Math.round(ndvi * 100);
@@ -506,6 +547,7 @@ async function processScene(
   });
 
   return {
+    ok: true,
     ndvi,
     vegetationCoverage,
     healthStatus:
@@ -527,61 +569,7 @@ async function processScene(
   };
 }
 
-/** Fallback analysis when Copernicus API is unavailable */
-async function fallbackAnalysis(
-  ctx: any,
-  farm: any,
-  lat: number,
-  lon: number
-) {
-  const month = new Date().getMonth();
-  const isRainySeason =
-    (month >= 3 && month <= 5) || (month >= 10 && month <= 12);
-  const baseNDVI = isRainySeason ? 0.65 : 0.45;
-  const latEffect = lat > -5 && lat < 5 ? 0.05 : 0;
-  const ndvi = Math.max(
-    0.15,
-    Math.min(
-      0.85,
-      baseNDVI + latEffect + (Math.random() - 0.5) * 0.15
-    )
-  );
-  const vegetationCoverage = Math.round(ndvi * 100);
 
-  await ctx.runMutation(api.satellite.storeSatelliteData, {
-    farmId: farm._id,
-    ndvi,
-    vegetationCoverage,
-    imageUrl: `https://sh.dataspace.copernicus.eu/ogc/wms/?SERVICE=WMS&REQUEST=GetMap&LAYERS=1_TRUE_COLOR&BBOX=${lat - 0.05},${lon - 0.05},${lat + 0.05},${lon + 0.05}&WIDTH=800&HEIGHT=600`,
-    analysisDate: Date.now(),
-  });
-
-  await ctx.runMutation(api.farms.updateFarm, {
-    farmId: farm._id,
-    ndviScore: Math.round(ndvi * 100),
-  });
-
-  return {
-    ndvi,
-    vegetationCoverage,
-    healthStatus:
-      ndvi >= 0.7
-        ? "Excellent"
-        : ndvi >= 0.5
-          ? "Good"
-          : ndvi >= 0.3
-            ? "Moderate"
-            : "Poor",
-    source: "estimated",
-    sceneName: "Estimated (API unavailable)",
-    sceneDate: new Date().toISOString().split("T")[0],
-    cloudCover: null,
-    pixelCount: 0,
-    minNdvi: ndvi - 0.15,
-    maxNdvi: ndvi + 0.15,
-    wmsUrl: null,
-  };
-}
 
 /** Store satellite data */
 export const storeSatelliteData = mutation({

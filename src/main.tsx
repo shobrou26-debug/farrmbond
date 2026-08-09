@@ -20,6 +20,7 @@ const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
 const Farms = lazy(() => import("./pages/Farms.tsx"));
+const FarmRegistration = lazy(() => import("./pages/FarmRegistration.tsx"));
 const Crops = lazy(() => import("./pages/Crops.tsx"));
 const Livestock = lazy(() => import("./pages/Livestock.tsx"));
 const Weather = lazy(() => import("./pages/Weather.tsx"));
@@ -152,6 +153,7 @@ createRoot(document.getElementById("root")!).render(
               {/* Protected Farmer Routes */}
               <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
               <Route path="/farms" element={<RequireAuth><Farms /></RequireAuth>} />
+              <Route path="/farms/new" element={<RequireAuth><FarmRegistration /></RequireAuth>} />
               <Route path="/crops" element={<RequireAuth><Crops /></RequireAuth>} />
               <Route path="/livestock" element={<RequireAuth><Livestock /></RequireAuth>} />
               <Route path="/weather" element={<RequireAuth><Weather /></RequireAuth>} />

@@ -1,8 +1,10 @@
 import { useState, useRef } from "react";
 import { motion } from "framer-motion";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
+import { toast } from "sonner";
 import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -70,7 +72,9 @@ function FarmCard({ farm, index }: { farm: any; index: number }) {
   const isMobile = useIsMobile();
   const haptic = useHaptic();
   const [satelliteOpen, setSatelliteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+  const deleteFarm = useMutation(api.farms.deleteFarm);
   const cropsResult = useQuery(api.crops.listFarmCrops, { farmId: farm._id });
   const livestockResult = useQuery(api.livestock.listFarmLivestock, { farmId: farm._id });
   const crops = cropsResult?.page ?? [];
@@ -82,11 +86,28 @@ function FarmCard({ farm, index }: { farm: any; index: number }) {
     enabled: isMobile,
   });
 
-  const score = farm.ndviScore ?? 85;
+  // Real satellite-derived health score when available; honest "—" otherwise.
+  const score: number | null =
+    typeof farm.ndviScore === "number" && Number.isFinite(farm.ndviScore)
+      ? Math.max(0, Math.min(100, farm.ndviScore))
+      : null;
   const getHealthColor = (s: number) => {
     if (s >= 90) return "text-green-600 bg-green-500/10 border-green-500/20";
     if (s >= 70) return "text-amber-600 bg-amber-500/10 border-amber-500/20";
     return "text-red-600 bg-red-500/10 border-red-500/20";
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete farm "${farm.name}"? This also removes its crops and livestock. This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await deleteFarm({ farmId: farm._id });
+      toast.success(`Farm "${farm.name}" deleted`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete farm");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const activeCrops = crops.filter((c: { status: string }) => c.status !== "harvested" && c.status !== "failed").length;
@@ -132,22 +153,18 @@ function FarmCard({ farm, index }: { farm: any; index: number }) {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem onClick={() => haptic.selection()}>
-                    <Eye className="w-4 h-4 mr-2" />
-                    View Details
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => haptic.selection()}>
-                    <Edit className="w-4 h-4 mr-2" />
-                    Edit Farm
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => { setSatelliteOpen(true); haptic.selection(); }}>
                     <Satellite className="w-4 h-4 mr-2" />
                     Satellite View
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { haptic.selection(); window.location.href = `/farms/new?farmId=${farm._id}`; }}>
+                    <Edit className="w-4 h-4 mr-2" />
+                    Edit Farm
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem className="text-red-600" onClick={() => haptic.error()}>
+                  <DropdownMenuItem className="text-red-600" disabled={deleting} onClick={() => { haptic.error(); handleDelete(); }}>
                     <Trash2 className="w-4 h-4 mr-2" />
-                    Delete Farm
+                    {deleting ? "Deleting..." : "Delete Farm"}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -164,10 +181,14 @@ function FarmCard({ farm, index }: { farm: any; index: number }) {
 
           <CardContent className="p-3 sm:p-4">
             <div className="flex items-center justify-between mb-3">
-              <Badge variant="outline" className={getHealthColor(score)}>
-                <Activity className="w-3 h-3 mr-1" />
-                {score}% Health
-              </Badge>
+              {score !== null ? (
+                <Badge variant="outline" className={getHealthColor(score)}>
+                  <Activity className="w-3 h-3 mr-1" />
+                  {score}% Health
+                </Badge>
+              ) : (
+                <Badge variant="secondary">No health data yet</Badge>
+              )}
               <span className="text-[10px] sm:text-xs text-muted-foreground capitalize">{farm.status}</span>
             </div>
 
@@ -192,18 +213,20 @@ function FarmCard({ farm, index }: { farm: any; index: number }) {
             <div className="space-y-1.5 mb-3">
               <div className="flex items-center justify-between text-[10px] sm:text-xs">
                 <span className="text-muted-foreground">Farm Health</span>
-                <span className="font-medium">{score}%</span>
+                <span className="font-medium">{score !== null ? `${score}%` : "—"}</span>
               </div>
               <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-500"
                   style={{
-                    width: `${score}%`,
-                    background: score >= 90
-                      ? "linear-gradient(90deg, #22c55e, #16a34a)"
-                      : score >= 70
-                      ? "linear-gradient(90deg, #f59e0b, #d97706)"
-                      : "linear-gradient(90deg, #ef4444, #dc2626)",
+                    width: `${score ?? 0}%`,
+                    background: score !== null
+                      ? score >= 90
+                        ? "linear-gradient(90deg, #22c55e, #16a34a)"
+                        : score >= 70
+                        ? "linear-gradient(90deg, #f59e0b, #d97706)"
+                        : "linear-gradient(90deg, #ef4444, #dc2626)"
+                      : "var(--muted)",
                   }}
                 />
               </div>
@@ -233,10 +256,10 @@ function FarmCard({ farm, index }: { farm: any; index: number }) {
       <SatelliteViewer
         open={satelliteOpen}
         onOpenChange={setSatelliteOpen}
+        farmId={farm._id as Id<"farms">}
         farmName={farm.name}
         latitude={farm.location.latitude}
         longitude={farm.location.longitude}
-        ndviScore={score}
       />
     </>
   );
@@ -252,9 +275,16 @@ export default function Farms() {
   const { results: farms, isLoading, sentinelRef, canLoadMore, isLoadingMore } = usePaginatedQuery<{ _id: string; name: string; description?: string; location: { latitude: number; longitude: number; address?: string; city?: string; state?: string; country?: string }; size: number; sizeUnit: string; status: string; soilType?: string; soilPh?: number; ndviScore?: number; coverImage?: string; createdAt: number; updatedAt: number }>(api.farms.listUserFarms);
 
   const totalSize = farms?.reduce((sum: number, f: { size: number }) => sum + f.size, 0) ?? 0;
+  // Average health derived ONLY from farms that have a real satellite score.
   const avgHealth = farms && farms.length > 0
-    ? Math.round(farms.reduce((sum: number, f: { ndviScore?: number }) => sum + (f.ndviScore ?? 85), 0) / farms.length)
-    : 0;
+    ? (() => {
+        const scored: number[] = (farms as Array<{ ndviScore?: number }>)
+          .map((f) => f.ndviScore)
+          .filter((s): s is number => typeof s === "number" && Number.isFinite(s));
+        if (scored.length === 0) return null;
+        return Math.round(scored.reduce((sum: number, s: number) => sum + s, 0) / scored.length);
+      })()
+    : null;
 
   return (
     <AppLayout>
@@ -324,7 +354,7 @@ export default function Farms() {
                   <div className="flex items-center gap-2 sm:gap-3">
                     <Activity className="w-5 h-5 text-green-500 shrink-0" />
                     <div>
-                      <p className="text-lg sm:text-xl font-bold">{avgHealth}%</p>
+                      <p className="text-lg sm:text-xl font-bold">{avgHealth !== null ? `${avgHealth}%` : "—"}</p>
                       <p className="text-[10px] sm:text-xs text-muted-foreground">Avg Health</p>
                     </div>
                   </div>
