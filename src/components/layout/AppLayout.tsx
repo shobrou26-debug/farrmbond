@@ -83,7 +83,6 @@ const agronomistNavItems: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
   { label: "My Profile", icon: Users, href: "/profile" },
   { label: "Consultations", icon: Calendar, href: "/consultations" },
-  { label: "Messages", icon: MessageSquare, href: "/messages" },
   { label: "Knowledge Base", icon: Zap, href: "/knowledge" },
   { label: "Analytics", icon: BarChart3, href: "/analytics" },
 ];

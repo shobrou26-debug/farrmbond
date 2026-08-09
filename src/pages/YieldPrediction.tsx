@@ -1,4 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useAction } from "convex/react";
+import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { api } from "@/convex/_generated/api";
@@ -255,7 +257,7 @@ function RecommendationsPanel({ recommendations }: { recommendations: string[] }
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <Zap className="w-4 h-4 text-amber-500" />
-          AI Recommendations
+          Recommendations
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -283,7 +285,7 @@ function EmptyState() {
         </div>
         <h3 className="text-lg font-semibold mb-2">No Predictions Yet</h3>
         <p className="text-sm text-muted-foreground max-w-md mx-auto">
-          Add crops to your farms and AI will automatically generate yield predictions based on your data, soil conditions, and weather patterns.
+          Add crops to your farms, then generate yield predictions from your crop records, farm size, soil and weather data.
         </p>
       </CardContent>
     </Card>
@@ -351,6 +353,44 @@ export default function YieldPrediction() {
     ? Math.round(predictions.reduce((sum, p) => sum + p.confidence, 0) / predictions.length)
     : 0;
 
+  // Prediction generation (real backend: estimateYieldModel + savePrediction)
+  const generatePrediction = useAction(api.yieldPredictions.generateYieldPrediction);
+  const [cropId, setCropId] = useState("");
+  const [farmId, setFarmId] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [genMessage, setGenMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null);
+
+  useEffect(() => {
+    if (!cropId && crops && crops.length > 0) setCropId(crops[0]._id);
+    if (!farmId && farms && farms.length > 0) setFarmId(farms[0]._id);
+  }, [crops, farms, cropId, farmId]);
+
+  const handleGenerate = async () => {
+    if (!cropId || !farmId) {
+      setGenMessage({ type: "error", text: "Select a crop and a farm first." });
+      return;
+    }
+    setGenerating(true);
+    setGenMessage(null);
+    try {
+      const result = (await generatePrediction({ cropId, farmId })) as {
+        ok: boolean;
+        predictionId?: unknown;
+        reason?: string;
+      };
+      if (result.ok) {
+        setGenMessage({ type: "success", text: "Prediction generated and saved to your history." });
+        toast.success("Yield prediction generated");
+      } else {
+        setGenMessage({ type: "info", text: result.reason ?? "Prediction could not be generated." });
+      }
+    } catch (err) {
+      setGenMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to generate prediction." });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   return (
     <AppLayout>
       <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
@@ -364,7 +404,7 @@ export default function YieldPrediction() {
             <div>
               <h1 className="text-3xl font-bold tracking-tight">Yield Prediction</h1>
               <p className="text-muted-foreground mt-1">
-                AI-powered crop yield forecasting based on historical data and weather patterns
+                Data-driven yield forecasting from your crop records, farm size, soil and weather data
               </p>
             </div>
           </div>
@@ -376,6 +416,77 @@ export default function YieldPrediction() {
           transition={{ duration: 0.5, delay: 0.1 }}
           className="space-y-6"
         >
+          {/* Generate Prediction */}
+          <Card className="border-border/50">
+            <CardContent className="p-5">
+              <div className="flex flex-col lg:flex-row lg:items-end gap-4">
+                <div className="flex-1 space-y-1">
+                  <label className="text-sm font-medium">Crop</label>
+                  <select
+                    value={cropId}
+                    onChange={(e) => setCropId(e.target.value)}
+                    className="w-full h-10 rounded-lg border border-border bg-background px-3 text-sm"
+                  >
+                    {crops && crops.length > 0 ? (
+                      crops.map((c: any) => (
+                        <option key={c._id} value={c._id}>
+                          {c.name}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">No crops — add crops first</option>
+                    )}
+                  </select>
+                </div>
+                <div className="flex-1 space-y-1">
+                  <label className="text-sm font-medium">Farm</label>
+                  <select
+                    value={farmId}
+                    onChange={(e) => setFarmId(e.target.value)}
+                    className="w-full h-10 rounded-lg border border-border bg-background px-3 text-sm"
+                  >
+                    {farms && farms.length > 0 ? (
+                      farms.map((f: any) => (
+                        <option key={f._id} value={f._id}>
+                          {f.name}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">No farms — register a farm first</option>
+                    )}
+                  </select>
+                </div>
+                <Button
+                  onClick={handleGenerate}
+                  disabled={generating || !crops?.length || !farms?.length}
+                  className="gradient-primary h-10"
+                >
+                  {generating ? (
+                    <><Zap className="w-4 h-4 mr-2 animate-pulse" /> Calculating...</>
+                  ) : (
+                    <><Zap className="w-4 h-4 mr-2" /> Generate Prediction</>
+                  )}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-3">
+                Estimates are computed from your crop record, farm size, cached weather and soil analysis.
+                If any required data is missing, the model will tell you exactly what is needed. Limited to 5 per hour.
+              </p>
+              {genMessage && (
+                <p
+                  className={`text-sm mt-3 ${
+                    genMessage.type === "success"
+                      ? "text-green-600"
+                      : genMessage.type === "error"
+                        ? "text-red-500"
+                        : "text-amber-600"
+                  }`}
+                >
+                  {genMessage.text}
+                </p>
+              )}
+            </CardContent>
+          </Card>
           {/* Summary Stats */}
           {isLoading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

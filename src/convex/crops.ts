@@ -14,6 +14,17 @@ import {
 // Crop Queries
 // ============================================================
 
+/** Get a single crop by ID with ownership verification. */
+export const getCrop = query({
+  args: { cropId: v.id("crops") },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    const crop = await ctx.db.get(args.cropId);
+    if (!crop || crop.userId !== userId) return null;
+    return crop;
+  },
+});
+
 /** Get all crops for the current user. Optional pagination for large datasets. */
 export const listUserCrops = query({
   args: {

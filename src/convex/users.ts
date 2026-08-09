@@ -102,3 +102,32 @@ export const getPreferences = query({
     };
   },
 });
+
+/**
+ * Real usage counts for the signed-in user, shown on the Settings page.
+ * Replaces hardcoded usage numbers — each metric is derived from the
+ * actual database records owned by the authenticated user.
+ */
+export const getUsageStats = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const [farms, crops, livestock, transactions, aiChats] = await Promise.all([
+      ctx.db.query("farms").withIndex("by_user", (q) => q.eq("userId", userId)).collect(),
+      ctx.db.query("crops").withIndex("by_user", (q) => q.eq("userId", userId)).collect(),
+      ctx.db.query("livestock").withIndex("by_user", (q) => q.eq("userId", userId)).collect(),
+      ctx.db.query("transactions").withIndex("by_user", (q) => q.eq("userId", userId)).collect(),
+      ctx.db.query("aiChats").withIndex("by_user", (q) => q.eq("userId", userId)).collect(),
+    ]);
+
+    return {
+      farms: farms.length,
+      crops: crops.length,
+      livestock: livestock.length,
+      transactions: transactions.length,
+      aiSessions: aiChats.length,
+    };
+  },
+});

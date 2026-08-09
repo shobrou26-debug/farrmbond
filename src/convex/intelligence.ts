@@ -1,7 +1,9 @@
 import { v } from "convex/values";
 import { query, mutation, action } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import { api } from "./_generated/api";
 import { requireAuth } from "./authHelpers";
+import type { Id } from "./_generated/dataModel";
 
 // ============================================================
 // Intelligence Engine - Central Brain
@@ -534,32 +536,33 @@ export const markRecommendationActed = mutation({
 // Intelligence Pipeline - Cross-Module Automation
 // ============================================================
 
-/** Run the full intelligence pipeline for a user's farms.
- * Collects data from all modules, generates insights, and stores them.
- * Called by cron jobs and can be triggered manually. */
-export const runIntelligencePipeline = mutation({
-  args: {
-    farmId: v.optional(v.id("farms")),
-  },
-  handler: async (ctx, args) => {
-    const { userId } = await requireAuth(ctx);
-    const now = Date.now();
+/**
+ * CORE — run the intelligence pipeline for a specific user.
+ * Server-safe: the caller resolves the user identity (the public
+ * mutation via requireAuth, or the scheduled cron via pagination).
+ */
+export async function runIntelligencePipelineCore(
+  ctx: MutationCtx,
+  input: { userId: Id<"users">; farmId?: Id<"farms"> }
+) {
+  const { userId, farmId: farmIdArg } = input;
+  const now = Date.now();
 
-    // Get farms to process
-    let farms;
-    if (args.farmId) {
-      const farm = await ctx.db.get(args.farmId);
-      if (farm && farm.userId === userId) {
-        farms = [farm];
-      } else {
-        return { processed: 0, insights: 0 };
-      }
+  // Get farms to process
+  let farms;
+  if (farmIdArg) {
+    const farm = await ctx.db.get(farmIdArg);
+    if (farm && farm.userId === userId) {
+      farms = [farm];
     } else {
-      farms = await ctx.db
-        .query("farms")
-        .withIndex("by_user", (q) => q.eq("userId", userId))
-        .collect();
+      return { processed: 0, insights: 0 };
     }
+  } else {
+    farms = await ctx.db
+      .query("farms")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+  }
 
     if (farms.length === 0) return { processed: 0, insights: 0 };
 
@@ -706,7 +709,26 @@ export const runIntelligencePipeline = mutation({
         insights.push({ source: "financial", title: "Strong financial performance", summary: `Net profit this month is positive with ${((income - expenses) / income * 100).toFixed(0)}% margin`, confidence: 95, impact: "positive", severity: "low" });
       }
 
+      // Dedup: skip insights of the same source/type created within the
+      // last 12 hours for this farm — prevents duplicate records on
+      // every cron run.
+      const recentInsights = await ctx.db
+        .query("intelligenceData")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .order("desc")
+        .take(100);
+      const dedupWindow = now - 12 * 60 * 60 * 1000;
+
       for (const insight of insights) {
+        const alreadyExists = recentInsights.some(
+          (r) =>
+            r.farmId === farm._id &&
+            r.source === insight.source &&
+            r.dataType === "auto_insight" &&
+            r.createdAt > dedupWindow
+        );
+        if (alreadyExists) continue;
+
         await ctx.db.insert("intelligenceData", {
           userId, farmId: farm._id, source: insight.source, dataType: "auto_insight",
           title: insight.title, summary: insight.summary, confidence: insight.confidence,
@@ -718,6 +740,59 @@ export const runIntelligencePipeline = mutation({
     }
 
     return { processed: farms.length, insights: totalInsights };
+}
+
+/** Public (auth-guarded) — run the pipeline for the current user. */
+export const runIntelligencePipeline = mutation({
+  args: {
+    farmId: v.optional(v.id("farms")),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    return runIntelligencePipelineCore(ctx, { userId, farmId: args.farmId });
+  },
+});
+
+/**
+ * Run the intelligence pipeline for ALL users. Called by the cron job
+ * (every 4 hours). No auth — resolves each user from the database and
+ * delegates to the server-safe core. Users are processed in pages so
+ * the job scales; failures are logged and counted, not swallowed.
+ */
+export const runIntelligencePipelineForAllUsers = mutation({
+  args: {},
+  handler: async (ctx) => {
+    let processed = 0;
+    let insights = 0;
+    let failures = 0;
+
+    let cursor: string | null = null;
+    let done = false;
+    while (!done) {
+      const page = await ctx.db.query("users").paginate({
+        numItems: 100,
+        cursor,
+      });
+
+      for (const user of page.page) {
+        try {
+          const result = await runIntelligencePipelineCore(ctx, { userId: user._id });
+          processed += result.processed;
+          insights += result.insights;
+        } catch (error) {
+          failures++;
+          console.error(`[IntelligenceCron] pipeline failed for user ${user._id}:`, error);
+        }
+      }
+
+      cursor = page.continueCursor;
+      done = page.isDone;
+    }
+
+    console.log(
+      `[IntelligenceCron] Done: ${processed} farms processed, ${insights} insights stored, ${failures} failures`
+    );
+    return { processed, insights, failures };
   },
 });
 

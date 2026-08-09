@@ -153,7 +153,7 @@ function WaterUsageStats({
           ? "Select a farm to view"
           : soilSource === "estimated"
           ? "Estimated"
-          : "SoilGrids / lab",
+          : "Lab / field test",
       icon: Leaf,
       color: soilMoisture !== null && soilMoisture < 40 ? "bg-amber-500" : "bg-green-500",
     },
@@ -1261,7 +1261,7 @@ export default function Irrigation() {
                         </div>
                         <p className="text-[11px] text-muted-foreground">
                           {soilSource === "estimated"
-                            ? "Soil values are estimated from the farm's location (SoilGrids baseline)."
+                            ? "Soil values are estimated from the farm's location — not from a lab or sensor."
                             : "Soil values from the latest soil analysis."}
                         </p>
                       </div>

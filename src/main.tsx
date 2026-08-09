@@ -177,7 +177,6 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/my-consultations" element={<RequireAuth><MyConsultations /></RequireAuth>} />
               <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
               <Route path="/consultations" element={<RequireAuth><MyConsultations /></RequireAuth>} />
-              <Route path="/messages" element={<RequireAuth><Community /></RequireAuth>} />
 
               {/* Admin Routes */}
               <Route path="/admin" element={<RequireAuth><AdminDashboard /></RequireAuth>} />

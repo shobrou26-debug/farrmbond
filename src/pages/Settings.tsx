@@ -393,6 +393,7 @@ function SubscriptionTab() {
   const tier = user?.subscriptionTier || "free";
   const trialStatus = useQuery(api.trials.getTrialStatus);
   const subStatus = useQuery(api.subscriptions.getSubscriptionStatus);
+  const usageStats = useQuery(api.users.getUsageStats);
   const stripeStatus = useQuery(api.stripe.getStripeStatus);
   const mobileMoneyStats = useQuery(api.mobileMoney.getMobileMoneyStats);
   const supportedProviders = useQuery(api.mobileMoney.getSupportedProviders, { countryCode: user?.country });
@@ -638,19 +639,26 @@ function SubscriptionTab() {
           <div className="space-y-3">
             <p className="text-sm font-medium">Usage This Month</p>
             {[
-              { label: "Farms", used: 1, limit: tier === "free" ? 1 : "∞" },
-              { label: "Crops Tracked", used: 4, limit: tier === "free" ? 5 : "∞" },
-              { label: "AI Queries", used: 8, limit: tier === "free" ? 10 : "∞" },
+              { label: "Farms", used: usageStats?.farms ?? null, limit: tier === "free" ? 1 : "∞" },
+              { label: "Crops Tracked", used: usageStats?.crops ?? null, limit: tier === "free" ? 5 : "∞" },
+              { label: "AI Queries", used: usageStats?.aiSessions ?? null, limit: tier === "free" ? 10 : "∞" },
             ].map((item, i) => (
               <div key={i} className="space-y-1">
                 <div className="flex items-center justify-between text-sm">
                   <span>{item.label}</span>
-                  <span className="text-muted-foreground">{item.used} / {item.limit}</span>
+                  <span className="text-muted-foreground">
+                    {item.used === null ? "—" : `${item.used} / ${item.limit}`}
+                  </span>
                 </div>
                 <div className="h-2 bg-muted rounded-full overflow-hidden">
                   <div
                     className="h-full bg-primary rounded-full transition-all"
-                    style={{ width: `${typeof item.limit === "number" ? (item.used / item.limit) * 100 : 5}%` }}
+                    style={{
+                      width:
+                        item.used === null || typeof item.limit !== "number"
+                          ? 5
+                          : `${Math.min(100, (item.used / item.limit) * 100)}%`,
+                    }}
                   />
                 </div>
               </div>

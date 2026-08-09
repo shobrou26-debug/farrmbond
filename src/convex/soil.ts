@@ -22,11 +22,11 @@ export const getSoilAnalysis = query({
       .first();
 
     if (!soilData) {
-      // Generate default soil data based on location
+      // Location-based estimate when no soil record exists.
+      // Data honesty: this is an ESTIMATE, not live SoilGrids data.
       const lat = farm.location?.latitude ?? -1.2921;
       const lon = farm.location?.longitude ?? 36.8219;
 
-      // Simulate SoilGrids data based on region
       const isHighland = lat > -1.5 && lat < 0;
       return {
         farmId: args.farmId,
@@ -39,6 +39,8 @@ export const getSoilAnalysis = query({
         drainage: "moderate",
         texture: "loam",
         fertility: isHighland ? "high" : "moderate",
+        source: "estimated",
+        isEstimated: true,
         lastUpdated: null,
         recommendations: [],
       };
@@ -102,6 +104,8 @@ export const getSoilAnalysis = query({
       drainage: soilData.drainage,
       texture: soilData.texture,
       fertility,
+      source: soilData.source ?? "estimated",
+      isEstimated: soilData.source !== "lab" && soilData.source !== "field_test",
       lastUpdated: soilData.fetchedAt,
       recommendations,
     };
@@ -206,7 +210,7 @@ export const storeSoilData = mutation({
       drainage: args.drainage,
       texture: args.texture,
       fetchedAt: Date.now(),
-      source: "soilgrids",
+      source: "user_entered", // Lab/field data entered by the farmer — not SoilGrids
       fertility: "moderate",
     });
 

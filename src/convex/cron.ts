@@ -117,6 +117,18 @@ crons.interval(
 );
 
 /**
+ * Run the intelligence pipeline every 4 hours for all users.
+ * Collects farm/crop/livestock/weather/satellite/soil/financial data,
+ * computes farm health scores, and stores deduplicated insights that
+ * feed the Dashboard's AI insights widget.
+ */
+crons.interval(
+  "intelligence_pipeline",
+  { hours: 4 },
+  api.intelligence.runIntelligencePipelineForAllUsers
+);
+
+/**
  * Generate weekly reports every Monday at 6 AM.
  */
 crons.interval(
