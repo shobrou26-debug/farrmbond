@@ -1,5 +1,10 @@
 import { describe, test, expect } from "bun:test";
-import { extractSoilFromOpenMeteo, mapForecastDays } from "../convex/weather";
+import {
+  extractSoilFromOpenMeteo,
+  mapForecastDays,
+  selectLocationsToRefresh,
+  chunkArray,
+} from "../convex/weather";
 
 // ============================================================
 // Phase 3 — weather data honesty
@@ -80,5 +85,42 @@ describe("mapForecastDays — real codes, no hardcoded values", () => {
   test("missing daily data yields an empty array (never fabricated days)", () => {
     expect(mapForecastDays({}, 60)).toEqual([]);
     expect(mapForecastDays({ daily: {} }, 60)).toEqual([]);
+  });
+});
+
+// ============================================================
+// Phase 5 — bounded, freshness-aware weather cron batching
+// ============================================================
+
+describe("selectLocationsToRefresh — bounded + freshness-aware", () => {
+  const locations = [
+    { latitude: 1, longitude: 1 },
+    { latitude: 2, longitude: 2 },
+    { latitude: 3, longitude: 3 },
+  ];
+
+  test("never-cached locations are always refreshed", () => {
+    const selected = selectLocationsToRefresh(locations, new Map(), Date.now(), 10);
+    expect(selected).toHaveLength(3);
+  });
+
+  test("locations with a still-fresh cache are skipped", () => {
+    const now = Date.now();
+    const expires = new Map<string, number>([
+      ["1,1", now + 60_000],
+      ["2,2", now - 1],
+    ]);
+    const selected = selectLocationsToRefresh(locations, expires, now, 10);
+    expect(selected.map((l) => l.longitude)).toEqual([2, 3]);
+  });
+
+  test("the batch is capped per cron run", () => {
+    const selected = selectLocationsToRefresh(locations, new Map(), Date.now(), 2);
+    expect(selected).toHaveLength(2);
+  });
+
+  test("chunkArray splits work into bounded parallel chunks", () => {
+    expect(chunkArray([1, 2, 3, 4, 5, 6], 2)).toEqual([[1, 2], [3, 4], [5, 6]]);
+    expect(chunkArray([], 5)).toEqual([]);
   });
 });

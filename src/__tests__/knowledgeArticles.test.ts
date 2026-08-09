@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { nextLikeCount } from "../convex/knowledgeArticles";
+import { nextLikeCount, isArticleReadable } from "../convex/knowledgeArticles";
 
 // ============================================================
 // Phase 3 — article likes honesty
@@ -26,5 +26,28 @@ describe("nextLikeCount — like toggle arithmetic", () => {
   test("missing/NaN stored count is treated as 0 (no NaN likes)", () => {
     expect(nextLikeCount(undefined, true)).toBe(1);
     expect(nextLikeCount(NaN, true)).toBe(1);
+  });
+});
+
+// ============================================================
+// Phase 4C — drafts never leak through public read paths
+// listPublished (with a category filter) and getArticle both route
+// through this rule; drafts are only visible to admins.
+// ============================================================
+
+describe("isArticleReadable — published-only for regular users", () => {
+  test("published articles are readable by anyone", () => {
+    expect(isArticleReadable({ isPublished: true }, false)).toBe(true);
+    expect(isArticleReadable({ isPublished: true }, true)).toBe(true);
+  });
+
+  test("drafts are hidden from farmers / anonymous viewers", () => {
+    expect(isArticleReadable({ isPublished: false }, false)).toBe(false);
+    expect(isArticleReadable(null, false)).toBe(false);
+    expect(isArticleReadable(undefined, false)).toBe(false);
+  });
+
+  test("admins can preview drafts (admin UI only)", () => {
+    expect(isArticleReadable({ isPublished: false }, true)).toBe(true);
   });
 });

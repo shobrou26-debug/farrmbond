@@ -1,6 +1,13 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { requireAuth, requireAdmin, createAuditLog } from "./authHelpers";
+import {
+  requireAuth,
+  requireAdmin,
+  optionalAuth,
+  hasRole,
+  createAuditLog,
+} from "./authHelpers";
+import { ROLES } from "./schema";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
 /** List published knowledge articles with optional category filter */
@@ -14,6 +21,9 @@ export const listPublished = query({
       articles = await ctx.db
         .query("knowledgeArticles")
         .withIndex("by_category", (q) => q.eq("category", args.category!))
+        // The by_category index does NOT scope to published — drafts must be
+        // filtered explicitly or they would leak into the public category view.
+        .filter((q) => q.eq(q.field("isPublished"), true))
         .collect();
     } else {
       articles = await ctx.db
@@ -34,11 +44,27 @@ export const listAll = query({
   },
 });
 
-/** Get a single article by ID */
+/**
+ * Pure: an article is publicly readable only when published — unless the
+ * viewer is an admin (draft preview). Drafts never leak to regular users.
+ */
+export function isArticleReadable(
+  article: { isPublished: boolean } | null | undefined,
+  isAdmin: boolean
+): boolean {
+  if (!article) return false;
+  return article.isPublished || isAdmin;
+}
+
+/** Get a single article by ID — drafts are only visible to admins. */
 export const getArticle = query({
   args: { articleId: v.id("knowledgeArticles") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.articleId);
+    const article = await ctx.db.get(args.articleId);
+    if (!article) return null;
+    const viewer = await optionalAuth(ctx);
+    const isAdmin = viewer ? hasRole(viewer.user.role, ROLES.ADMIN) : false;
+    return isArticleReadable(article, isAdmin) ? article : null;
   },
 });
 

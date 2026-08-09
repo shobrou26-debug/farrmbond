@@ -6,6 +6,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { api } from "@/convex/_generated/api";
 import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { useAuth } from "@/hooks/use-auth";
+import type { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -220,7 +221,7 @@ export default function Community() {
     }
     setReportBusy(true);
     try {
-      await reportPost({ postId: reportPostId as any, reason });
+      await reportPost({ postId: reportPostId as Id<"communityPosts">, reason });
       toast.success("Post reported — our moderators will review it");
       setReportPostId(null);
     } catch (err) {

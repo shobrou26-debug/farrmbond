@@ -1508,7 +1508,7 @@ const schema = defineSchema(
       riskScore: v.number(), // 0-100
 
       // Overall score
-      healthScore: v.number(),
+      healthScore: v.optional(v.number()),
 
       // PDF export
       pdfUrl: v.optional(v.string()),

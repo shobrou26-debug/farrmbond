@@ -223,7 +223,7 @@ export default function WeeklyAIReport() {
     }
     const rows: Record<string, unknown>[] = [
       { section: "Report Period", value: weekLabel ?? new Date(latest.generatedAt).toLocaleDateString() },
-      { section: "Health Score", value: `${latest.healthScore}%` },
+      { section: "Health Score", value: latest.healthScore != null ? `${latest.healthScore}%` : "Not available yet" },
       {
         section: "Crops",
         value: cropsObj
@@ -397,7 +397,7 @@ export default function WeeklyAIReport() {
                           </div>
                           <div>
                             <p className="text-sm text-muted-foreground">Health Score</p>
-                            <p className="text-2xl font-bold">{latest.healthScore}%</p>
+                            <p className="text-2xl font-bold">{latest.healthScore != null ? `${latest.healthScore}%` : "—"}</p>
                           </div>
                         </div>
                       </CardContent>

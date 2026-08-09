@@ -11,6 +11,48 @@ import { api } from "./_generated/api";
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 // ============================================================
+// Weather cron scale limits (Phase 5)
+// Each cron run refreshes only a BOUNDED batch of stale locations with
+// bounded concurrency, instead of fetching every farm serially.
+// ============================================================
+
+/** Max unique locations examined per cron run. */
+export const WEATHER_LOCATION_SCAN_LIMIT = 1000;
+/** Max cached expiries loaded to decide staleness. */
+export const WEATHER_EXPIRY_SCAN_LIMIT = 2000;
+/** Max stale locations refreshed per cron run. */
+export const WEATHER_BATCH_SIZE = 100;
+/** Max concurrent Open-Meteo requests (bounded API load). */
+export const WEATHER_FETCH_CONCURRENCY = 5;
+
+/**
+ * Pure: pick which locations actually need a refresh this run — the stale
+ * or never-cached ones, capped at `batchSize`. Fresh caches are skipped
+ * so overlapping cron runs don't re-fetch data that is still valid.
+ */
+export function selectLocationsToRefresh(
+  locations: Array<{ latitude: number; longitude: number }>,
+  expiresByKey: Map<string, number>,
+  now: number,
+  batchSize: number = WEATHER_BATCH_SIZE
+): Array<{ latitude: number; longitude: number }> {
+  const stale = locations.filter((loc) => {
+    const expiresAt = expiresByKey.get(`${loc.latitude},${loc.longitude}`);
+    return expiresAt === undefined || expiresAt <= now;
+  });
+  return stale.slice(0, batchSize);
+}
+
+/** Pure: split an array into bounded chunks for parallel processing. */
+export function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+// ============================================================
 // Shared Helper: Fetch weather from Open-Meteo API
 // ============================================================
 
@@ -381,42 +423,78 @@ export const fetchAndCacheWeather = action({
   },
 });
 
-/** Pre-fetch weather for all unique farm locations. Called by cron every 30 min. */
+/**
+ * Pre-fetch weather for a bounded batch of stale locations. Called by the
+ * cron every 30 min. Each run refreshes at most WEATHER_BATCH_SIZE stale
+ * locations with WEATHER_FETCH_CONCURRENCY parallel requests, instead of
+ * serially fetching every farm (Phase 5 scale hardening).
+ *
+ * Explicit result types are required here: the generated api object is
+ * circular with action return-type inference, so TS otherwise falls back
+ * to implicit any for these locals.
+ */
 export const prefetchAllFarmWeather = action({
   args: {},
   handler: async (ctx) => {
-    // Fetch all farm locations directly from DB (no auth needed for cron)
-    const farmsResult = await ctx.runQuery(api.farmLocations.getAllFarmLocations) as Array<{ latitude: number; longitude: number }>;
-    const farms = farmsResult;
+    const now = Date.now();
 
-    console.log(`[Weather Cron] Pre-fetching weather for ${farms.length} unique locations`);
+    // Bounded scan: only look at a limited set of locations per run.
+    const locations = (await ctx.runQuery(
+      api.farmLocations.getAllFarmLocations,
+      { limit: WEATHER_LOCATION_SCAN_LIMIT }
+    )) as Array<{ latitude: number; longitude: number }>;
+    const expiries = (await ctx.runQuery(
+      api.farmLocations.getWeatherExpiries,
+      { limit: WEATHER_EXPIRY_SCAN_LIMIT }
+    )) as Array<{ latitude: number; longitude: number; expiresAt: number }>;
+
+    const expiresByKey = new Map<string, number>(
+      expiries.map(
+        (e) => [`${e.latitude},${e.longitude}`, e.expiresAt] as [string, number]
+      )
+    );
+    const toRefresh = selectLocationsToRefresh(locations, expiresByKey, now);
+
+    console.log(
+      `[Weather Cron] ${toRefresh.length} stale of ${locations.length} scanned locations`
+    );
 
     let successCount = 0;
     let errorCount = 0;
 
-    for (const loc of farms) {
-      try {
-        const weatherData = await fetchOpenMeteoWeather(loc.latitude, loc.longitude);
+    // Fetch in small parallel chunks (bounded concurrency) instead of a
+    // long serial loop — cuts wall-clock time while keeping API load bounded.
+    for (const chunk of chunkArray(toRefresh, WEATHER_FETCH_CONCURRENCY)) {
+      await Promise.all(
+        chunk.map(async (loc) => {
+          try {
+            const weatherData = await fetchOpenMeteoWeather(loc.latitude, loc.longitude);
 
-        await ctx.runMutation(api.weather.upsertWeather, {
-          latitude: loc.latitude,
-          longitude: loc.longitude,
-          ...weatherData,
-          soil: weatherData.soil ?? undefined,
-        });
+            await ctx.runMutation(api.weather.upsertWeather, {
+              latitude: loc.latitude,
+              longitude: loc.longitude,
+              ...weatherData,
+              soil: weatherData.soil ?? undefined,
+            });
 
-        successCount++;
-        console.log(`[Weather Cron] Cached weather for ${loc.latitude}, ${loc.longitude}`);
-      } catch (error) {
-        errorCount++;
-        console.error(`[Weather Cron] Failed for ${loc.latitude}, ${loc.longitude}:`, error);
-      }
-
-      // Small delay to avoid rate-limiting Open-Meteo
-      await new Promise((resolve) => setTimeout(resolve, 200));
+            successCount++;
+          } catch (error) {
+            errorCount++;
+            console.error(
+              `[Weather Cron] Failed for ${loc.latitude}, ${loc.longitude}:`,
+              error
+            );
+          }
+        })
+      );
     }
 
-    console.log(`[Weather Cron] Done: ${successCount} cached, ${errorCount} failed`);
-    return { successCount, errorCount, totalLocations: farms.length };
+    console.log(`[Weather Cron] Done: ${successCount} refreshed, ${errorCount} failed`);
+    return {
+      successCount,
+      errorCount,
+      scannedLocations: locations.length,
+      refreshed: toRefresh.length,
+    };
   },
 });

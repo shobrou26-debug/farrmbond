@@ -5,10 +5,12 @@ import {
   requireAuth,
   requireActiveSubscription,
   hasPremiumAccess,
+  hasRole,
   createAuditLog,
   sanitizeInput,
   validateString,
 } from "./authHelpers";
+import { ROLES } from "./schema";
 
 // ============================================================
 // Weekly AI Report Generator
@@ -42,6 +44,12 @@ export const generateWeeklyReport = action({
     const satellite: any = await ctx.runQuery(api.satellite.getSatelliteAnalysis, { farmId: args.farmId });
     const soil: any = await ctx.runQuery(api.soil.getSoilAnalysis, { farmId: args.farmId });
 
+    // Upcoming tasks come from the farmer's REAL calendar — never invented.
+    const calendarResult: any = await ctx.runQuery(api.farmCalendar.listFarmEvents, {
+      farmId: args.farmId,
+    });
+    const upcomingTasks = buildUpcomingTasksFromCalendar(calendarResult?.page ?? [], now);
+
     // Build report
     const report: any = {
       farmId: args.farmId,
@@ -53,11 +61,11 @@ export const generateWeeklyReport = action({
         label: `${new Date(weekAgo).toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${new Date(now).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
       },
       summary: {
-        overallHealth: healthScore?.overall ?? 75,
-        cropHealth: healthScore?.cropHealth ?? 80,
-        livestockHealth: healthScore?.livestockHealth ?? 90,
-        soilHealth: healthScore?.soilHealth ?? 70,
-        weatherRisk: healthScore?.weatherRisk ?? 40,
+        overallHealth: healthScore?.overall ?? null,
+        cropHealth: healthScore?.cropHealth ?? null,
+        livestockHealth: healthScore?.livestockHealth ?? null,
+        soilHealth: healthScore?.soilHealth ?? null,
+        weatherRisk: healthScore?.weatherRisk ?? null,
       },
       crops: {
         total: crops?.length ?? 0,
@@ -88,15 +96,8 @@ export const generateWeeklyReport = action({
         priority: r.priority,
         confidence: r.confidence,
       })),
-      upcomingTasks: [
-        { task: "Check irrigation systems", due: "Tomorrow", priority: "medium" },
-        { task: "Harvest Zone A tomatoes", due: "In 3 days", priority: "high" },
-        { task: "Schedule veterinary visit", due: "This week", priority: "medium" },
-      ],
-      risks: [
-        { risk: "Drought stress", level: satellite?.waterStress ? "high" : "low", mitigation: "Monitor soil moisture" },
-        { risk: "Pest outbreak", level: "medium", mitigation: "Regular field inspection" },
-      ],
+      upcomingTasks,
+      risks: deriveRisks(satellite, healthScore),
     };
 
     // Store the report
@@ -158,8 +159,12 @@ export const storeReport = mutation({
           }))
         : [],
       riskAnalysis: JSON.stringify(report.risks ?? []),
-      riskScore: 50,
-      healthScore: report.summary?.overallHealth ?? 75,
+      riskScore: Array.isArray(report.risks) && report.risks.length > 0
+        ? Math.min(100, report.risks.length * 20)
+        : 0,
+      ...(report.summary?.overallHealth != null
+        ? { healthScore: report.summary.overallHealth }
+        : {}),
       generatedAt: now,
     });
 
@@ -171,7 +176,12 @@ export const storeReport = mutation({
 export const getLatestReport = query({
   args: { farmId: v.id("farms") },
   handler: async (ctx, args) => {
-    const { userId } = await requireAuth(ctx);
+    const { userId, user } = await requireAuth(ctx);
+    // Weekly reports are a Pro feature — the read path is gated too
+    // (admins bypass; free/expired users are treated as Free).
+    if (!hasRole(user.role, ROLES.ADMIN)) {
+      await requireActiveSubscription(ctx);
+    }
     const farm = await ctx.db.get(args.farmId);
     if (!farm || farm.userId !== userId) return null;
 
@@ -273,6 +283,91 @@ export const applyRecommendation = mutation({
   },
 });
 
+// ============================================================
+// Honest report content builders (pure — unit tested)
+// Upcoming tasks and risks are DERIVED from real farm data. When no data
+// exists the arrays are empty — nothing is invented.
+// ============================================================
+
+export function dueLabel(startDate: number, now: number): string {
+  const diffDays = Math.ceil((startDate - now) / (24 * 60 * 60 * 1000));
+  if (diffDays <= 0) return "Today";
+  if (diffDays === 1) return "Tomorrow";
+  if (diffDays < 7) return `In ${diffDays} days`;
+  return new Date(startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+/**
+ * Upcoming tasks straight from the farm calendar: only future, incomplete
+ * events, nearest first, max 5. An empty calendar yields an empty list.
+ */
+interface CalendarEventLike {
+  title?: string;
+  startDate?: number;
+  isCompleted?: boolean;
+}
+
+export function buildUpcomingTasksFromCalendar(
+  events: CalendarEventLike[] | undefined,
+  now: number
+): Array<{ task: string; due: string; priority: string }> {
+  return (events || [])
+    .filter(
+      (e): e is CalendarEventLike & { startDate: number } =>
+        !!e &&
+        !e.isCompleted &&
+        typeof e.startDate === "number" &&
+        e.startDate >= now
+    )
+    .sort((a, b) => a.startDate - b.startDate)
+    .slice(0, 5)
+    .map((e) => ({
+      task: typeof e.title === "string" ? e.title : "Farm task",
+      due: dueLabel(e.startDate, now),
+      priority: "medium",
+    }));
+}
+
+/**
+ * Risks derived ONLY from real signals: the intelligence engine's risk
+ * factors and satellite water stress. No invented pest outbreaks.
+ */
+interface HealthScoreLike {
+  riskLevel?: string;
+  riskFactors?: unknown;
+}
+
+export function deriveRisks(
+  satellite: { waterStress?: boolean } | null | undefined,
+  healthScore: HealthScoreLike | null | undefined
+): Array<{ risk: string; level: string; mitigation: string }> {
+  const risks: Array<{ risk: string; level: string; mitigation: string }> = [];
+  const factors = healthScore?.riskFactors;
+  if (Array.isArray(factors)) {
+    for (const factor of factors) {
+      if (typeof factor !== "string" || !factor.trim()) continue;
+      risks.push({
+        risk: factor,
+        level: healthScore?.riskLevel ?? "medium",
+        mitigation:
+          "Addressed in your farm health assessment — review the risk factors section.",
+      });
+    }
+  }
+  if (satellite?.waterStress) {
+    risks.push({
+      risk: "Water stress detected on vegetation",
+      level: "high",
+      mitigation: "Monitor soil moisture and adjust irrigation scheduling.",
+    });
+  }
+  const unique: typeof risks = [];
+  for (const r of risks) {
+    if (!unique.some((x) => x.risk === r.risk)) unique.push(r);
+  }
+  return unique.slice(0, 5);
+}
+
 /** Generate weekly reports for all farms (called by cron) */
 export const generateWeeklyReports = mutation({
   args: {},
@@ -337,8 +432,8 @@ export const generateWeeklyReports = mutation({
           confidence: 80,
         })) ?? [],
         riskAnalysis: `Risk factors: ${healthScore?.riskFactors?.join("; ") ?? "None identified"}. Trend: ${healthScore?.trend ?? "stable"}.`,
-        riskScore: healthScore ? (100 - healthScore.overall) : 25,
-        healthScore: healthScore?.overall ?? 75,
+        riskScore: healthScore ? Math.max(0, 100 - healthScore.overall) : 0,
+        ...(healthScore?.overall != null ? { healthScore: healthScore.overall } : {}),
         generatedAt: now,
       });
       generated++;
