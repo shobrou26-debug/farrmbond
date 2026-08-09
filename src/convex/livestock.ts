@@ -9,7 +9,10 @@ import {
   validateString,
   validateNumber,
   sanitizeInput,
+  isProActive,
+  hasRole,
 } from "./authHelpers";
+import { ROLES, type Role, type SubscriptionTier } from "./schema";
 
 // Vaccine type intervals (days between vaccinations)
 const VACCINE_INTERVALS: Record<string, number> = {
@@ -28,6 +31,35 @@ const VACCINE_INTERVALS: Record<string, number> = {
 };
 
 const DEFAULT_VACCINE_INTERVAL = 90; // 3 months for unknown vaccines
+
+// ============================================================
+// Free-tier limit (P2-4)
+// Free users are limited to FREE_LIVESTOCK_LIMIT livestock entries;
+// Pro (paid or in-trial) and platform admins are unlimited. Enforced
+// server-side in createLivestock — the UI is never the security boundary.
+// ============================================================
+
+export const FREE_LIVESTOCK_LIMIT = 5;
+
+/**
+ * Pure: decide whether a livestock-create request hits the free-tier cap.
+ * Mirrors the crops free limit (5) and the platform convention that
+ * active Pro (paid or in-trial) and admins bypass tier resource limits.
+ * Expired Pro is treated as Free — the tier field alone never unlocks
+ * the cap (see isProActive in authHelpers).
+ */
+export function livestockLimitReached(
+  currentCount: number,
+  user: {
+    subscriptionTier?: SubscriptionTier;
+    subscriptionEndDate?: number;
+    role?: Role;
+  }
+): boolean {
+  if (isProActive(user)) return false;
+  if (hasRole(user.role, ROLES.ADMIN)) return false;
+  return currentCount >= FREE_LIVESTOCK_LIMIT;
+}
 
 // ============================================================
 // Livestock Queries
@@ -115,10 +147,26 @@ export const createLivestock = mutation({
     })),
   },
   handler: async (ctx, args) => {
-    const { userId } = await requireAuth(ctx);
+    const { userId, user } = await requireAuth(ctx);
 
     // Verify user owns the farm
     await verifyFarmOwnership(ctx, args.farmId, userId);
+
+    // Free tier is limited to FREE_LIVESTOCK_LIMIT entries — enforced
+    // server-side, not just in the UI. Pro (paid or in-trial) and
+    // platform admins are unlimited. A malicious client calling this
+    // mutation directly cannot bypass the cap.
+    if (!isProActive(user) && !hasRole(user.role, ROLES.ADMIN)) {
+      const existing = await ctx.db
+        .query("livestock")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect();
+      if (livestockLimitReached(existing.length, user)) {
+        throw new Error(
+          `Free plan includes ${FREE_LIVESTOCK_LIMIT} livestock entries. Upgrade to FarmBond Pro for unlimited livestock.`
+        );
+      }
+    }
 
     // Input validation
     const name = sanitizeInput(validateString(args.name, "Livestock name", 100));
