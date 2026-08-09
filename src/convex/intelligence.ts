@@ -754,45 +754,54 @@ export const runIntelligencePipeline = mutation({
 });
 
 /**
+ * Server-safe core: run the intelligence pipeline for ALL users.
+ * Called by the cron mutation below (every 4 hours). No auth —
+ * resolves each user from the database and delegates to the
+ * per-user core. Users are processed in pages so the job scales;
+ * failures are logged and counted, not swallowed.
+ */
+export async function runIntelligencePipelineForAllUsersCore(ctx: MutationCtx) {
+  let processed = 0;
+  let insights = 0;
+  let failures = 0;
+
+  let cursor: string | null = null;
+  let done = false;
+  while (!done) {
+    const page = await ctx.db.query("users").paginate({
+      numItems: 100,
+      cursor,
+    });
+
+    for (const user of page.page) {
+      try {
+        const result = await runIntelligencePipelineCore(ctx, { userId: user._id });
+        processed += result.processed;
+        insights += result.insights;
+      } catch (error) {
+        failures++;
+        console.error(`[IntelligenceCron] pipeline failed for user ${user._id}:`, error);
+      }
+    }
+
+    cursor = page.continueCursor;
+    done = page.isDone;
+  }
+
+  console.log(
+    `[IntelligenceCron] Done: ${processed} farms processed, ${insights} insights stored, ${failures} failures`
+  );
+  return { processed, insights, failures };
+}
+
+/**
  * Run the intelligence pipeline for ALL users. Called by the cron job
- * (every 4 hours). No auth — resolves each user from the database and
- * delegates to the server-safe core. Users are processed in pages so
- * the job scales; failures are logged and counted, not swallowed.
+ * (every 4 hours). No auth — delegates to the server-safe core.
  */
 export const runIntelligencePipelineForAllUsers = mutation({
   args: {},
   handler: async (ctx) => {
-    let processed = 0;
-    let insights = 0;
-    let failures = 0;
-
-    let cursor: string | null = null;
-    let done = false;
-    while (!done) {
-      const page = await ctx.db.query("users").paginate({
-        numItems: 100,
-        cursor,
-      });
-
-      for (const user of page.page) {
-        try {
-          const result = await runIntelligencePipelineCore(ctx, { userId: user._id });
-          processed += result.processed;
-          insights += result.insights;
-        } catch (error) {
-          failures++;
-          console.error(`[IntelligenceCron] pipeline failed for user ${user._id}:`, error);
-        }
-      }
-
-      cursor = page.continueCursor;
-      done = page.isDone;
-    }
-
-    console.log(
-      `[IntelligenceCron] Done: ${processed} farms processed, ${insights} insights stored, ${failures} failures`
-    );
-    return { processed, insights, failures };
+    return runIntelligencePipelineForAllUsersCore(ctx);
   },
 });
 
