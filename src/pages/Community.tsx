@@ -11,6 +11,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   MessageSquare,
@@ -24,6 +32,8 @@ import {
   Sprout,
   Send,
   Trash2,
+  Flag,
+  Loader2,
 } from "lucide-react";
 
 const containerVariants = {
@@ -59,6 +69,14 @@ const categories = [
   { label: "Questions", value: "questions", icon: MessageCircle },
 ];
 
+const REPORT_REASONS = [
+  "Spam or scam",
+  "Harassment or abuse",
+  "Misleading information",
+  "Inappropriate content",
+  "Other",
+];
+
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
   const minutes = Math.floor(diff / 60000);
@@ -85,6 +103,7 @@ export default function Community() {
   const addComment = useMutation(api.community.addComment);
   const deletePost = useMutation(api.community.deletePost);
   const incrementShareCount = useMutation(api.community.incrementShareCount);
+  const reportPost = useMutation(api.community.reportPost);
 
   const { results: posts, isLoading, loadMore, canLoadMore, sentinelRef } =
     usePaginatedQuery<Post>(api.community.listPosts, {
@@ -96,6 +115,10 @@ export default function Community() {
   });
 
   const [commentText, setCommentText] = useState<Record<string, string>>({});
+  const [reportPostId, setReportPostId] = useState<string | null>(null);
+  const [reportReason, setReportReason] = useState(REPORT_REASONS[0]);
+  const [reportCustom, setReportCustom] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
 
   const filteredPosts = useMemo(
     () =>
@@ -179,6 +202,31 @@ export default function Community() {
       toast.success("Post deleted");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to delete post");
+    }
+  };
+
+  const openReport = (post: Post) => {
+    setReportPostId(post._id);
+    setReportReason(REPORT_REASONS[0]);
+    setReportCustom("");
+  };
+
+  const submitReport = async () => {
+    if (!reportPostId) return;
+    const reason = reportReason === "Other" ? reportCustom.trim() : reportReason;
+    if (!reason) {
+      toast.error("Please describe the issue");
+      return;
+    }
+    setReportBusy(true);
+    try {
+      await reportPost({ postId: reportPostId as any, reason });
+      toast.success("Post reported — our moderators will review it");
+      setReportPostId(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to report post");
+    } finally {
+      setReportBusy(false);
     }
   };
 
@@ -359,6 +407,17 @@ export default function Community() {
                         <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => handleShare(post)}>
                           <Share2 className="w-4 h-4 mr-1" />Share
                         </Button>
+                        {post.authorName !== (user?.name || "Farmer") && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground hover:text-amber-600 ml-auto"
+                            title="Report this post"
+                            onClick={() => openReport(post)}
+                          >
+                            <Flag className="w-4 h-4 mr-1" />Report
+                          </Button>
+                        )}
                       </div>
 
                       {/* Comments */}
@@ -403,6 +462,64 @@ export default function Community() {
             )}
           </motion.div>
         </div>
+
+        {/* Report post dialog */}
+        <Dialog open={reportPostId !== null} onOpenChange={(open) => !open && setReportPostId(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Report this post</DialogTitle>
+              <DialogDescription>
+                Our moderators review every report. Your account stays anonymous to the post author.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="space-y-2">
+                {REPORT_REASONS.map((reason) => (
+                  <button
+                    key={reason}
+                    type="button"
+                    onClick={() => setReportReason(reason)}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-sm text-left transition-colors ${
+                      reportReason === reason
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border/50 text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {reason}
+                    <span
+                      className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                        reportReason === reason ? "border-primary" : "border-muted-foreground/40"
+                      }`}
+                    >
+                      {reportReason === reason && <span className="w-2 h-2 rounded-full bg-primary" />}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {reportReason === "Other" && (
+                <Textarea
+                  placeholder="Describe the issue (required)..."
+                  value={reportCustom}
+                  onChange={(e) => setReportCustom(e.target.value)}
+                  className="min-h-[80px] resize-none"
+                />
+              )}
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setReportPostId(null)} disabled={reportBusy}>
+                Cancel
+              </Button>
+              <Button
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                onClick={submitReport}
+                disabled={reportBusy || (reportReason === "Other" && !reportCustom.trim())}
+              >
+                {reportBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flag className="w-4 h-4 mr-1" />}
+                {reportBusy ? "Submitting..." : "Submit report"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );
