@@ -1,6 +1,7 @@
-import { action, query, mutation } from "./_generated/server";
+import { action, query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { internal } from "./_generated/api";
 
 // ============================================================
 // Stripe Integration
@@ -83,10 +84,10 @@ export const createCheckoutSession = action({
       const customer = await customerResponse.json();
       customerId = customer.id;
 
-      // Update user with Stripe customer ID via mutation
-      await ctx.runMutation("stripe:updateStripeCustomerId" as any, {
+      // Update user with Stripe customer ID via internal mutation
+      await ctx.runMutation(internal.stripe.updateStripeCustomerId, {
         userId: userId as any,
-        stripeCustomerId: customerId,
+        stripeCustomerId: customerId as string,
       });
     }
 
@@ -280,9 +281,13 @@ export const retryPayment = action({
 // ============================================================
 
 /**
- * Update Stripe customer ID for a user
+ * Update Stripe customer ID for a user.
+ * INTERNAL ONLY — the userId is resolved from the authenticated
+ * createCheckoutSession action, never from a client-supplied argument.
+ * Previously an unauthenticated mutation, it could be called directly by
+ * any signed-in client to overwrite another user's stripeCustomerId.
  */
-export const updateStripeCustomerId = mutation({
+export const updateStripeCustomerId = internalMutation({
   args: {
     userId: v.id("users"),
     stripeCustomerId: v.string(),

@@ -131,6 +131,7 @@ const schema = defineSchema(
       emailVerificationTime: v.optional(v.number()),
       isAnonymous: v.optional(v.boolean()),
       role: v.optional(roleValidator),
+      isSuspended: v.optional(v.boolean()),
       
       // FarmBond-specific user fields
       phone: v.optional(v.string()),

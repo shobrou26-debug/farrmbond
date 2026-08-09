@@ -1,6 +1,7 @@
-import { action, query, mutation } from "./_generated/server";
+import { action, query, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { internal } from "./_generated/api";
 
 // ============================================================
 // Mobile Money Integration (MTN MoMo & Airtel Money)
@@ -20,6 +21,34 @@ const AIRTEL_MONEY_CLIENT_ID = process.env.AIRTEL_MONEY_CLIENT_ID;
 const AIRTEL_MONEY_CLIENT_SECRET = process.env.AIRTEL_MONEY_CLIENT_SECRET;
 
 const APP_URL = process.env.APP_URL || "https://farmbond.com";
+
+// A Pro subscription month is $5 — enforced at grant time so an underpriced
+// or tampered payment can never activate Pro.
+export const SUB_PRICE_USD = 5;
+
+/**
+ * Extract the provider-confirmed amount from a provider response if present
+ * (MTN returns `amount` at top level; Airtel nests it under `data`).
+ * Returns null when the provider didn't echo an amount.
+ */
+export function extractConfirmedAmount(providerResponse: unknown): number | null {
+  if (!providerResponse || typeof providerResponse !== "object") return null;
+  const resp = providerResponse as Record<string, unknown>;
+  const raw = resp.amount ?? (resp.data as Record<string, unknown> | undefined)?.amount;
+  if (raw === undefined || raw === null) return null;
+  const n = typeof raw === "string" ? parseFloat(raw) : Number(raw);
+  return isNaN(n) ? null : n;
+}
+
+/**
+ * True only when the confirmed payment amount covers the full subscription
+ * price. Missing/unparseable amounts fail closed (never grant Pro).
+ */
+export function isFullPricedSubscriptionPayment(
+  amount: number | null | undefined
+): boolean {
+  return typeof amount === "number" && !isNaN(amount) && amount >= SUB_PRICE_USD;
+}
 
 // ============================================================
 // MTN MoMo Integration
@@ -114,8 +143,10 @@ export const initiateMtnPayment = action({
         throw new Error("Failed to initiate mobile money payment");
       }
 
-      // Log the transaction attempt
-      await ctx.runMutation("mobileMoney:logTransaction" as any, {
+      // Log the transaction attempt (internal mutation — the caller's
+      // identity is resolved from the authenticated action session, never
+      // from client-supplied userId)
+      await ctx.runMutation(internal.mobileMoney.logTransaction, {
         userId: userId as any,
         provider: "mtn_momo",
         referenceId: referenceId,
@@ -172,7 +203,15 @@ export const checkMtnPaymentStatus = action({
 
       // Update transaction status
       if (data.status === "SUCCESSFUL" || data.status === "FAILED") {
-        await ctx.runMutation("mobileMoney:updateTransactionStatus" as any, {
+        // Ownership check: only the user who initiated the transaction may
+        // poll and settle it. Prevents settling another user's transaction.
+        const txn = await ctx.runQuery(internal.mobileMoney.getTransactionByReference, {
+          referenceId: args.referenceId,
+        });
+        if (!txn || txn.userId !== userId) {
+          throw new Error("Transaction not found");
+        }
+        await ctx.runMutation(internal.mobileMoney.updateTransactionStatus, {
           referenceId: args.referenceId,
           status: data.status === "SUCCESSFUL" ? "completed" : "failed",
           providerResponse: data,
@@ -291,8 +330,9 @@ export const initiateAirtelPayment = action({
 
       const data = await response.json();
 
-      // Log the transaction attempt
-      await ctx.runMutation("mobileMoney:logTransaction" as any, {
+      // Log the transaction attempt (internal mutation — caller identity is
+      // resolved from the authenticated action session)
+      await ctx.runMutation(internal.mobileMoney.logTransaction, {
         userId: userId as any,
         provider: "airtel_money",
         referenceId: transactionId,
@@ -351,7 +391,14 @@ export const checkAirtelPaymentStatus = action({
 
       // Update transaction status
       if (data.data?.status === "SUCCESS" || data.data?.status === "FAILED") {
-        await ctx.runMutation("mobileMoney:updateTransactionStatus" as any, {
+        // Ownership check: only the initiator may settle their transaction.
+        const txn = await ctx.runQuery(internal.mobileMoney.getTransactionByReference, {
+          referenceId: args.transactionId,
+        });
+        if (!txn || txn.userId !== userId) {
+          throw new Error("Transaction not found");
+        }
+        await ctx.runMutation(internal.mobileMoney.updateTransactionStatus, {
           referenceId: args.transactionId,
           status: data.data.status === "SUCCESS" ? "completed" : "failed",
           providerResponse: data,
@@ -376,9 +423,45 @@ export const checkAirtelPaymentStatus = action({
 // ============================================================
 
 /**
- * Log a mobile money transaction
+ * Internal: look up a transaction by provider reference ID.
+ * Used by the authenticated status-check actions to verify the caller owns
+ * the transaction before settling it. Not exposed to the client.
  */
-export const logTransaction = mutation({
+export const getTransactionByReference = internalQuery({
+  args: { referenceId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("mobileMoneyTransactions")
+      .withIndex("by_reference", (q) => q.eq("referenceId", args.referenceId))
+      .first();
+  },
+});
+
+export type MobileMoneyStatus = "pending" | "completed" | "failed" | "expired";
+
+const TERMINAL_STATUSES: MobileMoneyStatus[] = ["completed", "failed", "expired"];
+
+/**
+ * Pure idempotency rule for a status transition.
+ * - Re-applying the same terminal status is a no-op (duplicate webhook).
+ * - A completed transaction is never altered (no downgrade/refund via replay).
+ */
+export function shouldApplyStatusUpdate(
+  currentStatus: string | undefined,
+  incomingStatus: string
+): boolean {
+  if (currentStatus === incomingStatus) return false;
+  if (currentStatus === "completed") return false;
+  return true;
+}
+
+/**
+ * Log a mobile money transaction.
+ * INTERNAL ONLY — callable from authenticated actions (which resolve the
+ * userId from the session), never directly from the client. This closes the
+ * vector where any signed-in user could insert arbitrary transactions.
+ */
+export const logTransaction = internalMutation({
   args: {
     userId: v.id("users"),
     provider: v.string(),
@@ -412,9 +495,14 @@ export const logTransaction = mutation({
 });
 
 /**
- * Update transaction status
+ * Update transaction status.
+ * INTERNAL ONLY — reachable from signature-verified webhooks and from the
+ * authenticated status-check actions after an ownership check. A client can
+ * never call this directly, which closes the Pro self-grant bypass.
+ * Idempotent: duplicate/terminal updates are ignored and a completed
+ * transaction is never modified.
  */
-export const updateTransactionStatus = mutation({
+export const updateTransactionStatus = internalMutation({
   args: {
     referenceId: v.string(),
     status: v.string(),
@@ -426,12 +514,18 @@ export const updateTransactionStatus = mutation({
     // Find the transaction by referenceId
     const transaction = await ctx.db
       .query("mobileMoneyTransactions")
-      .filter((q) => q.eq(q.field("referenceId"), args.referenceId))
+      .withIndex("by_reference", (q) => q.eq("referenceId", args.referenceId))
       .first();
 
     if (!transaction) {
       console.error("Transaction not found:", args.referenceId);
-      return;
+      return { updated: false, reason: "not_found" };
+    }
+
+    // Idempotency: ignore duplicate terminal updates; never alter a
+    // completed transaction (blocks replay/downgrade attacks).
+    if (!shouldApplyStatusUpdate(transaction.status, args.status)) {
+      return { updated: false, reason: "duplicate_or_terminal" };
     }
 
     const updates: Record<string, any> = {
@@ -444,38 +538,64 @@ export const updateTransactionStatus = mutation({
       updates.completedAt = now;
     }
 
-    await ctx.db.patch(transaction._id, updates);      // If payment successful, activate subscription
-      if (args.status === "completed") {
-        const subscriptionEndDate = new Date(now);
-        subscriptionEndDate.setMonth(subscriptionEndDate.getMonth() + 1);
+    await ctx.db.patch(transaction._id, updates);
 
-        // Activate subscription directly via db patch
-        await ctx.db.patch(transaction.userId, {
-          subscriptionTier: "pro",
-          subscriptionStartDate: now,
-          subscriptionEndDate: subscriptionEndDate.getTime(),
-          paymentMethodVerified: true,
-          paymentFailedAt: undefined,
-          paymentFailureCount: 0,
-          trialEndDate: undefined,
-          updatedAt: now,
-        });
-
-        // Log audit
+    // If payment successful, activate subscription (only on the first
+    // transition to completed — idempotency guard above prevents re-grants)
+    if (args.status === "completed") {
+      // Price guard: the provider-confirmed amount (when echoed) must cover
+      // the full $5 month. An underpriced payment is recorded as completed
+      // but NEVER grants Pro — a $0.01 poke must not unlock premium.
+      const confirmedAmount = extractConfirmedAmount(args.providerResponse);
+      const effectiveAmount = confirmedAmount ?? transaction.amount;
+      if (!isFullPricedSubscriptionPayment(effectiveAmount)) {
         const { createAuditLog } = await import("./authHelpers");
         await createAuditLog(ctx, {
           userId: transaction.userId,
-          action: "mobile_payment_completed",
+          action: "underpriced_payment_rejected",
           resource: "subscriptions",
           resourceId: transaction.userId,
           changes: {
             provider: transaction.provider,
-            amount: transaction.amount,
-            currency: transaction.currency,
-            subscriptionEndDate: subscriptionEndDate.getTime(),
+            confirmedAmount: effectiveAmount,
+            expectedAmount: SUB_PRICE_USD,
           },
         });
+        return { updated: true, status: args.status, grantedPro: false };
       }
+
+      const subscriptionEndDate = new Date(now);
+      subscriptionEndDate.setMonth(subscriptionEndDate.getMonth() + 1);
+
+      // Activate subscription directly via db patch
+      await ctx.db.patch(transaction.userId, {
+        subscriptionTier: "pro",
+        subscriptionStartDate: now,
+        subscriptionEndDate: subscriptionEndDate.getTime(),
+        paymentMethodVerified: true,
+        paymentFailedAt: undefined,
+        paymentFailureCount: 0,
+        trialEndDate: undefined,
+        updatedAt: now,
+      });
+
+      // Log audit
+      const { createAuditLog } = await import("./authHelpers");
+      await createAuditLog(ctx, {
+        userId: transaction.userId,
+        action: "mobile_payment_completed",
+        resource: "subscriptions",
+        resourceId: transaction.userId,
+        changes: {
+          provider: transaction.provider,
+          amount: transaction.amount,
+          currency: transaction.currency,
+          subscriptionEndDate: subscriptionEndDate.getTime(),
+        },
+      });
+    }
+
+    return { updated: true, status: args.status };
   },
 });
 

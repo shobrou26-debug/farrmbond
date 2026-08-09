@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { query, mutation, action } from "./_generated/server";
 import { api } from "./_generated/api";
-import { requireAuth } from "./authHelpers";
+import { requireAuth, isSubscriptionActive } from "./authHelpers";
 import type { Id } from "./_generated/dataModel";
 
 // ============================================================
@@ -495,6 +495,19 @@ export async function analyzeFarmSatelliteCore(
 export const analyzeFarmSatellite = action({
   args: { farmId: v.id("farms") },
   handler: async (ctx, args): Promise<SatelliteAnalysisResult> => {
+    // Premium feature: satellite monitoring requires an ACTIVE Pro
+    // subscription (tier + unexpired). Enforced server-side.
+    const user = await ctx.runQuery(api.users.currentUser);
+    if (!user) {
+      return { ok: false, reason: "Authentication required" };
+    }
+    if (user.subscriptionTier !== "pro" || !isSubscriptionActive(user)) {
+      return {
+        ok: false,
+        reason:
+          "Satellite monitoring is a Pro feature. Upgrade at Settings > Subscription to unlock Sentinel-2 NDVI analysis.",
+      };
+    }
     return analyzeFarmSatelliteCore(ctx, args.farmId);
   },
 });

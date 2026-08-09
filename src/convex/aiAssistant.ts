@@ -1,5 +1,7 @@
-import { action } from "./_generated/server";
+import { action, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import { api, internal } from "./_generated/api";
+import { createAuditLog, isSubscriptionActive } from "./authHelpers";
 
 // ============================================================
 // AI Farming Assistant
@@ -14,6 +16,85 @@ const GROQ_MODEL = "llama-3.3-70b-versatile"; // 1,000 req/day free — best qua
 
 const GEMINI_API_KEY = process.env.GOOGLE_GEMINI_API_KEY;
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+
+// ============================================================
+// AI usage limits (per-user, per-day)
+// Free plan gets a daily quota; Pro (active subscription) is unlimited.
+// Usage is tracked in the audit log (action "ai_chat" / "ai_disease").
+// ============================================================
+
+const AI_FREE_DAILY_CHAT_LIMIT = 5;
+const AI_PRO_DAILY_CHAT_LIMIT = 500;
+const AI_FREE_DAILY_DETECT_LIMIT = 3;
+const AI_PRO_DAILY_DETECT_LIMIT = 100;
+
+/** Pure limit selector (exported for tests): free users get a small
+ * daily allowance; active Pro users get a much larger one. */
+export function getAiDailyLimit(
+  isPro: boolean,
+  usageAction: "ai_chat" | "ai_disease"
+): number {
+  if (usageAction === "ai_chat") {
+    return isPro ? AI_PRO_DAILY_CHAT_LIMIT : AI_FREE_DAILY_CHAT_LIMIT;
+  }
+  return isPro ? AI_PRO_DAILY_DETECT_LIMIT : AI_FREE_DAILY_DETECT_LIMIT;
+}
+
+/** Internal: count a user's AI calls today for a given usage action. */
+export const getAiUsageCount = internalQuery({
+  args: {
+    userId: v.id("users"),
+    usageAction: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const rows = await ctx.db
+      .query("auditLogs")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("action"), args.usageAction),
+          q.gte(q.field("createdAt"), startOfDay.getTime())
+        )
+      )
+      .collect();
+    return rows.length;
+  },
+});
+
+/** Internal: record one AI usage entry for the authenticated user. */
+export const logAiUsage = internalMutation({
+  args: {
+    userId: v.id("users"),
+    usageAction: v.string(),
+    feature: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await createAuditLog(ctx, {
+      userId: args.userId,
+      action: args.usageAction,
+      resource: "ai_assistant",
+      resourceId: args.userId,
+      changes: { feature: args.feature },
+    });
+  },
+});
+
+/**
+ * Resolve the authenticated user's daily AI allowance.
+ * Returns the limit, or throws when the user is not authenticated.
+ */
+async function getAiQuota(
+  ctx: any,
+  usageAction: "ai_chat" | "ai_disease"
+): Promise<{ userId: any; limit: number; isPro: boolean }> {
+  const user = await ctx.runQuery(api.users.currentUser);
+  if (!user) throw new Error("Authentication required");
+  const isPro = user.subscriptionTier === "pro" && isSubscriptionActive(user);
+  const limit = getAiDailyLimit(isPro, usageAction);
+  return { userId: user._id, limit, isPro };
+}
 
 const SYSTEM_PROMPT = `You are FarmBond AI, an expert agricultural assistant powered by advanced AI. You help farmers worldwide increase productivity, reduce losses, and maximize profits.
 
@@ -107,6 +188,21 @@ export const chatWithAI = action({
       );
     }
 
+    // Auth + daily usage quota (free users get a limited allowance; Pro is
+    // near-unlimited). Enforced server-side — cannot be bypassed from the UI.
+    const quota = await getAiQuota(ctx, "ai_chat");
+    const used = await ctx.runQuery(internal.aiAssistant.getAiUsageCount, {
+      userId: quota.userId,
+      usageAction: "ai_chat",
+    });
+    if (used >= quota.limit) {
+      throw new Error(
+        quota.isPro
+          ? "Daily AI message limit reached. Please try again tomorrow."
+          : `Free plan allows ${AI_FREE_DAILY_CHAT_LIMIT} AI messages per day. Upgrade to Pro for unlimited AI — Settings > Subscription.`
+      );
+    }
+
     const messages = buildGroqMessages(args.history, args.message);
 
     try {
@@ -146,6 +242,13 @@ export const chatWithAI = action({
       if (!text) {
         throw new Error("No response generated from AI");
       }
+
+      // Record usage only after a successful response
+      await ctx.runMutation(internal.aiAssistant.logAiUsage, {
+        userId: quota.userId,
+        usageAction: "ai_chat",
+        feature: "chat",
+      });
 
       return { response: text };
     } catch (error) {
@@ -224,6 +327,21 @@ export const detectDisease = action({
       );
     }
 
+    // Auth + daily usage quota (image analysis is more expensive — tighter
+    // free allowance). Enforced server-side.
+    const quota = await getAiQuota(ctx, "ai_disease");
+    const used = await ctx.runQuery(internal.aiAssistant.getAiUsageCount, {
+      userId: quota.userId,
+      usageAction: "ai_disease",
+    });
+    if (used >= quota.limit) {
+      throw new Error(
+        quota.isPro
+          ? "Daily image analysis limit reached. Please try again tomorrow."
+          : `Free plan allows ${AI_FREE_DAILY_DETECT_LIMIT} image analyses per day. Upgrade to Pro for more — Settings > Subscription.`
+      );
+    }
+
     const prompt = `You are an expert plant pathologist. Analyze this image of a plant/leaf/crop and identify any diseases, pests, or health issues.
 
 Provide your analysis in this format:
@@ -281,6 +399,13 @@ ${args.additionalInfo ? `Additional context from farmer: ${args.additionalInfo}`
       if (!text) {
         throw new Error("No analysis generated");
       }
+
+      // Record usage only after a successful analysis
+      await ctx.runMutation(internal.aiAssistant.logAiUsage, {
+        userId: quota.userId,
+        usageAction: "ai_disease",
+        feature: "disease_detection",
+      });
 
       return { analysis: text };
     } catch (error) {

@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/input-otp";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import logo from "@/assets/logo.svg";
 import { ArrowRight, Loader2, Mail, UserX } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
@@ -35,7 +37,7 @@ function resolveRedirectAfterAuth(
 }
 
 function Auth({ redirectAfterAuth }: AuthProps = {}) {
-  const { isLoading: authLoading, isAuthenticated, signIn } = useAuth();
+  const { isLoading: authLoading, isAuthenticated, user, signIn } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirect = resolveRedirectAfterAuth(
@@ -52,6 +54,25 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       navigate(redirect);
     }
   }, [authLoading, isAuthenticated, navigate, redirect]);
+
+  // ============================================================
+  // Automatic 7-day Pro trial
+  // New accounts get the trial started on first sign-in (once only).
+  // startTrial is server-side single-use; repeated attempts are ignored.
+  // ============================================================
+  const trialStatus = useQuery(api.trials.getTrialStatus, isAuthenticated ? {} : "skip");
+  const startTrial = useMutation(api.trials.startTrial);
+  useEffect(() => {
+    if (!isAuthenticated || !user || trialStatus === undefined) return;
+    // Admins don't need a trial; everyone else gets the 7-day Pro trial.
+    if (user.role === "admin" || user.role === "super_admin") return;
+    if (trialStatus.trialEndDate === undefined && trialStatus.subscriptionTier === "free") {
+      startTrial().catch((err) => {
+        // Ignore — the trial is single-use; a second attempt is expected.
+        console.warn("[Trial] Could not auto-start trial:", err instanceof Error ? err.message : err);
+      });
+    }
+  }, [isAuthenticated, user, trialStatus, startTrial]);
   const handleEmailSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsLoading(true);
@@ -80,8 +101,6 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       const formData = new FormData(event.currentTarget);
       await signIn("email-otp", formData);
 
-      console.log("signed in");
-
       navigate(redirect);
     } catch (error) {
       console.error("OTP verification error:", error);
@@ -97,13 +116,10 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setIsLoading(true);
     setError(null);
     try {
-      console.log("Attempting anonymous sign in...");
       await signIn("anonymous");
-      console.log("Anonymous sign in successful");
       navigate(redirect);
     } catch (error) {
       console.error("Guest login error:", error);
-      console.error("Error details:", JSON.stringify(error, null, 2));
       setError(`Failed to sign in as guest: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setIsLoading(false);
     }

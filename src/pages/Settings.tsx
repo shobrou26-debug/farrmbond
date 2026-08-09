@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "react-router";
 import { useQuery, useMutation, useAction } from "convex/react";
@@ -403,6 +403,9 @@ function SubscriptionTab() {
   const retryPayment = useAction(api.stripe.retryPayment);
   const initiateMtnPayment = useAction(api.mobileMoney.initiateMtnPayment);
   const initiateAirtelPayment = useAction(api.mobileMoney.initiateAirtelPayment);
+  const checkMtnPaymentStatus = useAction(api.mobileMoney.checkMtnPaymentStatus);
+  const checkAirtelPaymentStatus = useAction(api.mobileMoney.checkAirtelPaymentStatus);
+  const userTxns = useQuery(api.mobileMoney.getUserTransactions);
   const [isStartingTrial, setIsStartingTrial] = useState(false);
   const [isCreatingCheckout, setIsCreatingCheckout] = useState(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
@@ -412,6 +415,50 @@ function SubscriptionTab() {
   const [mobileMoneyCountry, setMobileMoneyCountry] = useState(user?.country || "KE");
   const [isInitiatingMobilePayment, setIsInitiatingMobilePayment] = useState(false);
   const [selectedMobileProvider, setSelectedMobileProvider] = useState<string | null>(null);
+  const [activePayment, setActivePayment] = useState<{
+    provider: "mtn_momo" | "airtel_money";
+    referenceId: string;
+    status: "pending" | "completed" | "failed" | "timeout";
+  } | null>(null);
+
+  // Poll the provider until the mobile-money payment reaches a terminal state.
+  // Client-side only: the actual grant of Pro happens server-side, inside the
+  // authenticated status-check action / verified webhook — never in this UI.
+  useEffect(() => {
+    if (!activePayment || activePayment.status !== "pending") return;
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts += 1;
+      try {
+        const result =
+          activePayment.provider === "mtn_momo"
+            ? await checkMtnPaymentStatus({ referenceId: activePayment.referenceId })
+            : await checkAirtelPaymentStatus({
+                transactionId: activePayment.referenceId,
+                countryCode: mobileMoneyCountry,
+              });
+        const status = String((result as any)?.status || "").toUpperCase();
+        if (status === "SUCCESSFUL" || status === "SUCCESS") {
+          clearInterval(interval);
+          setActivePayment((p) => (p ? { ...p, status: "completed" } : p));
+          toast.success("Payment completed — your Pro plan is active!");
+        } else if (status === "FAILED" || status === "EXPIRED" || status === "CANCELLED") {
+          clearInterval(interval);
+          setActivePayment((p) => (p ? { ...p, status: "failed" } : p));
+          toast.error("Payment failed or expired. Please try again.");
+        }
+      } catch {
+        // Transient network/provider error — keep polling.
+      }
+      if (attempts >= 25) {
+        clearInterval(interval);
+        setActivePayment((p) =>
+          p && p.status === "pending" ? { ...p, status: "timeout" } : p
+        );
+      }
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [activePayment?.provider, activePayment?.referenceId, activePayment?.status, mobileMoneyCountry]);
   
   const paymentMethodVerified = user?.paymentMethodVerified ?? false;
   const paymentFailureCount = stripeStatus?.paymentFailureCount || 0;
@@ -980,8 +1027,8 @@ function SubscriptionTab() {
                   <CreditCard className="w-5 h-5 text-muted-foreground" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium">•••• •••• •••• 4242</p>
-                  <p className="text-xs text-muted-foreground">Expires 12/2027</p>
+                  <p className="text-sm font-medium">Card on file (Stripe)</p>
+                  <p className="text-xs text-muted-foreground">Manage card details in the billing portal</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -1164,6 +1211,13 @@ function SubscriptionTab() {
                           name: user?.name || "",
                           description: "FarmBond Pro Subscription",
                         });
+                        if (result.referenceId) {
+                          setActivePayment({
+                            provider: "mtn_momo",
+                            referenceId: result.referenceId,
+                            status: "pending",
+                          });
+                        }
                         toast.success(result.message);
                       } else if (selectedMobileProvider === "airtel_money") {
                         const result = await initiateAirtelPayment({
@@ -1175,6 +1229,13 @@ function SubscriptionTab() {
                           countryCode: mobileMoneyCountry,
                           description: "FarmBond Pro Subscription",
                         });
+                        if (result.transactionId) {
+                          setActivePayment({
+                            provider: "airtel_money",
+                            referenceId: result.transactionId,
+                            status: "pending",
+                          });
+                        }
                         toast.success(result.message);
                       }
                     } catch (err) {
@@ -1184,7 +1245,7 @@ function SubscriptionTab() {
                       setIsInitiatingMobilePayment(false);
                     }
                   }}
-                  disabled={isInitiatingMobilePayment || !selectedMobileProvider || !mobileMoneyPhone}
+                  disabled={isInitiatingMobilePayment || !selectedMobileProvider || !mobileMoneyPhone || activePayment?.status === "pending"}
                 >
                   {isInitiatingMobilePayment ? (
                     <>
@@ -1204,6 +1265,39 @@ function SubscriptionTab() {
                   <Shield className="w-3.5 h-3.5" />
                   <span>You will receive a prompt on your phone to confirm the payment</span>
                 </div>
+
+                {/* Live payment status (polled from the provider) */}
+                {activePayment && (
+                  <div
+                    className={`p-3 rounded-xl border ${
+                      activePayment.status === "completed"
+                        ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800"
+                        : activePayment.status === "failed"
+                          ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800"
+                          : "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {activePayment.status === "pending" ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />
+                      ) : activePayment.status === "completed" ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                      )}
+                      <p className="text-sm font-medium">
+                        {activePayment.status === "pending" &&
+                          "Waiting for approval on your phone — checking every 8 seconds…"}
+                        {activePayment.status === "completed" &&
+                          "Payment completed — your Pro plan is active!"}
+                        {activePayment.status === "failed" &&
+                          "Payment failed or expired. Please try again or choose another method."}
+                        {activePayment.status === "timeout" &&
+                          "Still waiting for confirmation from your provider. Check Payment History below, or try again."}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>
@@ -1227,23 +1321,57 @@ function SubscriptionTab() {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {/* Recent invoice preview */}
-            <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 bg-muted/20">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-green-500/10">
-                  <CheckCircle2 className="w-4 h-4 text-green-600" />
+            {/* Recent mobile money transactions (real, from Convex) */}
+            {userTxns && userTxns.length > 0 ? (
+              userTxns.slice(0, 3).map((txn) => (
+                <div
+                  key={txn._id}
+                  className="flex items-center justify-between p-3 rounded-lg border border-border/50 bg-muted/20"
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`flex items-center justify-center w-8 h-8 rounded-lg ${
+                        txn.status === "completed" ? "bg-green-500/10" : "bg-amber-500/10"
+                      }`}
+                    >
+                      {txn.status === "completed" ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-600" />
+                      ) : (
+                        <Clock className="w-4 h-4 text-amber-600" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">
+                        {txn.provider === "mtn_momo" ? "MTN Mobile Money" : "Airtel Money"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(txn.createdAt).toLocaleDateString()} • {txn.referenceId.slice(0, 12)}…
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-medium">${txn.amount.toFixed(2)}</p>
+                    <p
+                      className={`text-xs capitalize ${
+                        txn.status === "completed"
+                          ? "text-green-600"
+                          : txn.status === "failed"
+                            ? "text-red-600"
+                            : "text-amber-600"
+                      }`}
+                    >
+                      {txn.status}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-medium">FarmBond Pro</p>
-                  <p className="text-xs text-muted-foreground">Monthly subscription</p>
-                </div>
+              ))
+            ) : (
+              <div className="text-center py-4 text-muted-foreground">
+                <p className="text-sm">No payments yet</p>
+                <p className="text-xs mt-1">Your mobile money and card payments will appear here</p>
               </div>
-              <div className="text-right">
-                <p className="text-sm font-medium">$5.00</p>
-                <p className="text-xs text-green-600">Paid</p>
-              </div>
-            </div>
-            
+            )}
+
             <Link to="/payment-history" className="block">
               <div className="text-center py-4 text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
                 <p className="text-sm">View complete payment history</p>

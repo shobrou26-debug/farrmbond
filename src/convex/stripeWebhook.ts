@@ -1,5 +1,5 @@
 import { httpAction } from "./_generated/server";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { ConvexError } from "convex/values";
 
 // ============================================================
@@ -107,7 +107,7 @@ async function handleCheckoutCompleted(ctx: any, session: any) {
   });
 
   // Send welcome email
-  const user = await ctx.runQuery(api.users.getUserById, { userId });
+  const user = await ctx.runQuery(internal.users.getUserById, { userId });
   if (user?.email) {
     await ctx.scheduler.runAfter(0, api.emails.sendSubscriptionActivatedEmail, {
       userId,
@@ -129,7 +129,7 @@ async function handlePaymentSucceeded(ctx: any, invoice: any) {
   const stripeSubscriptionId = invoice.subscription;
 
   // Find user by Stripe customer ID
-  const user = await ctx.runQuery(api.users.getUserByStripeCustomer, {
+  const user = await ctx.runQuery(internal.users.getUserByStripeCustomer, {
     stripeCustomerId,
   });
 
@@ -163,7 +163,7 @@ async function handlePaymentFailed(ctx: any, invoice: any) {
   const stripeSubscriptionId = invoice.subscription;
 
   // Find user by Stripe customer ID
-  const user = await ctx.runQuery(api.users.getUserByStripeCustomer, {
+  const user = await ctx.runQuery(internal.users.getUserByStripeCustomer, {
     stripeCustomerId,
   });
 
@@ -202,7 +202,7 @@ async function handlePaymentFailed(ctx: any, invoice: any) {
 async function handleSubscriptionUpdated(ctx: any, subscription: any) {
   const stripeCustomerId = subscription.customer;
 
-  const user = await ctx.runQuery(api.users.getUserByStripeCustomer, {
+  const user = await ctx.runQuery(internal.users.getUserByStripeCustomer, {
     stripeCustomerId,
   });
 
@@ -226,7 +226,7 @@ async function handleSubscriptionUpdated(ctx: any, subscription: any) {
 async function handleSubscriptionDeleted(ctx: any, subscription: any) {
   const stripeCustomerId = subscription.customer;
 
-  const user = await ctx.runQuery(api.users.getUserByStripeCustomer, {
+  const user = await ctx.runQuery(internal.users.getUserByStripeCustomer, {
     stripeCustomerId,
   });
 

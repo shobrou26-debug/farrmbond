@@ -1,5 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { query, mutation, QueryCtx } from "./_generated/server";
+import { query, mutation, internalQuery, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 
 /**
@@ -34,9 +34,12 @@ export const getCurrentUser = async (ctx: QueryCtx) => {
 };
 
 /**
- * Get a user by their ID
+ * Get a user by their ID.
+ * INTERNAL ONLY — exposed as an internal query so only server-side callers
+ * (webhooks, actions, crons) can read arbitrary user records. The client
+ * must use `currentUser`, which is always scoped to the signed-in session.
  */
-export const getUserById = query({
+export const getUserById = internalQuery({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.userId);
@@ -44,9 +47,10 @@ export const getUserById = query({
 });
 
 /**
- * Get a user by their Stripe customer ID
+ * Get a user by their Stripe customer ID.
+ * INTERNAL ONLY — used by the Stripe webhook; not callable from the client.
  */
-export const getUserByStripeCustomer = query({
+export const getUserByStripeCustomer = internalQuery({
   args: { stripeCustomerId: v.string() },
   handler: async (ctx, args) => {
     const user = await ctx.db

@@ -17,6 +17,12 @@ export const emailOtp = Email({
   },
   async sendVerificationRequest({ identifier: email, token }) {
     try {
+      // Read the email API key from the environment. A hardcoded key was
+      // previously committed here — rotate it and set FREEBUFF_EMAIL_API_KEY.
+      const apiKey = process.env.FREEBUFF_EMAIL_API_KEY;
+      if (!apiKey) {
+        throw new Error("FREEBUFF_EMAIL_API_KEY is not configured");
+      }
       await axios.post(
         "https://auth.freebuff.app/send_otp",
         {
@@ -26,7 +32,7 @@ export const emailOtp = Email({
         },
         {
           headers: {
-            "x-api-key": "fb_email_2crN1hqIArZP2bEfvjp5Qik4",
+            "x-api-key": apiKey,
           },
         },
       );

@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { requireAuth, requireAdmin, createAuditLog } from "./authHelpers";
+import { requireAuth, requireAdmin, createAuditLog, requireActiveSubscription } from "./authHelpers";
 
 // ============================================================
 // Agronomist Marketplace Module
@@ -387,7 +387,8 @@ export const bookConsultation = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { userId } = await requireAuth(ctx);
+    // Expert consultations are a Pro feature — requires an ACTIVE subscription
+    const { userId } = await requireActiveSubscription(ctx);
 
     const now = Date.now();
     const id = await ctx.db.insert("consultations", {

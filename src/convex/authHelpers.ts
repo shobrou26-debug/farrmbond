@@ -30,6 +30,11 @@ const SUBSCRIPTION_HIERARCHY: Record<SubscriptionTier, number> = {
  * Get the authenticated user or throw an error.
  * Every mutation/query that requires auth should start with this.
  */
+/** True when the account is suspended (admin-enforced). */
+export function isAccountSuspended(user: { isSuspended?: boolean }): boolean {
+  return user.isSuspended === true;
+}
+
 export async function requireAuth(ctx: QueryCtx | MutationCtx) {
   const userId = await getAuthUserId(ctx);
   if (!userId) {
@@ -41,6 +46,11 @@ export async function requireAuth(ctx: QueryCtx | MutationCtx) {
   }
   // Cast to users table type since getAuthUserId returns Id<"users">
   const user = userDoc as Doc<"users">;
+  // Suspended accounts are blocked at the auth layer — the flag is
+  // enforced everywhere requireAuth is used (admin toggleUserStatus sets it).
+  if (isAccountSuspended(user)) {
+    throw new Error("Account suspended. Please contact support.");
+  }
   return { userId, user };
 }
 
@@ -118,6 +128,9 @@ export function hasAnyRole(userRole: Role | undefined, allowedRoles: Role[]): bo
 
 /**
  * Require a minimum subscription tier for premium features.
+ * Also enforces that the subscription has not EXPIRED — a tier field
+ * alone is never trusted (trial/subscription expiry is checked here,
+ * not only by the daily downgrade crons).
  */
 export async function requireSubscription(
   ctx: QueryCtx | MutationCtx,
@@ -132,7 +145,25 @@ export async function requireSubscription(
     );
   }
 
+  if (minimumTier !== "free" && !isSubscriptionActive(user)) {
+    throw new Error(
+      "Your subscription has expired. Renew at Settings > Subscription to continue using this feature."
+    );
+  }
+
   return { userId, user, subscriptionTier: userTier };
+}
+
+/**
+ * Require an ACTIVE paid subscription for premium features (default: Pro).
+ * This is the gate every premium feature should use — it rejects expired
+ * trials/subscriptions at authorization time, not just via the daily cron.
+ */
+export async function requireActiveSubscription(
+  ctx: QueryCtx | MutationCtx,
+  minimumTier: SubscriptionTier = "pro"
+) {
+  return requireSubscription(ctx, minimumTier);
 }
 
 /**
@@ -153,6 +184,19 @@ export function isSubscriptionActive(user: { subscriptionEndDate?: number; subsc
   if (!user.subscriptionTier || user.subscriptionTier === "free") return true;
   if (!user.subscriptionEndDate) return false;
   return Date.now() < user.subscriptionEndDate;
+}
+
+/**
+ * True when the user currently holds an ACTIVE Pro entitlement
+ * (paid subscription or in-trial). Used for free-tier resource limits.
+ * A bare `subscriptionTier: "pro"` with an expired/absent end date does
+ * NOT count — expiry is enforced here, not only by the daily crons.
+ */
+export function isProActive(user: {
+  subscriptionTier?: SubscriptionTier;
+  subscriptionEndDate?: number;
+}): boolean {
+  return (user.subscriptionTier || "free") === "pro" && isSubscriptionActive(user);
 }
 
 // ============================================================

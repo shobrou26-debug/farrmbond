@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQuery, useAction } from "convex/react";
+import { useNavigate } from "react-router";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -142,8 +143,14 @@ export function SatelliteViewer({
   latitude,
   longitude,
 }: SatelliteViewerProps) {
+  const navigate = useNavigate();
+
   // Existing stored analysis (reactive — updates after a fresh scan)
   const analysis = useQuery(api.satellite.getSatelliteAnalysis, open ? { farmId } : "skip");
+
+  // Subscription status — satellite analysis is a Pro feature (server-enforced)
+  const subStatus = useQuery(api.subscriptions.getSubscriptionStatus, open ? {} : "skip");
+  const isProActive = subStatus?.isActive === true;
 
   // Manual "scan now" — hits the real Copernicus API server-side
   const analyzeFarmSatellite = useAction(api.satellite.analyzeFarmSatellite);
@@ -259,24 +266,41 @@ export function SatelliteViewer({
 
           {/* Analysis Panel */}
           <div className="w-full md:w-80 border-t md:border-t-0 md:border-l border-border overflow-y-auto p-4 space-y-4">
-            {/* Scan Now */}
+            {/* Scan Now — Pro feature */}
             <div className="p-3 rounded-xl border border-border">
               <p className="text-sm font-medium mb-2 flex items-center gap-2">
                 <Layers className="w-4 h-4 text-primary" />
                 Analyze from satellite
               </p>
-              <Button
-                onClick={handleScan}
-                disabled={scanning}
-                size="sm"
-                className="w-full"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 mr-2 ${scanning ? "animate-spin" : ""}`} />
-                {scanning ? "Contacting Copernicus..." : "Run new analysis"}
-              </Button>
-              <p className="text-[10px] text-muted-foreground mt-2">
-                Fetches the latest cloud-free Sentinel-2 scene for this location from the Copernicus API.
-              </p>
+              {isProActive ? (
+                <>
+                  <Button
+                    onClick={handleScan}
+                    disabled={scanning}
+                    size="sm"
+                    className="w-full"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 mr-2 ${scanning ? "animate-spin" : ""}`} />
+                    {scanning ? "Contacting Copernicus..." : "Run new analysis"}
+                  </Button>
+                  <p className="text-[10px] text-muted-foreground mt-2">
+                    Fetches the latest cloud-free Sentinel-2 scene for this location from the Copernicus API.
+                  </p>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    Satellite NDVI analysis is a <span className="font-medium text-foreground">Pro</span> feature.
+                  </p>
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    onClick={() => navigate("/settings?tab=subscription")}
+                  >
+                    Upgrade to Pro
+                  </Button>
+                </div>
+              )}
               {scanError && (
                 <p className="text-[11px] text-amber-600 mt-2 flex items-start gap-1.5">
                   <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />

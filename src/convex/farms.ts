@@ -10,6 +10,7 @@ import {
   validateCoordinates,
   sanitizeInput,
   requireOwnerOfResource,
+  isProActive,
 } from "./authHelpers";
 import { ROLES } from "./schema";
 
@@ -222,7 +223,21 @@ export const createFarm = mutation({
   },
   handler: async (ctx, args) => {
     // Authorization: any authenticated user can create a farm
-    const { userId } = await requireAuth(ctx);
+    const { userId, user } = await requireAuth(ctx);
+
+    // Free tier is limited to 1 farm — enforced server-side, not just in the UI.
+    // Pro (paid or in-trial) is unlimited.
+    if (!isProActive(user)) {
+      const farms = await ctx.db
+        .query("farms")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect();
+      if (farms.length >= 1) {
+        throw new Error(
+          "Free plan includes 1 farm. Upgrade to FarmBond Pro for unlimited farms."
+        );
+      }
+    }
 
     // Input validation
     const name = sanitizeInput(validateString(args.name, "Farm name", 100));
@@ -258,10 +273,10 @@ export const createFarm = mutation({
     });
 
     // Update user's farm size
-    const user = await ctx.db.get(userId);
-    if (user) {
+    const userDoc = await ctx.db.get(userId);
+    if (userDoc) {
       await ctx.db.patch(userId, {
-        farmSize: (user.farmSize || 0) + args.size,
+        farmSize: (userDoc.farmSize || 0) + args.size,
         updatedAt: now,
       });
     }

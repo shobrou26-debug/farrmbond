@@ -8,6 +8,7 @@ import {
   validateString,
   validateNumber,
   sanitizeInput,
+  isProActive,
 } from "./authHelpers";
 
 // ============================================================
@@ -115,10 +116,24 @@ export const createCrop = mutation({
     otherCosts: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const { userId } = await requireAuth(ctx);
+    const { userId, user } = await requireAuth(ctx);
 
     // Verify user owns the farm
     await verifyFarmOwnership(ctx, args.farmId, userId);
+
+    // Free tier is limited to 5 crops — enforced server-side, not just in the UI.
+    // Pro (paid or in-trial) is unlimited.
+    if (!isProActive(user)) {
+      const crops = await ctx.db
+        .query("crops")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect();
+      if (crops.length >= 5) {
+        throw new Error(
+          "Free plan includes 5 crops. Upgrade to FarmBond Pro for unlimited crops."
+        );
+      }
+    }
 
     // Input validation
     const name = sanitizeInput(validateString(args.name, "Crop name", 100));
