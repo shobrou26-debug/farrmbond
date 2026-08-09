@@ -199,6 +199,35 @@ export function isProActive(user: {
   return (user.subscriptionTier || "free") === "pro" && isSubscriptionActive(user);
 }
 
+/**
+ * Premium features (exports, analytics, reports) resolve to exactly one of
+ * three states. Server gates call `requireActiveSubscription` (which throws
+ * for non-allowed states); this pure resolver mirrors the same rule for
+ * tests and for the client-facing error messaging.
+ */
+export type PremiumAccessStatus = "allowed" | "expired" | "free";
+
+export function getPremiumAccessStatus(user: {
+  subscriptionTier?: SubscriptionTier;
+  subscriptionEndDate?: number;
+}): PremiumAccessStatus {
+  if ((user.subscriptionTier || "free") === "pro") {
+    return isSubscriptionActive(user) ? "allowed" : "expired";
+  }
+  return "free";
+}
+
+/** Premium resources that share the same expiry-aware Pro gate. */
+export const PREMIUM_RESOURCES = ["exports", "analytics", "reports"] as const;
+export type PremiumResource = (typeof PREMIUM_RESOURCES)[number];
+
+export function hasPremiumAccess(user: {
+  subscriptionTier?: SubscriptionTier;
+  subscriptionEndDate?: number;
+}): boolean {
+  return getPremiumAccessStatus(user) === "allowed";
+}
+
 // ============================================================
 // Resource Ownership Verification
 // ============================================================

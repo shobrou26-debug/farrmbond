@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
-import { useQuery } from "convex/react";
+import { toast } from "sonner";
+import { useQuery, useAction } from "convex/react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { api } from "@/convex/_generated/api";
-import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { useCurrency } from "@/hooks/use-currency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -47,13 +47,16 @@ type Livestock = {
 
 export default function Analytics() {
   const { format } = useCurrency();
-  const financial = useQuery(api.transactions.getFinancialSummary);
-  const monthlyData = useQuery(api.transactions.getMonthlyFinancialSummary, { months: 7 });
-  const farmsResult = useQuery(api.farms.listUserFarms, {
-    paginationOpts: { numItems: 200, cursor: null },
-  });
-  const { results: crops } = usePaginatedQuery<Crop>(api.crops.listUserCrops);
-  const { results: livestock } = usePaginatedQuery<Livestock>(api.livestock.listUserLivestock);
+  // Advanced analytics is a Pro feature — ALL data flows through the gated
+  // server query. Free/expired users receive an authorization error instead
+  // of any analytics data.
+  const dashboard = useQuery(api.analytics.getAnalyticsDashboard);
+  const financial = dashboard?.financial;
+  const monthlyData = dashboard?.monthly ?? [];
+  const farmsResult = dashboard ? { page: dashboard.farms ?? [] } : undefined;
+  const crops = dashboard?.crops ?? [];
+  const livestock = dashboard?.livestock ?? [];
+  const getExportData = useAction(api.exports.getExportData);
 
   const farmCount = farmsResult?.page?.length ?? 0;
 
@@ -132,20 +135,22 @@ export default function Analytics() {
   const chartData = monthlyData ?? [];
   const maxVal = Math.max(1, ...chartData.map((d) => Math.max(d.income, d.expenses)));
 
-  const handleExportPDF = () => {
-    exportAnalyticsData(
-      chartData.map((d) => ({ period: d.month, revenue: d.income, expenses: d.expenses, profit: d.profit })),
-      "Analytics Report",
-      "pdf"
-    );
+  const handleExportPDF = async () => {
+    try {
+      const bundle = await getExportData({ resource: "analytics" });
+      exportAnalyticsData(bundle.rows, "Analytics Report", "pdf");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Exports require FarmBond Pro");
+    }
   };
 
-  const handleExportExcel = () => {
-    exportAnalyticsData(
-      chartData.map((d) => ({ period: d.month, revenue: d.income, expenses: d.expenses, profit: d.profit })),
-      "Analytics Report",
-      "excel"
-    );
+  const handleExportExcel = async () => {
+    try {
+      const bundle = await getExportData({ resource: "analytics" });
+      exportAnalyticsData(bundle.rows, "Analytics Report", "excel");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Exports require FarmBond Pro");
+    }
   };
 
   const topCrops = useMemo(

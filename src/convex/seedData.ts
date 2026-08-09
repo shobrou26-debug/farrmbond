@@ -167,7 +167,9 @@ export const seedMarketplace = mutation({
       ];
 
       for (const profile of agronomistData) {
-        await ctx.db.insert("agronomistProfiles", profile);
+        // Seed profiles are DEVELOPMENT/DEMO data — explicitly marked approved.
+        // Real agronomists go through the pending → admin-review journey.
+        await ctx.db.insert("agronomistProfiles", { ...profile, status: "approved" });
         results.agronomists++;
       }
     }

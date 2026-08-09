@@ -215,6 +215,75 @@ export const createEvent = mutation({
   },
 });
 
+/** Admin: list ALL events including inactive/deleted-pending ones */
+export const listAllEvents = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    return await ctx.db.query("farmingEvents").order("desc").collect();
+  },
+});
+
+/** Edit a farming event (admin only) */
+export const updateEvent = mutation({
+  args: {
+    eventId: v.id("farmingEvents"),
+    title: v.optional(v.string()),
+    type: v.optional(v.union(
+      v.literal("training"),
+      v.literal("expo"),
+      v.literal("workshop"),
+      v.literal("sponsored")
+    )),
+    description: v.optional(v.string()),
+    location: v.optional(v.string()),
+    startDate: v.optional(v.number()),
+    endDate: v.optional(v.number()),
+    time: v.optional(v.string()),
+    organizer: v.optional(v.string()),
+    maxCapacity: v.optional(v.number()),
+    ticketPrice: v.optional(v.string()),
+    sponsored: v.optional(v.boolean()),
+    sponsorName: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
+    imageUrl: v.optional(v.string()),
+    isActive: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAdmin(ctx);
+    const event = await ctx.db.get(args.eventId);
+    if (!event) throw new Error("Event not found");
+    const { eventId, ...updates } = args;
+
+    await ctx.db.patch(args.eventId, {
+      ...(updates.title !== undefined && { title: sanitizeInput(validateString(updates.title, "Event title", 200)) }),
+      ...(updates.type !== undefined && { type: updates.type }),
+      ...(updates.description !== undefined && { description: sanitizeInput(validateString(updates.description, "Description", 5000)) }),
+      ...(updates.location !== undefined && { location: sanitizeInput(validateString(updates.location, "Location", 200)) }),
+      ...(updates.startDate !== undefined && { startDate: updates.startDate }),
+      ...(updates.endDate !== undefined && { endDate: updates.endDate }),
+      ...(updates.time !== undefined && { time: updates.time }),
+      ...(updates.organizer !== undefined && { organizer: sanitizeInput(validateString(updates.organizer, "Organizer", 200)) }),
+      ...(updates.maxCapacity !== undefined && { maxCapacity: updates.maxCapacity }),
+      ...(updates.ticketPrice !== undefined && { ticketPrice: updates.ticketPrice }),
+      ...(updates.sponsored !== undefined && { sponsored: updates.sponsored }),
+      ...(updates.sponsorName ? { sponsorName: sanitizeInput(updates.sponsorName) } : {}),
+      ...(updates.tags !== undefined && { tags: updates.tags.map((t) => sanitizeInput(t)).slice(0, 10) }),
+      ...(updates.imageUrl !== undefined && { imageUrl: updates.imageUrl }),
+      ...(updates.isActive !== undefined && { isActive: updates.isActive }),
+      updatedAt: Date.now(),
+    });
+    await createAuditLog(ctx, {
+      userId,
+      action: "event_updated",
+      resource: "farmingEvents",
+      resourceId: args.eventId,
+      changes: { title: updates.title ?? event.title },
+    });
+    return { success: true };
+  },
+});
+
 /** Delete an event (admin only) */
 export const deleteEvent = mutation({
   args: { eventId: v.id("farmingEvents") },

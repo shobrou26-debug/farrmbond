@@ -1,7 +1,9 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
 import {
   requireAuth,
+  requireAdmin,
   createAuditLog,
   validateString,
   sanitizeInput,
@@ -272,5 +274,144 @@ export const incrementShareCount = mutation({
     if (!post) throw new Error("Post not found");
     await ctx.db.patch(args.postId, { shares: (post.shares ?? 0) + 1 });
     return true;
+  },
+});
+
+// ============================================================
+// Moderation (Phase 4D)
+// Users report posts; admins review and hide/restore. Hiding flips
+// isApproved off so the post disappears from every public listing.
+// ============================================================
+
+/**
+ * Pure: next visibility for a moderation action.
+ * "hide" → hidden; "restore" → visible. Anything else is invalid.
+ */
+export function nextModerationVisibility(
+  action: string,
+  currentApproved: boolean
+): { isApproved: boolean; valid: boolean } {
+  if (action === "hide") return { isApproved: false, valid: true };
+  if (action === "restore") return { isApproved: true, valid: true };
+  return { isApproved: currentApproved, valid: false };
+}
+
+/**
+ * Report a post (authenticated users). One report per user per post —
+ * re-reporting updates the reason. Self-reports are rejected.
+ */
+export const reportPost = mutation({
+  args: {
+    postId: v.id("communityPosts"),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    const post = await ctx.db.get(args.postId);
+    if (!post) throw new Error("Post not found");
+    if (post.userId === userId) {
+      throw new Error("You cannot report your own post");
+    }
+    const reason = sanitizeInput(validateString(args.reason, "Report reason", 500));
+
+    const existing = await ctx.db
+      .query("communityReports")
+      .withIndex("by_post", (q) => q.eq("postId", args.postId))
+      .filter((q) => q.eq(q.field("userId"), userId))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { reason, createdAt: Date.now() });
+      return { success: true, alreadyReported: true };
+    }
+
+    await ctx.db.insert("communityReports", {
+      postId: args.postId,
+      userId,
+      reason,
+      status: "open",
+      createdAt: Date.now(),
+    });
+    return { success: true, alreadyReported: false };
+  },
+});
+
+/**
+ * Admin: hide or restore a post. Hidden posts are excluded from public
+ * listings (isApproved false) but are never deleted — restorable.
+ */
+export const moderatePost = mutation({
+  args: {
+    postId: v.id("communityPosts"),
+    action: v.union(v.literal("hide"), v.literal("restore")),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAdmin(ctx);
+    const post = await ctx.db.get(args.postId);
+    if (!post) throw new Error("Post not found");
+
+    const visibility = nextModerationVisibility(args.action, post.isApproved);
+    if (!visibility.valid) throw new Error("Invalid moderation action");
+    if (visibility.isApproved === post.isApproved) {
+      throw new Error("Post is already in that state");
+    }
+
+    await ctx.db.patch(args.postId, { isApproved: visibility.isApproved, updatedAt: Date.now() });
+
+    // Resolve any open reports for this post.
+    const openReports = await ctx.db
+      .query("communityReports")
+      .withIndex("by_post", (q) => q.eq("postId", args.postId))
+      .filter((q) => q.eq(q.field("status"), "open"))
+      .collect();
+    for (const report of openReports) {
+      await ctx.db.patch(report._id, {
+        status: "resolved",
+        resolvedBy: userId,
+        resolvedAt: Date.now(),
+      });
+    }
+
+    await createAuditLog(ctx, {
+      userId,
+      action: args.action === "hide" ? "post_hidden" : "post_restored",
+      resource: "communityPosts",
+      resourceId: args.postId,
+      changes: { title: post.title, reportsResolved: openReports.length },
+    });
+
+    return { success: true, isApproved: visibility.isApproved };
+  },
+});
+
+/**
+ * Admin: list reported posts with report counts and the post content.
+ */
+export const listReportedPosts = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const reports = await ctx.db.query("communityReports").collect();
+    const byPost = new Map<string, any[]>();
+    for (const report of reports) {
+      const list = byPost.get(report.postId) || [];
+      list.push(report);
+      byPost.set(report.postId, list);
+    }
+    const out = await Promise.all(
+      [...byPost.entries()].map(async ([postId, postReports]) => {
+        const post = await ctx.db.get(postId as Id<"communityPosts">);
+        return {
+          postId,
+          title: post?.title ?? "[deleted]",
+          isApproved: post?.isApproved ?? false,
+          reportCount: postReports.length,
+          openReports: postReports.filter((r) => r.status === "open").length,
+          reasons: postReports.slice(0, 5).map((r) => r.reason),
+          lastReportedAt: Math.max(...postReports.map((r) => r.createdAt)),
+        };
+      })
+    );
+    return out.sort((a, b) => b.lastReportedAt - a.lastReportedAt);
   },
 });

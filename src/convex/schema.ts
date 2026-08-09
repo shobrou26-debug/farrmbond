@@ -523,6 +523,15 @@ const schema = defineSchema(
         end: v.string(), // "17:00"
       }),
       timezone: v.string(),
+
+      // Application / approval state (Phase 4B)
+      // "pending" | "approved" | "rejected" — agronomists are NEVER
+      // implicitly active; only an admin review makes a profile visible.
+      status: v.string(),
+      appliedAt: v.optional(v.number()),
+      rejectionReason: v.optional(v.string()),
+      reviewedAt: v.optional(v.number()),
+      reviewedBy: v.optional(v.id("users")),
       
       // Ratings
       averageRating: v.number(),
@@ -542,7 +551,8 @@ const schema = defineSchema(
     })
       .index("by_user", ["userId"])
       .index("by_rating", ["averageRating"])
-      .index("by_specializations", ["specializations"]),
+      .index("by_specializations", ["specializations"])
+      .index("by_status", ["status"]),
 
     // ============================================================
     // CONSULTATIONS TABLE
@@ -645,6 +655,23 @@ const schema = defineSchema(
       .index("by_post", ["postId"])
       .index("by_user", ["userId"])
       .index("by_parent", ["parentCommentId"]),
+
+    // ============================================================
+    // COMMUNITY REPORTS (Phase 4D — moderation)
+    // ============================================================
+    communityReports: defineTable({
+      postId: v.id("communityPosts"),
+      userId: v.id("users"),
+      reason: v.string(),
+      status: v.string(), // "open" | "resolved"
+      resolvedBy: v.optional(v.id("users")),
+      resolvedAt: v.optional(v.number()),
+      createdAt: v.number(),
+    })
+      .index("by_post", ["postId"])
+      .index("by_user", ["userId"])
+      .index("by_status", ["status"])
+      .index("by_post_status", ["postId", "status"]),
 
     // ============================================================
     // NOTIFICATIONS TABLE

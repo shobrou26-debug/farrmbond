@@ -22,6 +22,7 @@ import {
 import { motion } from "framer-motion";
 import { Skeleton } from "@/components/ui/skeleton";
 import ConsultationBooking from "@/components/ConsultationBooking";
+import { AgronomistApplyCard } from "@/components/agronomist/AgronomistApplyCard";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -113,6 +114,9 @@ export default function AgronomistMarketplace() {
             </Badge>
           </div>
         </motion.div>
+
+        {/* Become an Agronomist — real application journey */}
+        <AgronomistApplyCard />
 
         {/* Search and Filters */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6">

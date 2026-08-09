@@ -1,10 +1,29 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { requireAuth, requireAdmin, createAuditLog, requireActiveSubscription } from "./authHelpers";
+import {
+  requireAuth,
+  requireAdmin,
+  createAuditLog,
+  requireActiveSubscription,
+  validateString,
+  validateNumber,
+  sanitizeInput,
+} from "./authHelpers";
+import { ROLES } from "./schema";
 
 // ============================================================
 // Agronomist Marketplace Module
 // ============================================================
+
+/**
+ * Pure: a profile is public only when it is EXPLICITLY approved.
+ * Legacy/seed profiles without a status field are treated as approved
+ * development data; real applications are strictly status === "approved".
+ */
+export function isApprovedAgronomist(profile: { status?: string } | null | undefined): boolean {
+  if (!profile) return false;
+  return (profile.status ?? "approved") === "approved";
+}
 
 /** List all agronomist profiles with optional filtering */
 export const listAgronomists = query({
@@ -30,6 +49,9 @@ export const listAgronomists = query({
         .order("desc")
         .collect();
     }
+
+    // Only approved agronomists are ever listed publicly.
+    profiles = profiles.filter(isApprovedAgronomist);
 
     // Join with user data for name/avatar
     const results = await Promise.all(
@@ -66,7 +88,8 @@ export const getAgronomist = query({
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .first();
 
-    if (!profile) return null;
+    // Pending/rejected applications are never public.
+    if (!profile || !isApprovedAgronomist(profile)) return null;
 
     const user = await ctx.db.get(profile.userId);
     return {
@@ -77,6 +100,249 @@ export const getAgronomist = query({
       location: user?.location ?? null,
       bio: user?.bio ?? null,
     };
+  },
+});
+
+// ============================================================
+// Agronomist Application Journey (Phase 4B)
+// Farmer/Admin → apply → admin review → approved/rejected.
+// Applications belong to the authenticated applicant; only admins review.
+// ============================================================
+
+const AGRO_SERVICE_TYPES = ["chat", "video", "field_visit"] as const;
+
+function validateAgronomistInput(args: {
+  title: string;
+  specializations: string[];
+  experience: number;
+  services: Array<{ name: string; description: string; price: number; duration: number; type: string }>;
+  availableDays: string[];
+  availableHours: { start: string; end: string };
+  timezone: string;
+}) {
+  const title = sanitizeInput(validateString(args.title, "Professional title", 100));
+  const specializations = (args.specializations || [])
+    .map((s) => sanitizeInput(s))
+    .filter((s) => s.length > 0)
+    .slice(0, 10);
+  if (specializations.length === 0) {
+    throw new Error("Validation error: At least one specialization is required");
+  }
+  validateNumber(args.experience, "Experience (years)", 0, 80);
+  const services = (args.services || []).slice(0, 20).map((s) => ({
+    name: sanitizeInput(validateString(s.name, "Service name", 100)),
+    description: sanitizeInput(validateString(s.description, "Service description", 500)),
+    price: validateNumber(s.price, "Service price", 0, 1000000),
+    duration: validateNumber(s.duration, "Service duration (min)", 15, 480),
+    type: AGRO_SERVICE_TYPES.includes(s.type as (typeof AGRO_SERVICE_TYPES)[number])
+      ? (s.type as (typeof AGRO_SERVICE_TYPES)[number])
+      : "chat",
+  }));
+  if (services.length === 0) {
+    throw new Error("Validation error: At least one service is required");
+  }
+  const availableDays = (args.availableDays || []).slice(0, 7);
+  const availableHours = {
+    start: sanitizeInput(validateString(args.availableHours?.start ?? "", "Start hour", 10)),
+    end: sanitizeInput(validateString(args.availableHours?.end ?? "", "End hour", 10)),
+  };
+  const timezone = sanitizeInput(validateString(args.timezone, "Timezone", 100));
+  return { title, specializations, experience: args.experience, services, availableDays, availableHours, timezone };
+}
+
+/**
+ * Submit or re-submit the authenticated user's agronomist application.
+ * The applicant's identity always comes from the session — a client can
+ * never apply on behalf of someone else. Approvals happen ONLY via
+ * reviewAgronomistApplication (admin).
+ */
+export const applyAsAgronomist = mutation({
+  args: {
+    title: v.string(),
+    specializations: v.array(v.string()),
+    experience: v.number(),
+    services: v.array(v.object({
+      name: v.string(),
+      description: v.string(),
+      price: v.number(),
+      duration: v.number(),
+      type: v.union(v.literal("chat"), v.literal("video"), v.literal("field_visit")),
+    })),
+    availableDays: v.array(v.string()),
+    availableHours: v.object({ start: v.string(), end: v.string() }),
+    timezone: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    const data = validateAgronomistInput(args);
+    const now = Date.now();
+
+    const existing = await ctx.db
+      .query("agronomistProfiles")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .first();
+
+    if (existing) {
+      if (existing.status === "approved") {
+        throw new Error("Your agronomist profile is already approved");
+      }
+      await ctx.db.patch(existing._id, {
+        ...data,
+        status: "pending",
+        appliedAt: now,
+        rejectionReason: undefined,
+        reviewedAt: undefined,
+        reviewedBy: undefined,
+        updatedAt: now,
+      });
+      await createAuditLog(ctx, {
+        userId,
+        action: "agronomist_applied",
+        resource: "agronomistProfiles",
+        resourceId: existing._id,
+        changes: { title: data.title, resubmitted: true },
+      });
+      return { profileId: existing._id, status: "pending" };
+    }
+
+    const profileId = await ctx.db.insert("agronomistProfiles", {
+      userId,
+      ...data,
+      status: "pending",
+      appliedAt: now,
+      averageRating: 0,
+      totalReviews: 0,
+      totalConsultations: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await createAuditLog(ctx, {
+      userId,
+      action: "agronomist_applied",
+      resource: "agronomistProfiles",
+      resourceId: profileId,
+      changes: { title: data.title },
+    });
+    return { profileId, status: "pending" };
+  },
+});
+
+/** The applicant's own application status (any state). */
+export const getMyAgronomistApplication = query({
+  args: {},
+  handler: async (ctx) => {
+    const { userId } = await requireAuth(ctx);
+    const profile = await ctx.db
+      .query("agronomistProfiles")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .first();
+    if (!profile) return null;
+    return {
+      profileId: profile._id,
+      status: profile.status ?? "approved",
+      title: profile.title,
+      rejectionReason: profile.rejectionReason,
+      appliedAt: profile.appliedAt,
+      reviewedAt: profile.reviewedAt,
+    };
+  },
+});
+
+/**
+ * Admin: list agronomist applications (pending by default) with applicant
+ * details. Pending/rejected profiles are NOT visible through the public
+ * marketplace queries — only here (admin) or to the applicant themselves.
+ */
+export const listAgronomistApplications = query({
+  args: {
+    status: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("rejected"))),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    let profiles = args.status
+      ? await ctx.db
+          .query("agronomistProfiles")
+          .withIndex("by_status", (q) => q.eq("status", args.status!))
+          .order("desc")
+          .collect()
+      : await ctx.db.query("agronomistProfiles").fullTableScan().collect();
+
+    profiles = profiles.sort((a, b) => (b.appliedAt ?? b.createdAt) - (a.appliedAt ?? a.createdAt));
+
+    return Promise.all(
+      profiles.map(async (profile) => {
+        const user = await ctx.db.get(profile.userId);
+        return {
+          profileId: profile._id,
+          userId: profile.userId,
+          status: profile.status ?? "approved",
+          title: profile.title,
+          specializations: profile.specializations,
+          experience: profile.experience,
+          services: profile.services,
+          appliedAt: profile.appliedAt ?? profile.createdAt,
+          rejectionReason: profile.rejectionReason,
+          applicantName: user?.name ?? "Unknown",
+          applicantEmail: user?.email ?? "",
+        };
+      })
+    );
+  },
+});
+
+/**
+ * Admin: approve or reject an agronomist application.
+ * Approval is the ONLY path to an active agronomist profile, and it also
+ * promotes the applicant's role. Rejection demotes back to farmer.
+ */
+export const reviewAgronomistApplication = mutation({
+  args: {
+    profileId: v.id("agronomistProfiles"),
+    action: v.union(v.literal("approve"), v.literal("reject")),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAdmin(ctx);
+    const profile = await ctx.db.get(args.profileId);
+    if (!profile) throw new Error("Agronomist application not found");
+    const now = Date.now();
+
+    if (args.action === "approve") {
+      await ctx.db.patch(profile._id, {
+        status: "approved",
+        rejectionReason: undefined,
+        reviewedAt: now,
+        reviewedBy: userId,
+        updatedAt: now,
+      });
+      await ctx.db.patch(profile.userId, { role: ROLES.AGRONOMIST, updatedAt: now });
+    } else {
+      await ctx.db.patch(profile._id, {
+        status: "rejected",
+        rejectionReason: args.reason
+          ? sanitizeInput(args.reason).slice(0, 500)
+          : "Application not approved",
+        reviewedAt: now,
+        reviewedBy: userId,
+        updatedAt: now,
+      });
+      await ctx.db.patch(profile.userId, { role: ROLES.FARMER, updatedAt: now });
+    }
+
+    await createAuditLog(ctx, {
+      userId,
+      action: "agronomist_reviewed",
+      resource: "agronomistProfiles",
+      resourceId: profile._id,
+      changes: {
+        action: args.action,
+        reason: args.reason ?? undefined,
+        applicantUserId: profile.userId,
+        title: profile.title,
+      },
+    });
+
+    return { success: true, status: args.action === "approve" ? "approved" : "rejected" };
   },
 });
 
@@ -389,6 +655,15 @@ export const bookConsultation = mutation({
   handler: async (ctx, args) => {
     // Expert consultations are a Pro feature — requires an ACTIVE subscription
     const { userId } = await requireActiveSubscription(ctx);
+
+    // Only APPROVED agronomists can receive bookings.
+    const agronomistProfile = await ctx.db
+      .query("agronomistProfiles")
+      .withIndex("by_user", (q) => q.eq("userId", args.agronomistId))
+      .first();
+    if (!agronomistProfile || !isApprovedAgronomist(agronomistProfile)) {
+      throw new Error("This agronomist is not available for bookings");
+    }
 
     const now = Date.now();
     const id = await ctx.db.insert("consultations", {

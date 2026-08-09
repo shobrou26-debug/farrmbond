@@ -1,11 +1,15 @@
 import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAction } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { toast } from "sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ExportDropdown } from "@/components/ExportDropdown";
+import { exportAnalyticsData } from "@/lib/exports";
 import {
   useAuditLog,
   AuditLogEntry,
@@ -98,7 +102,6 @@ export default function AuditLog() {
     stats,
     getLogs,
     clearLogs,
-    exportLogs,
   } = useAuditLog();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -108,6 +111,18 @@ export default function AuditLog() {
   const [expandedLog, setExpandedLog] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [activeTab, setActiveTab] = useState<"activity" | "users" | "entities">("activity");
+
+  // Exports are a Pro feature — data flows through the gated backend action.
+  const getExportData = useAction(api.exports.getExportData);
+
+  const handleProExport = async (format: "pdf" | "excel") => {
+    try {
+      const bundle = await getExportData({ resource: "audit_log" });
+      exportAnalyticsData(bundle.rows, "Audit Logs", format);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Exports require FarmBond Pro");
+    }
+  };
 
   // Filter logs
   const filteredLogs = useMemo(() => {
@@ -293,8 +308,8 @@ export default function AuditLog() {
             </div>
             <div className="flex gap-2">
               <ExportDropdown
-                onExportPDF={() => exportLogs("pdf")}
-                onExportExcel={() => exportLogs("excel")}
+                onExportPDF={() => handleProExport("pdf")}
+                onExportExcel={() => handleProExport("excel")}
                 label="Export Logs"
               />
               <Button variant="outline" onClick={clearLogs}>

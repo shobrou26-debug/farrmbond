@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { requireAuth, requireAdmin } from "./authHelpers";
+import { requireAuth, requireAdmin, createAuditLog } from "./authHelpers";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
 /** List published knowledge articles with optional category filter */
@@ -25,11 +25,11 @@ export const listPublished = query({
   },
 });
 
-/** List all knowledge articles (admin) */
+/** List all knowledge articles (ADMIN only — includes unpublished drafts) */
 export const listAll = query({
   args: {},
   handler: async (ctx) => {
-    await requireAuth(ctx);
+    await requireAdmin(ctx);
     return await ctx.db.query("knowledgeArticles").collect();
   },
 });
@@ -76,6 +76,74 @@ export const deleteArticle = mutation({
     await requireAdmin(ctx);
     await ctx.db.delete(args.articleId);
     return { success: true };
+  },
+});
+
+/**
+ * Pure: next publish state for a toggle.
+ * Publishing stamps a publishedAt; unpublishing keeps the record intact.
+ */
+export function nextPublishState(
+  currentPublished: boolean | undefined,
+  desiredPublished: boolean
+): { isPublished: boolean; publishedAt?: number } {
+  const now = Date.now();
+  if (desiredPublished) {
+    return {
+      isPublished: true,
+      ...(currentPublished ? {} : { publishedAt: now }),
+    };
+  }
+  return { isPublished: false };
+}
+
+/** Edit a knowledge article (admin only) */
+export const updateArticle = mutation({
+  args: {
+    articleId: v.id("knowledgeArticles"),
+    title: v.optional(v.string()),
+    summary: v.optional(v.string()),
+    content: v.optional(v.string()),
+    category: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAdmin(ctx);
+    const article = await ctx.db.get(args.articleId);
+    if (!article) throw new Error("Article not found");
+    const { articleId, ...updates } = args;
+    await ctx.db.patch(articleId, { ...updates, updatedAt: Date.now() });
+    await createAuditLog(ctx, {
+      userId,
+      action: "article_updated",
+      resource: "knowledgeArticles",
+      resourceId: articleId,
+      changes: { fields: Object.keys(updates) },
+    });
+    return { success: true };
+  },
+});
+
+/** Publish or unpublish a knowledge article (admin only) */
+export const setArticlePublished = mutation({
+  args: {
+    articleId: v.id("knowledgeArticles"),
+    published: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAdmin(ctx);
+    const article = await ctx.db.get(args.articleId);
+    if (!article) throw new Error("Article not found");
+    const state = nextPublishState(article.isPublished, args.published);
+    await ctx.db.patch(args.articleId, { ...state, updatedAt: Date.now() });
+    await createAuditLog(ctx, {
+      userId,
+      action: args.published ? "article_published" : "article_unpublished",
+      resource: "knowledgeArticles",
+      resourceId: args.articleId,
+      changes: { title: article.title },
+    });
+    return { success: true, isPublished: state.isPublished };
   },
 });
 

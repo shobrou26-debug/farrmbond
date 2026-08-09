@@ -1,7 +1,14 @@
 import { v } from "convex/values";
 import { query, mutation, action } from "./_generated/server";
 import { api } from "./_generated/api";
-import { requireAuth, createAuditLog, sanitizeInput, validateString } from "./authHelpers";
+import {
+  requireAuth,
+  requireActiveSubscription,
+  hasPremiumAccess,
+  createAuditLog,
+  sanitizeInput,
+  validateString,
+} from "./authHelpers";
 
 // ============================================================
 // Weekly AI Report Generator
@@ -11,6 +18,16 @@ import { requireAuth, createAuditLog, sanitizeInput, validateString } from "./au
 export const generateWeeklyReport = action({
   args: { farmId: v.id("farms") },
   handler: async (ctx, args) => {
+    // Reports are a Pro feature (Phase 4A) — enforced server-side.
+    const user: any = await ctx.runQuery(api.users.currentUser);
+    if (!user) throw new Error("Authentication required");
+    const isAdmin = user.role === "admin" || user.role === "super_admin";
+    if (!isAdmin && !hasPremiumAccess(user)) {
+      throw new Error(
+        "Weekly reports are a Pro feature. Upgrade at Settings > Subscription — expired subscriptions are treated as Free."
+      );
+    }
+
     const farm: any = await ctx.runQuery(api.farms.getFarm, { farmId: args.farmId });
     if (!farm) throw new Error("Farm not found");
 

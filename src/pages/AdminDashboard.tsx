@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { ContentManagement } from "@/components/admin/ContentManagement";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -508,6 +509,9 @@ export default function AdminDashboard() {
             </CardContent>
           </Card>
         )}
+
+        {/* Content & Marketplace Management (Phase 4B-4E) */}
+        <ContentManagement />
       </div>
     </AppLayout>
   );

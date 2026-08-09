@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useAction } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -466,36 +468,36 @@ export default function Finances() {
     });
   }, [transactions, searchQuery, filterType, dateFrom, dateTo]);
 
-  const exportRows = useMemo(
-    () =>
-      filtered.map((t) => ({
-        date: new Date(t.date).toISOString().split("T")[0],
-        type: t.type,
-        category: t.category,
-        description: t.description,
-        amount: t.amount,
-        farm: farmMap.get(t.farmId) ?? "Unknown",
-        paymentMethod: t.paymentMethod ?? "",
-      })),
-    [filtered, farmMap]
-  );
+  // Exports are a Pro feature: data is fetched through the gated backend
+  // action (server-authorization), never exported from local state alone.
+  const getExportData = useAction(api.exports.getExportData);
 
-  const handleExportPDF = () => {
-    if (exportRows.length === 0) {
-      toast.info("No transactions to export yet.");
-      return;
+  const handleExportPDF = async () => {
+    try {
+      const bundle = await getExportData({ resource: "transactions" });
+      if (bundle.rows.length === 0) {
+        toast.info("No transactions to export yet.");
+        return;
+      }
+      exportTransactionHistory(bundle.rows, "pdf");
+      toast.success("PDF exported");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Exports require FarmBond Pro");
     }
-    exportTransactionHistory(exportRows, "pdf");
-    toast.success("PDF exported");
   };
 
-  const handleExportExcel = () => {
-    if (exportRows.length === 0) {
-      toast.info("No transactions to export yet.");
-      return;
+  const handleExportExcel = async () => {
+    try {
+      const bundle = await getExportData({ resource: "transactions" });
+      if (bundle.rows.length === 0) {
+        toast.info("No transactions to export yet.");
+        return;
+      }
+      exportTransactionHistory(bundle.rows, "excel");
+      toast.success("Excel exported");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Exports require FarmBond Pro");
     }
-    exportTransactionHistory(exportRows, "excel");
-    toast.success("Excel exported");
   };
 
   const handleAdd = async (data: {
