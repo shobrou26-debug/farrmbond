@@ -72,7 +72,8 @@ export interface WeatherData {
   current: CurrentWeather;
   hourly: HourlyForecast[];
   daily: DailyForecast[];
-  soil: SoilData;
+  /** Real soil data from Open-Meteo, or null when the backend has no soil record. */
+  soil: SoilData | null;
   location: WeatherLocation;
   alerts: WeatherAlert[];
   recommendations: WeatherRecommendation[];
@@ -359,21 +360,16 @@ export function useWeather(options?: UseWeatherOptions): UseWeatherReturn {
       sunset: "",
     }));
 
-    const soil: SoilData = cachedWeather.soil ? {
+    // Honest soil data: null when the backend has no soil record. No
+    // invented/fixed values are ever shown as if they were measurements.
+    const soil: SoilData | null = cachedWeather.soil ? {
       temperature0cm: cachedWeather.soil.temperature0cm,
       temperature6cm: cachedWeather.soil.temperature6cm,
       moisture0to1cm: cachedWeather.soil.moisture0to1cm,
       moisture1to3cm: cachedWeather.soil.moisture1to3cm,
       moisture3to9cm: cachedWeather.soil.moisture3to9cm,
       et0FaoEvapotranspiration: cachedWeather.soil.et0FaoEvapotranspiration,
-    } : {
-      temperature0cm: 20,
-      temperature6cm: 18,
-      moisture0to1cm: 0.3,
-      moisture1to3cm: 0.35,
-      moisture3to9cm: 0.4,
-      et0FaoEvapotranspiration: 3,
-    };
+    } : null;
 
     const alerts: WeatherAlert[] = (cachedWeather.alerts || []).map((a) => ({
       type: a.type,

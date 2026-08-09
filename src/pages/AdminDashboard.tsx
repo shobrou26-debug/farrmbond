@@ -80,8 +80,8 @@ export default function AdminDashboard() {
   const users = useQuery(api.admin.listAllUsers);
   const auditLogs = useQuery(api.admin.listAuditLogs);
   const agronomists = useQuery(api.marketplace.listAgronomists, {});
-  const companies = useQuery(api.marketplace.listCompanies);
-  const seeds = useQuery(api.marketplace.listSeeds);
+  const companies = useQuery(api.marketplace.listCompanies, {});
+  const seeds = useQuery(api.marketplace.listSeeds, {});
   const articles = useQuery(api.knowledgeArticles.listAll);
   const ads = useQuery(api.ads.listAllAds);
   const adStats = useQuery(api.ads.getAdStats);

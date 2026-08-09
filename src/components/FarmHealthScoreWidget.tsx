@@ -139,10 +139,14 @@ export function FarmHealthScoreWidget() {
   const latestInsights = useQuery(api.intelligence.getLatestInsights, { limit: 5 });
   const farms = farmsResult?.page ?? []
 
-  const overallScore = useMemo(() => {
-    if (!farms || farms.length === 0) return 75;
-    const scores = (farms as any[]).filter((f: any) => f.healthScore !== undefined).map((f: any) => f.healthScore as number);
-    if (scores.length === 0) return 75;
+  // Honest health score: derived only from real farm healthScore values.
+  // Returns null (no invented number) when there is no scored farm data.
+  const overallScore = useMemo<number | null>(() => {
+    if (!farms || farms.length === 0) return null;
+    const scores = (farms as any[])
+      .map((f: any) => f.healthScore as number)
+      .filter((s) => typeof s === "number" && Number.isFinite(s));
+    if (scores.length === 0) return null;
     return Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length);
   }, [farms]);
 
@@ -152,11 +156,24 @@ export function FarmHealthScoreWidget() {
         <CardTitle className="text-lg">Farm Health</CardTitle>
       </CardHeader>
       <CardContent className="flex items-center gap-6">
-        <HealthScoreRing score={overallScore} size={100} strokeWidth={8} />
+        {overallScore !== null ? (
+          <HealthScoreRing score={overallScore} size={100} strokeWidth={8} />
+        ) : (
+          <div className="flex flex-col items-center gap-2">
+            <div className="flex items-center justify-center rounded-full border-4 border-muted/40 w-[100px] h-[100px]">
+              <span className="text-2xl font-bold text-muted-foreground">—</span>
+            </div>
+            <span className="text-sm font-medium text-muted-foreground">No data</span>
+          </div>
+        )}
         <div className="space-y-1 flex-1">
           <p className="text-sm text-muted-foreground">{farms.length} farm(s) monitored</p>
           <p className="text-sm text-muted-foreground">{latestInsights?.length ?? 0} AI insights available</p>
-          <Badge variant="outline" className="mt-2 text-xs">Updated in real-time</Badge>
+          {overallScore !== null ? (
+            <Badge variant="outline" className="mt-2 text-xs">Derived from farm data</Badge>
+          ) : (
+            <Badge variant="secondary" className="mt-2 text-xs">Add farm data to score health</Badge>
+          )}
         </div>
       </CardContent>
     </Card>

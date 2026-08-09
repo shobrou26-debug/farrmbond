@@ -286,7 +286,30 @@ function AgriWeatherAlerts({ alerts }: { alerts: import("@/hooks/use-weather").W
 // Soil Conditions
 // ============================================================
 
-function SoilConditions({ soil, tempUnit, unitSystem }: { soil: import("@/hooks/use-weather").SoilData; tempUnit?: string; unitSystem?: string }) {
+function SoilConditions({ soil, tempUnit, unitSystem }: { soil: import("@/hooks/use-weather").SoilData | null; tempUnit?: string; unitSystem?: string }) {
+  // Honest no-data state: soil values are only ever shown when the backend
+  // actually returned a soil record — never invented fallback numbers.
+  if (!soil) {
+    return (
+      <Card className="border-border/50">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Soil Conditions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-muted/40 border border-border/50">
+            <Sprout className="w-5 h-5 text-muted-foreground shrink-0" />
+            <div>
+              <p className="text-sm font-medium">No soil data available</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Soil moisture and temperature are shown once a soil record is available for this location.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   const conditions = [
     { label: "Soil Moisture (Surface)", value: soil.moisture0to1cm * 100, unit: "%", max: 100, icon: Droplets },
     { label: "Soil Temperature (Surface)", value: soil.temperature0cm, unit: tempUnit, max: unitSystem === "metric" ? 50 : 120, icon: Thermometer },
@@ -324,7 +347,7 @@ function SoilConditions({ soil, tempUnit, unitSystem }: { soil: import("@/hooks/
                 </div>
               </div>
               <span className="text-sm font-semibold tabular-nums">
-                {item.label.includes("Moisture") ? item.value.toFixed(1) : item.value.toFixed(1)}{item.unit}
+                {item.value.toFixed(1)}{item.unit}
               </span>
             </div>
           );
