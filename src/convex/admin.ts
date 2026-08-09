@@ -18,26 +18,69 @@ import { ROLES } from "./schema";
 // ============================================================
 
 /**
- * List all users (admin only)
+ * Pure: map a user document to the safe admin-facing shape (P2-3).
+ * Only fields the admin UI needs are exposed — never private fields.
+ */
+export function mapUserForAdmin(u: {
+  _id: Doc<"users">["_id"];
+  name?: string;
+  email?: string;
+  image?: string;
+  role?: string;
+  subscriptionTier?: string;
+  lastActiveAt?: number;
+  createdAt?: number;
+  country?: string;
+  phone?: string;
+}) {
+  return {
+    _id: u._id,
+    name: u.name,
+    email: u.email,
+    image: u.image,
+    role: u.role || "farmer",
+    subscriptionTier: u.subscriptionTier || "free",
+    lastActiveAt: u.lastActiveAt,
+    createdAt: u.createdAt,
+    country: u.country,
+    phone: u.phone,
+  };
+}
+
+/**
+ * List all users (admin only).
+ * Legacy array shape used by smaller admin surfaces.
  */
 export const listAllUsers = query({
   args: {},
   handler: async (ctx) => {
-    const { userId } = await requireAdmin(ctx);
+    await requireAdmin(ctx);
 
     const users = await ctx.db.query("users").collect();
-    return users.map((u) => ({
-      _id: u._id,
-      name: u.name,
-      email: u.email,
-      image: u.image,
-      role: u.role || "farmer",
-      subscriptionTier: u.subscriptionTier || "free",
-      lastActiveAt: u.lastActiveAt,
-      createdAt: u.createdAt,
-      country: u.country,
-      phone: u.phone,
-    }));
+    return users.map(mapUserForAdmin);
+  },
+});
+
+/**
+ * Paginated user list (admin only) for the admin dashboard.
+ * The users table grows with the platform and must not be fully
+ * scanned on every render — use pagination for admin-heavy surfaces.
+ */
+export const listAllUsersPaginated = query({
+  args: {
+    paginationOpts: v.object({
+      numItems: v.number(),
+      cursor: v.union(v.string(), v.null()),
+    }),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const page = await ctx.db.query("users").order("desc").paginate(args.paginationOpts);
+    return {
+      ...page,
+      page: page.page.map(mapUserForAdmin),
+    };
   },
 });
 

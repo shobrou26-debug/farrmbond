@@ -28,6 +28,30 @@ export const listUserTransactions = query({
   },
 });
 
+/**
+ * Paginated transaction list for the current user (P2-3).
+ * Use for surfaces where the transaction history can grow large;
+ * the legacy `listUserTransactions` keeps the array contract for
+ * consumers that render the full list.
+ */
+export const listUserTransactionsPaginated = query({
+  args: {
+    paginationOpts: v.object({
+      numItems: v.number(),
+      cursor: v.union(v.string(), v.null()),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+
+    return await ctx.db
+      .query("transactions")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .order("desc")
+      .paginate(args.paginationOpts);
+  },
+});
+
 /** Get transactions for a specific farm */
 export const listFarmTransactions = query({
   args: { farmId: v.id("farms") },
@@ -40,6 +64,30 @@ export const listFarmTransactions = query({
       .withIndex("by_farm", (q) => q.eq("farmId", args.farmId))
       .order("desc")
       .collect();
+  },
+});
+
+/**
+ * Paginated transaction list for a specific farm (P2-3).
+ * See `listUserTransactionsPaginated` for rationale.
+ */
+export const listFarmTransactionsPaginated = query({
+  args: {
+    farmId: v.id("farms"),
+    paginationOpts: v.object({
+      numItems: v.number(),
+      cursor: v.union(v.string(), v.null()),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    await verifyFarmOwnership(ctx, args.farmId, userId);
+
+    return await ctx.db
+      .query("transactions")
+      .withIndex("by_farm", (q) => q.eq("farmId", args.farmId))
+      .order("desc")
+      .paginate(args.paginationOpts);
   },
 });
 

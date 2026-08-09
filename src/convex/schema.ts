@@ -1026,8 +1026,12 @@ const schema = defineSchema(
       name: v.string(),
       confidence: v.number(), // 0-100
       
-      // Image
-      imageUrl: v.string(),
+      // Image — stored as a Convex file-storage reference when available
+      // (imageStorageId). imageUrl is kept for legacy records that predate
+      // the storage migration (base64 data URLs) and as a fallback when
+      // an upload fails. Never store new large base64 payloads here.
+      imageUrl: v.optional(v.string()),
+      imageStorageId: v.optional(v.id("_storage")),
       
       // Analysis
       description: v.string(),

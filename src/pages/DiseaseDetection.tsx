@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAction, useMutation } from "convex/react";
 import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -562,6 +563,7 @@ export default function DiseaseDetection() {
   // Real Convex data
   const detectDisease = useAction(api.aiAssistant.detectDisease);
   const saveDetectionMutation = useMutation(api.detectionResults.saveDetection);
+  const generateUploadUrl = useMutation(api.detectionResults.generateUploadUrl);
   const { results: detectionHistory, sentinelRef, canLoadMore, isLoadingMore } = usePaginatedQuery(api.detectionResults.listUserDetections);
 
   const history: DetectionResult[] = detectionHistory.map((d) => ({
@@ -632,13 +634,32 @@ export default function DiseaseDetection() {
 
       setResult(detectionResult);
 
-      // Save to Convex
+      // Save to Convex. Upload the image to Convex file storage so the
+      // database never stores a large base64 payload; fall back to the
+      // legacy data URL only if the upload fails (backward compatible).
       try {
+        let imageStorageId: Id<"_storage"> | undefined;
+        try {
+          const uploadUrl = await generateUploadUrl();
+          const uploadResponse = await fetch(uploadUrl, {
+            method: "POST",
+            headers: { "Content-Type": file.type },
+            body: file,
+          });
+          if (uploadResponse.ok) {
+            const { storageId } = await uploadResponse.json();
+            imageStorageId = storageId as Id<"_storage">;
+          }
+        } catch (uploadError) {
+          console.error("Image upload failed; falling back to inline image:", uploadError);
+        }
+
         await saveDetectionMutation({
           type: detectionResult.type,
           name: detectionResult.name,
           confidence: detectionResult.confidence,
-          imageUrl: preview,
+          imageUrl: imageStorageId ? undefined : preview,
+          imageStorageId,
           description: detectionResult.description,
           severity: detectionResult.severity,
           recommendations: detectionResult.recommendations,
@@ -655,7 +676,7 @@ export default function DiseaseDetection() {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [detectDisease, saveDetectionMutation]);
+  }, [detectDisease, saveDetectionMutation, generateUploadUrl]);
 
   const handleRemove = useCallback(() => {
     setImageUrl(null);

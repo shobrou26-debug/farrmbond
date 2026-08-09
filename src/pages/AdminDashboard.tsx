@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "convex/react";
+import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -78,7 +79,7 @@ export default function AdminDashboard() {
   // Real backend data
   const stats = useQuery(api.admin.getUserStats);
   const subStats = useQuery(api.subscriptions.getSubscriptionStats);
-  const users = useQuery(api.admin.listAllUsers);
+  const users = usePaginatedQuery(api.admin.listAllUsersPaginated, {}, { numItems: 50 });
   const auditLogs = useQuery(api.admin.listAuditLogs);
   const agronomists = useQuery(api.marketplace.listAgronomists, {});
   const companies = useQuery(api.marketplace.listCompanies, {});
@@ -301,9 +302,9 @@ export default function AdminDashboard() {
           <Card className="border-border/50">
             <CardHeader className="pb-3"><CardTitle className="text-base">User Management</CardTitle></CardHeader>
             <CardContent>
-              {!users ? (
+              {users.isLoading ? (
                 <Skeleton className="h-40 w-full" />
-              ) : users.length === 0 ? (
+              ) : users.results.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-8 text-center">No users found.</p>
               ) : (
                 <div className="overflow-x-auto">
@@ -318,7 +319,7 @@ export default function AdminDashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {users.map((u: any) => (
+                      {users.results.map((u: any) => (
                         <tr key={u._id} className="border-b last:border-0">
                           <td className="py-2 pr-4">{u.name || "—"}</td>
                           <td className="py-2 pr-4 text-muted-foreground">{u.email || "—"}</td>
@@ -349,6 +350,18 @@ export default function AdminDashboard() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              )}
+              {users.canLoadMore && (
+                <div className="mt-4 flex justify-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => users.loadMore()}
+                    disabled={users.isLoadingMore}
+                  >
+                    {users.isLoadingMore ? "Loading…" : "Load more users"}
+                  </Button>
                 </div>
               )}
             </CardContent>
