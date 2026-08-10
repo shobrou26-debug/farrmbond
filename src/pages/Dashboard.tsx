@@ -33,6 +33,7 @@ import {
   Clock,
   Thermometer,
   Wind,
+  Megaphone,
 } from "lucide-react";
 import { Link } from "react-router";
 import { FarmHealthScoreWidget, IntelligenceInsightsWidget } from "@/components/FarmHealthScoreWidget";
@@ -219,6 +220,38 @@ function WeatherWidget() {
             View Full Forecast <ArrowRight className="w-4 h-4 ml-2" />
           </Button>
         </Link>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================
+// Announcements Widget
+// ============================================================
+
+function AnnouncementsWidget() {
+  const announcements = useQuery(api.announcements.listPublishedAnnouncements);
+
+  if (!announcements || announcements.length === 0) return null;
+
+  return (
+    <Card className="border-border/50">
+      <CardHeader className="pb-3 px-4 sm:px-6 pt-4 sm:pt-6">
+        <div className="flex items-center gap-2">
+          <Megaphone className="w-4 h-4 text-amber-500" />
+          <CardTitle className="text-sm sm:text-base">Announcements</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3 px-4 sm:px-6 pb-4 sm:pb-6">
+        {announcements.slice(0, 2).map((a: any) => (
+          <div key={a._id} className="p-3 rounded-xl bg-muted/30 space-y-1">
+            <p className="text-sm font-medium">{a.title}</p>
+            <p className="text-xs text-muted-foreground line-clamp-2">{a.body}</p>
+            <p className="text-[10px] text-muted-foreground">
+              {new Date(a.createdAt || a._creationTime).toLocaleDateString()}
+            </p>
+          </div>
+        ))}
       </CardContent>
     </Card>
   );
@@ -593,6 +626,7 @@ export default function Dashboard() {
               <FarmHealthScoreWidget />
               <WeatherWidget />
               <IntelligenceInsightsWidget insights={latestInsights ?? []} />
+              <AnnouncementsWidget />
               <AIAssistantWidget />
             </motion.div>
           </div>

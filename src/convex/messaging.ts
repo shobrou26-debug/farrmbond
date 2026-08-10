@@ -113,11 +113,12 @@ export const listConversations = query({
     return Promise.all(
       convs.map(async ([convId, info]) => {
         const otherUser = await ctx.db.get(info.otherUserId as any);
+        const u = otherUser as { name?: string; image?: string | null } | null;
         return {
           conversationId: convId,
           otherUserId: info.otherUserId,
-          otherName: otherUser?.name ?? "Unknown",
-          otherImage: otherUser?.image ?? null,
+          otherName: u?.name ?? "Unknown",
+          otherImage: u?.image ?? null,
           lastMessageAt: info.lastMessageAt,
           lastContent: info.lastContent,
           unread: info.unread,

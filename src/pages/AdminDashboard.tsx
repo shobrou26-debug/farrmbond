@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ContentManagement } from "@/components/admin/ContentManagement";
+import { SupportTab } from "@/components/admin/SupportTab";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -483,18 +484,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {tab === "support" && (
-          <Card className="border-border/50">
-            <CardContent className="p-12 text-center">
-              <LifeBuoy className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-              <h3 className="text-lg font-semibold mb-2">Support Tickets</h3>
-              <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                The support-ticket backend is not available yet, so this section shows no data.
-                It will be enabled when the ticket system ships.
-              </p>
-            </CardContent>
-          </Card>
-        )}
+        {tab === "support" && <SupportTab />}
 
         {tab === "audit" && (
           <Card className="border-border/50">

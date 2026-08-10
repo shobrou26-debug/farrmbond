@@ -29,6 +29,7 @@ import {
   Globe,
   Zap,
   MoreHorizontal,
+  Mail,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsMobile, useHaptic, useScrollDirection, useBreakpoint } from "@/hooks/use-mobile";
@@ -77,6 +78,8 @@ const farmerNavItems: NavItem[] = [
   { label: "Finances", icon: DollarSign, href: "/finances" },
   { label: "Analytics", icon: BarChart3, href: "/analytics" },
   { label: "Community", icon: MessageSquare, href: "/community" },
+  { label: "Messages", icon: Mail, href: "/messages" },
+  { label: "Support", icon: HelpCircle, href: "/support" },
 ];
 
 const agronomistNavItems: NavItem[] = [
@@ -84,6 +87,7 @@ const agronomistNavItems: NavItem[] = [
   { label: "My Profile", icon: Users, href: "/profile" },
   { label: "Consultations", icon: Calendar, href: "/consultations" },
   { label: "Knowledge Base", icon: Zap, href: "/knowledge" },
+  { label: "Messages", icon: Mail, href: "/messages" },
   { label: "Analytics", icon: BarChart3, href: "/analytics" },
 ];
 

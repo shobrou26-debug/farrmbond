@@ -52,6 +52,8 @@ const WeeklyAIReport = lazy(() => import("./pages/WeeklyAIReport.tsx"));
 const SeedManagement = lazy(() => import("./pages/SeedManagement.tsx"));
 const MyConsultations = lazy(() => import("./pages/MyConsultations.tsx"));
 const Profile = lazy(() => import("./pages/Profile.tsx"));
+const Support = lazy(() => import("./pages/Support.tsx"));
+const Messages = lazy(() => import("./pages/Messages.tsx"));
 
 // ============================================================
 // Loading fallback
@@ -179,6 +181,8 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/my-consultations" element={<RequireAuth><MyConsultations /></RequireAuth>} />
               <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
               <Route path="/consultations" element={<RequireAuth><MyConsultations /></RequireAuth>} />
+              <Route path="/messages" element={<RequireAuth><Messages /></RequireAuth>} />
+              <Route path="/support" element={<RequireAuth><Support /></RequireAuth>} />
 
               {/* Admin Routes */}
               <Route path="/admin" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
