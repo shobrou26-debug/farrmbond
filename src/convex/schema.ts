@@ -1029,7 +1029,7 @@ const schema = defineSchema(
       // Detection details
       type: v.union(v.literal("disease"), v.literal("pest")),
       name: v.string(),
-      confidence: v.number(), // 0-100
+      confidence: v.optional(v.number()), // 0-100 (absent when the AI report has none)
       
       // Image — stored as a Convex file-storage reference when available
       // (imageStorageId). imageUrl is kept for legacy records that predate

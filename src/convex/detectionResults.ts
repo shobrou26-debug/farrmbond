@@ -147,7 +147,8 @@ export const saveDetection = mutation({
     cropId: v.optional(v.id("crops")),
     type: v.union(v.literal("disease"), v.literal("pest")),
     name: v.string(),
-    confidence: v.number(),
+    // Absent when the AI report carries no numeric confidence — never fabricate one.
+    confidence: v.optional(v.number()),
     // Image — either a legacy data URL or a Convex file-storage reference.
     imageUrl: v.optional(v.string()),
     imageStorageId: v.optional(v.id("_storage")),

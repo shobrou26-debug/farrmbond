@@ -479,9 +479,10 @@ export const getCrossModuleInsights = query({
     }
 
     // Cross-reference: Satellite + Crops
-    if (satelliteData && crops.length > 0) {
-      const ndvi = satelliteData.ndvi ?? 0;
-      if (ndvi < 0.3) {
+    // Data honesty: a record without an NDVI measurement is no-data, never a
+    // fabricated 0 that would report "Vegetation Stress Detected".
+    if (satelliteData && crops.length > 0 && satelliteData.ndvi != null) {
+      if (satelliteData.ndvi < 0.3) {
         insights.push({
           type: "vegetation_stress",
           title: "Vegetation Stress Detected",

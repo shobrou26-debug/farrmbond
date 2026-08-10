@@ -61,7 +61,8 @@ interface DetectionResult {
   id: string;
   type: "disease" | "pest";
   name: string;
-  confidence: number;
+  // null = the AI report carried no numeric confidence — never fabricated.
+  confidence: number | null;
   severity: "low" | "medium" | "high" | "critical";
   description: string;
   symptoms: string[];
@@ -300,7 +301,7 @@ function DetectionResultCard({ result }: { result: DetectionResult }) {
             <div className="text-right">
               <div className="flex items-center gap-1">
                 <Shield className="w-4 h-4 text-primary" />
-                <span className="text-2xl font-bold">{result.confidence}%</span>
+                <span className="text-2xl font-bold">{result.confidence !== null ? `${result.confidence}%` : "—"}</span>
               </div>
               <p className="text-xs text-muted-foreground">Confidence</p>
             </div>
@@ -489,7 +490,7 @@ function DetectionHistoryList({
                     }`}
                   />
                   <span className="text-[10px] text-white/70">
-                    {item.confidence}% •{" "}
+                    {item.confidence !== null ? `${item.confidence}%` : "N/A"} •{" "}
                     {item.detectedAt.toLocaleDateString()}
                   </span>
                 </div>
@@ -570,7 +571,7 @@ export default function DiseaseDetection() {
     id: d._id,
     type: d.type,
     name: d.name,
-    confidence: d.confidence,
+    confidence: d.confidence ?? null,
     severity: d.severity,
     description: d.description,
     symptoms: [],
@@ -616,7 +617,7 @@ export default function DiseaseDetection() {
         id: Date.now().toString(),
         type: parsed.type || "disease",
         name: parsed.name || "Unknown Issue",
-        confidence: parsed.confidence || 75,
+        confidence: typeof parsed.confidence === "number" ? parsed.confidence : null,
         severity: parsed.severity || "medium",
         description: parsed.description || "Analysis completed.",
         symptoms: parsed.symptoms || [],
@@ -657,7 +658,7 @@ export default function DiseaseDetection() {
         await saveDetectionMutation({
           type: detectionResult.type,
           name: detectionResult.name,
-          confidence: detectionResult.confidence,
+          confidence: detectionResult.confidence ?? undefined,
           imageUrl: imageStorageId ? undefined : preview,
           imageStorageId,
           description: detectionResult.description,

@@ -188,17 +188,31 @@ export default function FarmComparison() {
     unit = "",
   }: {
     label: string;
-    values: { farmId: string; value: number }[];
+    values: { farmId: string; value: number | null }[];
     max: number;
     unit?: string;
   }) => {
-    const bestValue = Math.max(...values.map((v) => v.value));
+    // Data honesty: null values are "no data" and never plotted as a 0 bar.
+    const numericValues = values
+      .map((v) => v.value)
+      .filter((n): n is number => n !== null);
+    const bestValue = numericValues.length > 0 ? Math.max(...numericValues) : null;
     return (
       <div className="mb-4">
         <span className="text-sm font-medium text-foreground">{label}</span>
         <div className="space-y-2 mt-2">
           {values.map((v) => {
             const farm = allFarms.find((f) => f.farm._id === v.farmId);
+            if (v.value === null) {
+              return (
+                <div key={v.farmId} className="flex items-center gap-3">
+                  <span className="w-32 text-xs text-muted-foreground truncate">{farm?.farm.name}</span>
+                  <div className="flex-1 h-6 bg-muted/50 rounded-full flex items-center px-3">
+                    <span className="text-xs text-muted-foreground/70">No data</span>
+                  </div>
+                </div>
+              );
+            }
             const isBest = v.value === bestValue && v.value > 0;
             return (
               <div key={v.farmId} className="flex items-center gap-3">
@@ -580,13 +594,13 @@ export default function FarmComparison() {
                       />
                       <MetricBar
                         label="Soil Health (from pH)"
-                        values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.soilHealth ?? 0 }))}
+                        values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.soilHealth }))}
                         max={100}
                         unit="%"
                       />
                       <MetricBar
                         label="Vegetation Index (NDVI)"
-                        values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.ndvi ?? 0 }))}
+                        values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.ndvi }))}
                         max={100}
                       />
                       {selectedData.every((f) => f.metrics.soilHealth === null && f.metrics.ndvi === null) && (

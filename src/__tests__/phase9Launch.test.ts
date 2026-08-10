@@ -148,3 +148,46 @@ describe("Phase 9 — crop/livestock health-score honesty", () => {
     expect(page).toContain("No score yet");
   });
 });
+
+describe("Phase 9 — intelligence/detection/chart honesty", () => {
+  const intelSrc = readConvex("intelligence.ts");
+  const schemaSrc = readConvex("schema.ts");
+  const detSrc = readConvex("detectionResults.ts");
+
+  const readPage = (path: string): string =>
+    readFileSync(new URL(`../pages/${path}`, import.meta.url), "utf8");
+
+  test("intelligence never treats a missing NDVI measurement as vegetation stress", () => {
+    const body = sliceFrom(intelSrc, "Cross-reference: Satellite + Crops", 800);
+    expect(body).toContain("satelliteData.ndvi != null");
+    expect(body).not.toContain("satelliteData.ndvi ?? 0");
+  });
+
+  test("disease detection stores no fabricated confidence (75 fallback removed)", () => {
+    const page = readPage("DiseaseDetection.tsx");
+    expect(page).toContain('confidence: typeof parsed.confidence === "number"');
+    expect(occurrences(page, "parsed.confidence || 75")).toBe(0);
+    expect(page).toContain("confidence: number | null");
+    // The AI prompt returns textual confidence (High/Medium/Low), so numeric
+    // renders must be guarded — a string must never render as "High%".
+    expect(page).toContain("result.confidence !== null");
+  });
+
+  test("detection confidence is optional in schema and save validator", () => {
+    const schemaBody = sliceFrom(schemaSrc, "detectionResults: defineTable", 500);
+    expect(schemaBody).toContain("confidence: v.optional(v.number())");
+    const saveBody = sliceFrom(detSrc, "export const saveDetection", 500);
+    expect(saveBody).toContain("confidence: v.optional(v.number())");
+  });
+
+  test("FarmComparison charts never plot a fabricated 0 for missing soil/NDVI", () => {
+    const page = readPage("FarmComparison.tsx");
+    // MetricBar accepts null and renders an honest "No data" row.
+    expect(page).toContain("value: number | null");
+    expect(page).toContain("No data");
+    const ndviBar = sliceFrom(page, 'label="Vegetation Index (NDVI)"', 400);
+    expect(ndviBar).not.toContain("?? 0");
+    const soilBar = sliceFrom(page, 'label="Soil Health (from pH)"', 400);
+    expect(soilBar).not.toContain("?? 0");
+  });
+});
