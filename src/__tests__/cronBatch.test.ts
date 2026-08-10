@@ -4,6 +4,8 @@ import {
   hasRecentVaccinationReminder,
   hasRecentLowCoverageAlert,
 } from "../convex/livestock";
+import type { MutationCtx } from "../convex/_generated/server";
+import type { Id } from "../convex/_generated/dataModel";
 
 // ============================================================
 // Fake Convex ctx: a minimal db (get/insert/patch/query) plus a
@@ -78,7 +80,9 @@ function makeCtx(
     },
   };
 
-  return { db, scheduler } as never;
+  // The fake ctx is structurally a MutationCtx from runCronBatch's point of
+  // view; `tables` is returned alongside so tests can re-read patched rows.
+  return { ctx: { db, scheduler } as unknown as MutationCtx, tables };
 }
 
 /** Simple offset cursor simulation over a seeded array. */
@@ -117,7 +121,7 @@ describe("runCronBatch — bounded batches", () => {
     const processed: string[] = [];
     const schedulerCalls: Array<{ cursor: string }> = [];
 
-    const ctx = makeCtx({}, schedulerCalls);
+    const { ctx } = makeCtx({}, schedulerCalls);
     const result = await runCronBatch(
       ctx,
       null,
@@ -151,7 +155,7 @@ describe("runCronBatch — bounded batches", () => {
     const processed: string[] = [];
     const schedulerCalls: Array<{ cursor: string }> = [];
 
-    const ctx = makeCtx({}, schedulerCalls);
+    const { ctx } = makeCtx({}, schedulerCalls);
 
     const first = await runCronBatch(
       ctx,
@@ -201,7 +205,7 @@ describe("runCronBatch — bounded batches", () => {
     }));
     const processed: string[] = [];
 
-    const ctx = makeCtx({});
+    const { ctx } = makeCtx({});
     let cursor: string | null = null;
     let guard = 0;
     let result;
@@ -232,7 +236,7 @@ describe("runCronBatch — bounded batches", () => {
   // ============================================================
   test("an empty dataset completes cleanly without scheduling", async () => {
     const schedulerCalls: Array<{ cursor: string }> = [];
-    const ctx = makeCtx({}, schedulerCalls);
+    const { ctx } = makeCtx({}, schedulerCalls);
 
     const result = await runCronBatch(
       ctx,
@@ -266,23 +270,24 @@ describe("runCronBatch — bounded batches", () => {
     ];
     let patched = 0;
 
-    const processItem = async (ctx: never, item: Row) => {
+    const processItem = async (ctx: MutationCtx, item: Row) => {
+      const trialEnd = item.trialEndDate as number | undefined;
       if (
-        item.trialEndDate !== undefined &&
-        item.trialEndDate < now &&
+        trialEnd !== undefined &&
+        trialEnd < now &&
         item.subscriptionTier === "pro"
       ) {
-        await ctx.db.patch(item._id, { subscriptionTier: "free" });
+        await ctx.db.patch(item._id as Id<"users">, { subscriptionTier: "free" });
         patched++;
       }
     };
 
-    const ctx = makeCtx({ users: all });
+    const { ctx, tables } = makeCtx({ users: all });
     const first = await runCronBatch(
       ctx,
       null,
       200,
-      makePageFetcher(all, () => ctx.db.tables.users),
+      makePageFetcher(all, () => tables.users),
       processItem,
       async () => {},
       "test"
@@ -295,7 +300,7 @@ describe("runCronBatch — bounded batches", () => {
       ctx,
       null,
       200,
-      makePageFetcher(all, () => ctx.db.tables.users),
+      makePageFetcher(all, () => tables.users),
       processItem,
       async () => {},
       "test"
@@ -314,7 +319,7 @@ describe("runCronBatch — bounded batches", () => {
     }));
     const processed: string[] = [];
 
-    const ctx = makeCtx({});
+    const { ctx } = makeCtx({});
     const result = await runCronBatch(
       ctx,
       null,
@@ -342,7 +347,7 @@ describe("runCronBatch — bounded batches", () => {
       email: `u${i}@x.com`,
     }));
     const schedulerCalls: Array<{ cursor: string }> = [];
-    const ctx = makeCtx({}, schedulerCalls);
+    const { ctx } = makeCtx({}, schedulerCalls);
 
     const result = await runCronBatch(
       ctx,
@@ -375,7 +380,7 @@ describe("runCronBatch — bounded batches", () => {
     let concurrent = 0;
     let maxConcurrent = 0;
 
-    const ctx = makeCtx({});
+    const { ctx } = makeCtx({});
     await runCronBatch(
       ctx,
       null,
