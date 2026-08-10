@@ -1141,6 +1141,12 @@ const schema = defineSchema(
       referenceId: v.string(), // Provider reference ID
       externalId: v.string(), // Internal reference
       
+      // Purpose (Phase 8): what the payment pays for. "subscription" is the
+      // default/legacy flow (grants Pro). "consultation" settles a booked
+      // consultation and NEVER touches subscription state.
+      purpose: v.optional(v.union(v.literal("subscription"), v.literal("consultation"))),
+      consultationId: v.optional(v.id("consultations")),
+      
       // Transaction details
       amount: v.number(),
       currency: v.string(),
@@ -1453,18 +1459,21 @@ const schema = defineSchema(
       .index("by_fetched", ["fetchedAt"]),
 
     // Farm health scores (computed by intelligence engine)
+    // Component scores are OPTIONAL (0-100): a component is null when there
+    // is no underlying data to compute it from. A null component is never
+    // displayed as a fabricated number (Phase 8 data-honesty contract).
     farmHealthScores: defineTable({
       farmId: v.id("farms"),
       userId: v.id("users"),
 
-      // Component scores (0-100)
-      overall: v.number(),
-      cropHealth: v.number(),
-      livestockHealth: v.number(),
-      soilHealth: v.number(),
-      weatherRisk: v.number(),
-      financialHealth: v.number(),
-      satelliteHealth: v.number(),
+      // Component scores (0-100) — null = insufficient data
+      overall: v.optional(v.number()),
+      cropHealth: v.optional(v.number()),
+      livestockHealth: v.optional(v.number()),
+      soilHealth: v.optional(v.number()),
+      weatherRisk: v.optional(v.number()),
+      financialHealth: v.optional(v.number()),
+      satelliteHealth: v.optional(v.number()),
 
       // Risk assessment
       riskLevel: v.string(), // "low", "medium", "high", "critical"
@@ -1514,7 +1523,9 @@ const schema = defineSchema(
 
       // Risk analysis
       riskAnalysis: v.string(),
-      riskScore: v.number(), // 0-100
+      // riskScore is null when no health data exists to derive it from
+      // (Phase 8 data-honesty: never store a fabricated 0).
+      riskScore: v.optional(v.number()), // 0-100
 
       // Overall score
       healthScore: v.optional(v.number()),

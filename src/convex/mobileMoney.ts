@@ -473,6 +473,8 @@ export const logTransaction = internalMutation({
     countryCode: v.optional(v.string()),
     status: v.string(),
     description: v.optional(v.string()),
+    purpose: v.optional(v.union(v.literal("subscription"), v.literal("consultation"))),
+    consultationId: v.optional(v.id("consultations")),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -488,6 +490,8 @@ export const logTransaction = internalMutation({
       countryCode: args.countryCode,
       status: args.status,
       description: args.description,
+      purpose: args.purpose ?? "subscription",
+      consultationId: args.consultationId,
       createdAt: now,
       updatedAt: now,
     });
@@ -540,9 +544,24 @@ export const updateTransactionStatus = internalMutation({
 
     await ctx.db.patch(transaction._id, updates);
 
-    // If payment successful, activate subscription (only on the first
-    // transition to completed — idempotency guard above prevents re-grants)
+    // If payment successful, settle the right side of the ledger:
+    // consultation payments settle the consultation; everything else
+    // activates/renews the Pro subscription. Dispatch happens only on the
+    // FIRST transition to completed (the idempotency guard above), so a
+    // duplicate webhook can never double-settle or double-grant.
     if (args.status === "completed") {
+      if (transaction.purpose === "consultation" && transaction.consultationId) {
+        const confirmedAmount = extractConfirmedAmount(args.providerResponse);
+        const effectiveAmount = confirmedAmount ?? transaction.amount;
+        await ctx.runMutation(internal.mobileMoney.settleConsultationPayment, {
+          consultationId: transaction.consultationId,
+          userId: transaction.userId,
+          confirmedAmount: effectiveAmount,
+          expectedAmount: transaction.amount,
+        });
+        return { updated: true, status: args.status, grantedPro: false };
+      }
+
       // Price guard: the provider-confirmed amount (when echoed) must cover
       // the full $5 month. An underpriced payment is recorded as completed
       // but NEVER grants Pro — a $0.01 poke must not unlock premium.
@@ -692,5 +711,251 @@ export const getMobileMoneyStats = query({
       lastPaymentDate: completed.length > 0 ? completed[0].completedAt : null,
       preferredProvider: completed.length > 0 ? completed[0].provider : null,
     };
+  },
+});
+
+// ============================================================
+// Consultation Payments (Phase 8)
+//
+// A booked consultation is paid with mobile money. The amount is the
+// server-set consultation price (agronomist service price at booking),
+// the payment can only be initiated by the consultation's own farmer,
+// and the consultation is settled ONLY from the signature-verified
+// webhook path (never by the client).
+// ============================================================
+
+/**
+ * Pure: true only when the provider-confirmed amount fully covers the
+ * expected consultation price. Missing/unparseable amounts fail closed.
+ */
+export function isFullConsultationPayment(
+  confirmedAmount: number | null | undefined,
+  expectedAmount: number
+): boolean {
+  return (
+    typeof confirmedAmount === "number" &&
+    !isNaN(confirmedAmount) &&
+    expectedAmount > 0 &&
+    confirmedAmount >= expectedAmount
+  );
+}
+
+/**
+ * Initiate a mobile-money payment for a booked consultation.
+ * - Authenticated only; the farmer identity comes from the session.
+ * - The consultation must belong to the caller (ownership check).
+ * - The amount is the SERVER-SET consultation amount — the client can
+ *   never pay a different amount, and no subscription state is touched.
+ * - A consultation that is already paid or cancelled cannot be paid.
+ */
+export const initiateConsultationPayment = action({
+  args: {
+    consultationId: v.id("consultations"),
+    provider: v.union(v.literal("mtn_momo"), v.literal("airtel_money")),
+    phoneNumber: v.string(),
+    countryCode: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Authentication required");
+
+    const consultation = await ctx.runQuery(internal.marketplace.getConsultationByIdInternal, {
+      consultationId: args.consultationId,
+    });
+    if (!consultation) throw new Error("Consultation not found");
+    if (consultation.farmerId !== userId) {
+      throw new Error("Authorization denied: this consultation does not belong to your account");
+    }
+    if (consultation.paymentStatus === "paid") {
+      throw new Error("This consultation has already been paid");
+    }
+    if (consultation.status === "cancelled" || consultation.status === "completed") {
+      throw new Error("This consultation can no longer be paid");
+    }
+    if (typeof consultation.amount !== "number" || consultation.amount <= 0) {
+      throw new Error("This consultation has no payable amount");
+    }
+
+    const cleanPhone = args.phoneNumber.replace(/\s/g, "").replace(/^\+/, "");
+    if (cleanPhone.length < 10 || cleanPhone.length > 15) {
+      throw new Error("Invalid phone number format");
+    }
+
+    const referenceId = `FBC-${args.consultationId}-${Date.now()}`;
+    const description = `FarmBond consultation: ${consultation.serviceType}`;
+
+    if (args.provider === "airtel_money") {
+      if (!args.countryCode) {
+        throw new Error("Country code is required for Airtel Money");
+      }
+      const transactionId = referenceId;
+      try {
+        const accessToken = await getAirtelAccessToken();
+        const response = await fetch(
+          `${AIRTEL_MONEY_API_URL}/merchant/v1/payments/`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "X-Country": args.countryCode,
+              "X-Currency": consultation.currency,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              reference: transactionId,
+              subscriber: {
+                country: args.countryCode,
+                currency: consultation.currency,
+                msisdn: cleanPhone,
+              },
+              amount: consultation.amount.toString(),
+              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+              transactionStatusUrl: `${APP_URL}/api/airtel/webhook`,
+              description,
+            }),
+          }
+        );
+        if (!response.ok) {
+          throw new Error("Failed to initiate Airtel Money payment");
+        }
+        await ctx.runMutation(internal.mobileMoney.logTransaction, {
+          userId: userId as any,
+          provider: "airtel_money",
+          referenceId: transactionId,
+          externalId: `CONS-${Date.now()}`,
+          amount: consultation.amount,
+          currency: consultation.currency,
+          phoneNumber: cleanPhone,
+          countryCode: args.countryCode,
+          status: "pending",
+          description,
+          purpose: "consultation",
+          consultationId: args.consultationId,
+        });
+        return {
+          transactionId,
+          referenceId: transactionId,
+          status: "pending",
+          message: "Payment request sent. Please check your phone to approve the payment.",
+        };
+      } catch (error) {
+        console.error("Airtel consultation payment error:", error);
+        throw error;
+      }
+    }
+
+    // MTN MoMo
+    try {
+      const accessToken = await getMtnAccessToken();
+      const response = await fetch(
+        `${MTN_MOMO_API_URL}/collection/v1_0/requesttopay`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "X-Reference-Id": referenceId,
+            "X-Target-Environment": MTN_MOMO_ENVIRONMENT,
+            "Ocp-Apim-Subscription-Key": MTN_MOMO_SUBSCRIPTION_KEY || "",
+            "X-Callback-Url": `${APP_URL}/api/momo/webhook`,
+            "X-Callback-Host": APP_URL,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            amount: consultation.amount.toString(),
+            currency: consultation.currency,
+            externalId: referenceId,
+            payer: { partyIdType: "MSISDN", partyId: cleanPhone },
+            payerMessage: description,
+            payeeNote: `Payment from FarmBond user for consultation`,
+          }),
+        }
+      );
+      if (!response.ok && response.status !== 202) {
+        throw new Error("Failed to initiate mobile money payment");
+      }
+      await ctx.runMutation(internal.mobileMoney.logTransaction, {
+        userId: userId as any,
+        provider: "mtn_momo",
+        referenceId,
+        externalId: `CONS-${Date.now()}`,
+        amount: consultation.amount,
+        currency: consultation.currency,
+        phoneNumber: cleanPhone,
+        status: "pending",
+        description,
+        purpose: "consultation",
+        consultationId: args.consultationId,
+      });
+      return {
+        referenceId,
+        status: "pending",
+        message: "Payment request sent. Please check your phone to approve the payment.",
+      };
+    } catch (error) {
+      console.error("MTN consultation payment error:", error);
+      throw error;
+    }
+  },
+});
+
+/**
+ * Settle a paid consultation.
+ * INTERNAL ONLY — reachable exclusively from the signature-verified
+ * mobile-money webhook via updateTransactionStatus. Idempotent (an
+ * already-paid consultation is a no-op), amount-guarded (an underpriced
+ * payment never marks the consultation paid), and ownership-checked
+ * (the transaction owner must be the consultation's farmer).
+ */
+export const settleConsultationPayment = internalMutation({
+  args: {
+    consultationId: v.id("consultations"),
+    userId: v.id("users"),
+    confirmedAmount: v.number(),
+    expectedAmount: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const consultation = await ctx.db.get(args.consultationId);
+    if (!consultation) return { settled: false, reason: "not_found" };
+    if (consultation.farmerId !== args.userId) {
+      return { settled: false, reason: "owner_mismatch" };
+    }
+    if (consultation.paymentStatus === "paid") {
+      return { settled: false, reason: "already_paid" };
+    }
+    if (!isFullConsultationPayment(args.confirmedAmount, args.expectedAmount)) {
+      const { createAuditLog } = await import("./authHelpers");
+      await createAuditLog(ctx, {
+        userId: args.userId,
+        action: "underpriced_consultation_payment_rejected",
+        resource: "consultations",
+        resourceId: args.consultationId,
+        changes: {
+          confirmedAmount: args.confirmedAmount,
+          expectedAmount: args.expectedAmount,
+        },
+      });
+      return { settled: false, reason: "underpriced" };
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(args.consultationId, {
+      paymentStatus: "paid",
+      status: "confirmed",
+      updatedAt: now,
+    });
+
+    const { createAuditLog } = await import("./authHelpers");
+    await createAuditLog(ctx, {
+      userId: args.userId,
+      action: "consultation_payment_completed",
+      resource: "consultations",
+      resourceId: args.consultationId,
+      changes: {
+        confirmedAmount: args.confirmedAmount,
+        expectedAmount: args.expectedAmount,
+      },
+    });
+
+    return { settled: true };
   },
 });

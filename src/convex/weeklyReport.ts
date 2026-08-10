@@ -76,8 +76,10 @@ export const generateWeeklyReport = action({
       },
       crops: {
         total: crops?.length ?? 0,
-        healthy: crops?.filter((c: any) => (c.healthScore ?? 80) >= 70).length ?? 0,
-        needsAttention: crops?.filter((c: any) => (c.healthScore ?? 80) < 70).length ?? 0,
+        // Honest counts: only crops WITH a recorded health score are
+        // classified — a crop without a score is never assumed healthy.
+        healthy: crops?.filter((c: any) => typeof c.healthScore === "number" && c.healthScore >= 70).length ?? 0,
+        needsAttention: crops?.filter((c: any) => typeof c.healthScore === "number" && c.healthScore < 70).length ?? 0,
       },
       livestock: {
         total: livestock?.length ?? 0,
@@ -166,9 +168,12 @@ export const storeReport = mutation({
           }))
         : [],
       riskAnalysis: JSON.stringify(report.risks ?? []),
-      riskScore: Array.isArray(report.risks) && report.risks.length > 0
-        ? Math.min(100, report.risks.length * 20)
-        : 0,
+      // riskScore is derived from the REAL overall health score (100 - score)
+      // and is null when no health score exists — never invented from the
+      // number of risks.
+      riskScore: report.summary?.overallHealth != null
+        ? Math.max(0, 100 - report.summary.overallHealth)
+        : undefined,
       ...(report.summary?.overallHealth != null
         ? { healthScore: report.summary.overallHealth }
         : {}),
@@ -241,7 +246,8 @@ export const getReportHistory = query({
     return reports.slice(0, max).map((r) => ({
       id: r._id,
       generatedAt: r.generatedAt,
-      overallHealth: r.healthScore ?? 0,
+      // null when the report had no computable health score — never 0
+      overallHealth: r.healthScore ?? null,
       status: "completed" as const,
     }));
   },
@@ -429,13 +435,24 @@ export const generateWeeklyReports = internalMutation({
         const expenses = recentTx.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
         const completedTasks = crops.filter((c) => c.status === "harvested").length;
 
+        const scoredCrops = crops.filter((c) => typeof c.healthScore === "number");
+        const healthyCrops = scoredCrops.filter((c) => (c.healthScore as number) >= 70).length;
+        const attentionCrops = scoredCrops.filter((c) => (c.healthScore as number) < 70).length;
+        const unscoredCrops = crops.length - scoredCrops.length;
+        const overallHealth = healthScore?.overall != null ? healthScore.overall : null;
+        const riskLevel = healthScore?.riskLevel;
+
         await ctx.db.insert("weeklyReports", {
           farmId: farm._id,
           userId: farm.userId,
           weekStart: weekAgo,
           weekEnd: now,
-          farmHealthSummary: `Overall farm health score: ${healthScore?.overall ?? 75}%. Risk level: ${healthScore?.riskLevel ?? "medium"}.`,
-          cropProgress: `${crops.length} crops tracked. ${crops.filter((c) => (c.healthScore ?? 80) >= 70).length} healthy, ${crops.filter((c) => (c.healthScore ?? 80) < 70).length} need attention.`,
+          farmHealthSummary: overallHealth != null
+            ? `Overall farm health score: ${overallHealth}%. Risk level: ${riskLevel ?? "unknown"}.`
+            : "Insufficient data to compute an overall farm health score. Add crops, livestock, weather or financial data to unlock scoring.",
+          cropProgress: scoredCrops.length > 0
+            ? `${crops.length} crops tracked. ${healthyCrops} healthy, ${attentionCrops} need attention${unscoredCrops > 0 ? `, ${unscoredCrops} without a health score` : ""}.`
+            : `${crops.length} crops tracked, but none have a recorded health score yet.`,
           livestockStatus: `${livestock.length} livestock managed. ${livestock.filter((l) => l.status === "healthy").length} healthy.`,
           weatherSummary: "Weather data updated via intelligence pipeline.",
           financialPerformance: `Income: ${income.toFixed(2)}. Expenses: ${expenses.toFixed(2)}. Net: ${(income - expenses).toFixed(2)}.`,
@@ -448,9 +465,11 @@ export const generateWeeklyReports = internalMutation({
             priority: "medium",
             confidence: 80,
           })) ?? [],
-          riskAnalysis: `Risk factors: ${healthScore?.riskFactors?.join("; ") ?? "None identified"}. Trend: ${healthScore?.trend ?? "stable"}.`,
-          riskScore: healthScore ? Math.max(0, 100 - healthScore.overall) : 0,
-          ...(healthScore?.overall != null ? { healthScore: healthScore.overall } : {}),
+          riskAnalysis: healthScore
+            ? `Risk factors: ${healthScore.riskFactors?.join("; ") ?? "None identified"}. Trend: ${healthScore.trend ?? "stable"}.`
+            : "Insufficient data to assess risk factors.",
+          riskScore: overallHealth != null ? Math.max(0, 100 - overallHealth) : undefined,
+          ...(overallHealth != null ? { healthScore: overallHealth } : {}),
           generatedAt: now,
         });
       },

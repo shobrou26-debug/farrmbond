@@ -55,6 +55,38 @@ export type FarmHealthScore = {
 // Intelligence Queries
 // ============================================================
 
+/**
+ * Pure: average of the finite numbers in a list (null when none present).
+ * Never invents a value — a component is only a number when real data
+ * exists to compute it from (Phase 8 data-honesty contract).
+ */
+export function averagePresent(values: Array<number | null | undefined>): number | null {
+  const present = values.filter((x): x is number => typeof x === "number" && Number.isFinite(x));
+  if (present.length === 0) return null;
+  return Math.round(present.reduce((a, b) => a + b, 0) / present.length);
+}
+
+/**
+ * Pure: weighted average over the components that actually have data.
+ * Weights are renormalized over the present subset so a farm with, say,
+ * only crop data still gets an honest overall score — and a farm with no
+ * data at all gets null, never a fabricated number.
+ */
+export function computeWeightedHealth(
+  components: Array<{ value: number | null | undefined; weight: number }>
+): number | null {
+  let weightSum = 0;
+  let valueSum = 0;
+  for (const c of components) {
+    if (typeof c.value === "number" && Number.isFinite(c.value)) {
+      weightSum += c.weight;
+      valueSum += c.value * c.weight;
+    }
+  }
+  if (weightSum === 0) return null;
+  return Math.round(valueSum / weightSum);
+}
+
 /** Get farm health score aggregating all data sources */
 export const getFarmHealthScore = query({
   args: { farmId: v.id("farms") },
@@ -78,28 +110,28 @@ export const getFarmHealthScore = query({
       .withIndex("by_farm", (q) => q.eq("farmId", args.farmId))
       .collect();
 
-    // Calculate crop health (average health score)
-    const cropHealth = crops.length > 0
-      ? Math.round(crops.reduce((sum, c) => sum + (c.healthScore ?? 80), 0) / crops.length)
-      : 80;
+    // Crop health: average of crops WITH a recorded health score. A crop
+    // without a healthScore contributes nothing; with no scored crops the
+    // component is null (insufficient data), never a default 80.
+    const cropHealth = averagePresent(crops.map((c) => c.healthScore));
 
-    // Calculate livestock health (average health score)
-    const livestockHealth = livestock.length > 0
-      ? Math.round(livestock.reduce((sum, l) => sum + (l.healthScore ?? 100), 0) / livestock.length)
-      : 100;
+    // Livestock health: same rule (no default 100).
+    const livestockHealth = averagePresent(livestock.map((l) => l.healthScore));
 
-    // Calculate vaccination coverage
+    // Vaccination coverage: only defined when there is livestock.
     const vaccinatedLivestock = livestock.filter((l) => l.lastVaccination && l.lastVaccination > thirtyDaysAgo).length;
-    const vaccinationRate = livestock.length > 0 ? Math.round((vaccinatedLivestock / livestock.length) * 100) : 100;
+    const vaccinationRate = livestock.length > 0
+      ? Math.round((vaccinatedLivestock / livestock.length) * 100)
+      : null;
 
-    // Get weather risk (from cached weather data)
+    // Weather risk: null when no cached weather record exists.
     const weatherData = await ctx.db
       .query("weatherData")
       .withIndex("by_farm", (q) => q.eq("farmId", args.farmId))
       .order("desc")
       .first();
-    
-    let weatherRisk = 50; // default moderate risk
+
+    let weatherRisk: number | null = null;
     if (weatherData) {
       const temp = weatherData.temperature ?? 25;
       const rain = weatherData.precipitation ?? 0;
@@ -109,35 +141,39 @@ export const getFarmHealthScore = query({
       else weatherRisk = 30;
     }
 
-    // Soil health (from satellite data or default)
+    // Soil health: derived from satellite NDVI when present, else null.
     const satelliteData = await ctx.db
       .query("satelliteData")
       .withIndex("by_farm", (q) => q.eq("farmId", args.farmId))
       .order("desc")
       .first();
-    
-    const soilHealth = satelliteData?.ndvi ? Math.round(satelliteData.ndvi * 100) : 70;
 
-    // Financial health
+    const soilHealth = satelliteData?.ndvi != null
+      ? Math.round(Math.max(0, Math.min(100, satelliteData.ndvi * 100)))
+      : null;
+
+    // Financial health: only when there is income to compute a margin from.
     const transactions = await ctx.db
       .query("transactions")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
-    
+
     const recentTransactions = transactions.filter((t) => t.date > thirtyDaysAgo);
     const income = recentTransactions.filter((t) => t.type === "income").reduce((sum, t) => sum + (t.amount || 0), 0);
     const expenses = recentTransactions.filter((t) => t.type === "expense").reduce((sum, t) => sum + (t.amount || 0), 0);
-    const profitMargin = income > 0 ? Math.round(((income - expenses) / income) * 100) : 50;
+    const financialHealth = income > 0
+      ? Math.round(Math.max(0, Math.min(100, ((income - expenses) / income) * 100)))
+      : null;
 
-    // Calculate overall score
-    const overall = Math.round(
-      (cropHealth * 0.25) +
-      (livestockHealth * 0.15) +
-      (Math.min(vaccinationRate, 100) * 0.1) +
-      (soilHealth * 0.2) +
-      ((100 - weatherRisk) * 0.15) +
-      (Math.min(profitMargin, 100) * 0.15)
-    );
+    // Overall: renormalized weighted average of the components with data.
+    const overall = computeWeightedHealth([
+      { value: cropHealth, weight: 0.25 },
+      { value: livestockHealth, weight: 0.15 },
+      { value: vaccinationRate, weight: 0.1 },
+      { value: soilHealth, weight: 0.2 },
+      { value: weatherRisk != null ? 100 - weatherRisk : null, weight: 0.15 },
+      { value: financialHealth, weight: 0.15 },
+    ]);
 
     return {
       farmId: args.farmId,
@@ -146,7 +182,7 @@ export const getFarmHealthScore = query({
       livestockHealth,
       soilHealth,
       weatherRisk,
-      financialHealth: Math.min(profitMargin, 100),
+      financialHealth,
       vaccinationRate,
       lastUpdated: now,
     };
@@ -309,7 +345,8 @@ export const getDashboardIntelligence = query({
     // Aggregate data across all farms
     let totalCrops = 0;
     let totalLivestock = 0;
-    let healthyCrops = 0;
+    let scoredCrops = 0;
+    let healthyScoredCrops = 0;
     let healthyLivestock = 0;
     let totalIncome = 0;
     let totalExpenses = 0;
@@ -327,7 +364,10 @@ export const getDashboardIntelligence = query({
 
       totalCrops += crops.length;
       totalLivestock += livestock.length;
-      healthyCrops += crops.filter((c) => (c.healthScore ?? 80) >= 70).length;
+      // Only crops with an ACTUAL health score count — a crop without a
+      // score is never assumed healthy (no `?? 80` fabrications).
+      scoredCrops += crops.filter((c) => typeof c.healthScore === "number").length;
+      healthyScoredCrops += crops.filter((c) => typeof c.healthScore === "number" && c.healthScore >= 70).length;
       healthyLivestock += livestock.filter((l) => l.status === "healthy").length;
     }
 
@@ -350,10 +390,13 @@ export const getDashboardIntelligence = query({
 
     const unreadNotifications = notifications.filter((n) => !n.isRead).length;
 
-    // Calculate overall health
-    const cropHealth = totalCrops > 0 ? Math.round((healthyCrops / totalCrops) * 100) : 100;
-    const livestockHealth = totalLivestock > 0 ? Math.round((healthyLivestock / totalLivestock) * 100) : 100;
-    const overallHealth = Math.round((cropHealth + livestockHealth) / 2);
+    // Calculate overall health — nullable when no scored data exists
+    const cropHealth = scoredCrops > 0 ? Math.round((healthyScoredCrops / scoredCrops) * 100) : null;
+    const livestockHealth = totalLivestock > 0 ? Math.round((healthyLivestock / totalLivestock) * 100) : null;
+    const overallHealth = computeWeightedHealth([
+      { value: cropHealth, weight: 0.5 },
+      { value: livestockHealth, weight: 0.5 },
+    ]);
 
     return {
       farmCount: farms.length,
@@ -365,7 +408,7 @@ export const getDashboardIntelligence = query({
       totalIncome,
       totalExpenses,
       profit: totalIncome - totalExpenses,
-      profitMargin: totalIncome > 0 ? Math.round(((totalIncome - totalExpenses) / totalIncome) * 100) : 0,
+      profitMargin: totalIncome > 0 ? Math.round(((totalIncome - totalExpenses) / totalIncome) * 100) : null,
       unreadNotifications,
       lastUpdated: now,
     };
@@ -575,31 +618,28 @@ export async function runIntelligencePipelineCore(
     let totalInsights = 0;
 
     for (const farm of farms) {
-      // 1. Get crop health data
+      // 1. Crop health: average of crops WITH a recorded health score.
+      //    No scored crops → null (insufficient data), never a default 80.
       const crops = await ctx.db
         .query("crops")
         .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
         .collect();
-      const avgCropHealth = crops.length > 0
-        ? Math.round(crops.reduce((s, c) => s + (c.healthScore ?? 80), 0) / crops.length)
-        : 80;
+      const avgCropHealth = averagePresent(crops.map((c) => c.healthScore));
 
-      // 2. Get livestock health data
+      // 2. Livestock health: same rule (no default 100).
       const livestock = await ctx.db
         .query("livestock")
         .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
         .collect();
-      const avgLivestockHealth = livestock.length > 0
-        ? Math.round(livestock.reduce((s, l) => s + (l.healthScore ?? 100), 0) / livestock.length)
-        : 100;
+      const avgLivestockHealth = averagePresent(livestock.map((l) => l.healthScore));
 
-      // 3. Get weather risk
+      // 3. Weather risk: null when no cached weather record exists.
       const weatherData = await ctx.db
         .query("weatherData")
         .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
         .order("desc")
         .first();
-      let weatherRisk = 50;
+      let weatherRisk: number | null = null;
       if (weatherData) {
         const temp = weatherData.temperature;
         const rain = weatherData.precipitation;
@@ -608,23 +648,23 @@ export async function runIntelligencePipelineCore(
         else weatherRisk = 30;
       }
 
-      // 4. Get satellite data
+      // 4. Satellite health: only from a real NDVI measurement.
       const satelliteData = await ctx.db
         .query("satelliteData")
         .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
         .order("desc")
         .first();
-      const satelliteHealth = satelliteData?.ndvi !== undefined
-        ? Math.round(satelliteData.ndvi * 100)
-        : 75;
+      const satelliteHealth = satelliteData?.ndvi != null
+        ? Math.round(Math.max(0, Math.min(100, satelliteData.ndvi * 100)))
+        : null;
 
-      // 5. Get soil health
+      // 5. Soil health: only when a soil record exists.
       const soilData = await ctx.db
         .query("soilData")
         .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
         .order("desc")
         .first();
-      let soilHealth = 70;
+      let soilHealth: number | null = null;
       if (soilData) {
         soilHealth = Math.round(
           (soilData.ph >= 6 && soilData.ph <= 7.5 ? 25 : 10) +
@@ -634,7 +674,7 @@ export async function runIntelligencePipelineCore(
         );
       }
 
-      // 6. Financial health (from transactions)
+      // 6. Financial health: only when there is income to compute a margin.
       const transactions = await ctx.db
         .query("transactions")
         .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
@@ -643,18 +683,22 @@ export async function runIntelligencePipelineCore(
       const income = recentTx.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
       const expenses = recentTx.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
       const financialHealth = income > 0
-        ? Math.min(100, Math.round(((income - expenses) / income) * 100 + 50))
-        : 60;
+        ? Math.round(Math.max(0, Math.min(100, ((income - expenses) / income) * 100 + 50)))
+        : null;
 
-      // Compute overall score
-      const overall = Math.round(
-        avgCropHealth * 0.25 +
-        avgLivestockHealth * 0.15 +
-        (100 - weatherRisk) * 0.15 +
-        satelliteHealth * 0.15 +
-        soilHealth * 0.15 +
-        financialHealth * 0.15
-      );
+      // Overall: renormalized weighted average of the components with data.
+      const overall = computeWeightedHealth([
+        { value: avgCropHealth, weight: 0.25 },
+        { value: avgLivestockHealth, weight: 0.15 },
+        { value: weatherRisk != null ? 100 - weatherRisk : null, weight: 0.15 },
+        { value: satelliteHealth, weight: 0.15 },
+        { value: soilHealth, weight: 0.15 },
+        { value: financialHealth, weight: 0.15 },
+      ]);
+
+      // A health score row is only written when at least one component has
+      // real data — an empty farm never gets a fabricated score.
+      if (overall == null) continue;
 
       // Determine risk level
       let riskLevel = "low";
@@ -662,13 +706,13 @@ export async function runIntelligencePipelineCore(
       else if (overall < 60) riskLevel = "high";
       else if (overall < 75) riskLevel = "medium";
 
-      // Risk factors
+      // Risk factors (only from components that actually have data)
       const riskFactors: string[] = [];
-      if (weatherRisk > 60) riskFactors.push("High weather risk");
-      if (avgCropHealth < 60) riskFactors.push("Poor crop health");
-      if (satelliteHealth < 50) riskFactors.push("Vegetation stress detected");
-      if (soilHealth < 50) riskFactors.push("Soil needs attention");
-      if (financialHealth < 50) riskFactors.push("Financial pressure");
+      if (weatherRisk != null && weatherRisk > 60) riskFactors.push("High weather risk");
+      if (avgCropHealth != null && avgCropHealth < 60) riskFactors.push("Poor crop health");
+      if (satelliteHealth != null && satelliteHealth < 50) riskFactors.push("Vegetation stress detected");
+      if (soilHealth != null && soilHealth < 50) riskFactors.push("Soil needs attention");
+      if (financialHealth != null && financialHealth < 50) riskFactors.push("Financial pressure");
 
       // Trend (compare with previous score)
       const previousScore = await ctx.db
@@ -676,42 +720,54 @@ export async function runIntelligencePipelineCore(
         .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
         .order("desc")
         .first();
-      const trend = previousScore
+      const trend = previousScore && previousScore.overall != null
         ? overall > previousScore.overall + 3 ? "improving"
           : overall < previousScore.overall - 3 ? "declining"
           : "stable"
         : "stable";
 
-      // Upsert health score
+      // Upsert health score (optional schema fields: null -> undefined)
       if (previousScore) {
         await ctx.db.patch(previousScore._id, {
-          overall, cropHealth: avgCropHealth, livestockHealth: avgLivestockHealth,
-          soilHealth, weatherRisk, financialHealth, satelliteHealth,
+          overall: overall ?? undefined,
+          cropHealth: avgCropHealth ?? undefined,
+          livestockHealth: avgLivestockHealth ?? undefined,
+          soilHealth: soilHealth ?? undefined,
+          weatherRisk: weatherRisk ?? undefined,
+          financialHealth: financialHealth ?? undefined,
+          satelliteHealth: satelliteHealth ?? undefined,
           riskLevel, riskFactors, trend, previousScore: previousScore.overall,
           computedAt: now,
         });
       } else {
         await ctx.db.insert("farmHealthScores", {
-          farmId: farm._id, userId, overall, cropHealth: avgCropHealth,
-          livestockHealth: avgLivestockHealth, soilHealth, weatherRisk,
-          financialHealth, satelliteHealth, riskLevel, riskFactors, trend,
-          previousScore: previousScore ? (previousScore as any).overall : undefined, computedAt: now,
+          farmId: farm._id, userId,
+          overall: overall ?? undefined,
+          cropHealth: avgCropHealth ?? undefined,
+          livestockHealth: avgLivestockHealth ?? undefined,
+          soilHealth: soilHealth ?? undefined,
+          weatherRisk: weatherRisk ?? undefined,
+          financialHealth: financialHealth ?? undefined,
+          satelliteHealth: satelliteHealth ?? undefined,
+          riskLevel, riskFactors, trend,
+          computedAt: now,
         });
       }
 
       // Store intelligence data entries
       const insights: Array<{ source: string; title: string; summary: string; confidence: number; impact: string; severity: string }> = [];
 
-      if (weatherRisk > 70) {
+      if (weatherRisk != null && weatherRisk > 70) {
         insights.push({ source: "weather", title: "High weather risk detected", summary: `Temperature and precipitation conditions pose risk to ${farm.name}`, confidence: 85, impact: "negative", severity: "high" });
       }
-      if (satelliteHealth < 50) {
+      if (satelliteHealth != null && satelliteHealth < 50) {
         insights.push({ source: "satellite", title: "Vegetation stress detected", summary: `NDVI indicates poor vegetation health on ${farm.name}`, confidence: 80, impact: "negative", severity: "high" });
       }
-      if (avgCropHealth < 60) {
-        insights.push({ source: "crop", title: "Crop health declining", summary: `${crops.filter((c) => (c.healthScore ?? 80) < 60).length} crops need attention`, confidence: 90, impact: "negative", severity: "medium" });
+      if (avgCropHealth != null && avgCropHealth < 60) {
+        const struggling = crops.filter((c) => typeof c.healthScore === "number" && c.healthScore < 60).length;
+        insights.push({ source: "crop", title: "Crop health declining", summary: `${struggling} crops scored below 60% health`, confidence: 90, impact: "negative", severity: "medium" });
       }
-      if (financialHealth > 70 && income > expenses) {
+      if (financialHealth != null && financialHealth > 70 && income > expenses) {
         insights.push({ source: "financial", title: "Strong financial performance", summary: `Net profit this month is positive with ${((income - expenses) / income * 100).toFixed(0)}% margin`, confidence: 95, impact: "positive", severity: "low" });
       }
 

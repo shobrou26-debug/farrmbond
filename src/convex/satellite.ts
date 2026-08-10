@@ -308,39 +308,48 @@ export const getSatelliteAnalysis = query({
       .order("desc")
       .collect();
 
-    const ndviTrend = historicalData.slice(0, 12).map((d) => ({
-      date: d.timestamp,
-      ndvi: d.ndvi ?? 0,
-      label: new Date(d.timestamp).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-      }),
-    }));
+    // Trend series contains ONLY real NDVI measurements — a missing NDVI
+    // on a record is dropped, never charted as 0.
+    const ndviTrend = historicalData
+      .slice(0, 12)
+      .filter((d) => d.ndvi != null)
+      .map((d) => ({
+        date: d.timestamp,
+        ndvi: d.ndvi as number,
+        label: new Date(d.timestamp).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+        }),
+      }));
 
-    const currentNDVI = satelliteData?.ndvi ?? 0;
-    let healthStatus: string;
-    let healthColor: string;
+    // No measurement → null, never a fabricated 0 NDVI (the frontend
+    // SatelliteViewer already renders null as "no data").
+    const currentNDVI = satelliteData?.ndvi ?? null;
+    let healthStatus: string | null = null;
+    let healthColor: string | null = null;
 
-    if (currentNDVI >= 0.7) {
-      healthStatus = "Excellent";
-      healthColor = "text-green-600";
-    } else if (currentNDVI >= 0.5) {
-      healthStatus = "Good";
-      healthColor = "text-blue-600";
-    } else if (currentNDVI >= 0.3) {
-      healthStatus = "Moderate";
-      healthColor = "text-amber-600";
-    } else {
-      healthStatus = "Poor";
-      healthColor = "text-red-600";
+    if (currentNDVI != null) {
+      if (currentNDVI >= 0.7) {
+        healthStatus = "Excellent";
+        healthColor = "text-green-600";
+      } else if (currentNDVI >= 0.5) {
+        healthStatus = "Good";
+        healthColor = "text-blue-600";
+      } else if (currentNDVI >= 0.3) {
+        healthStatus = "Moderate";
+        healthColor = "text-amber-600";
+      } else {
+        healthStatus = "Poor";
+        healthColor = "text-red-600";
+      }
     }
 
     const stressAreas: string[] = [];
-    if (currentNDVI < 0.3)
+    if (currentNDVI != null && currentNDVI < 0.3)
       stressAreas.push("Vegetation stress detected across the farm");
-    if (historicalData.length >= 2) {
-      const prevNDVI = historicalData[1]?.ndvi ?? 0;
-      if (currentNDVI < prevNDVI - 0.1)
+    if (currentNDVI != null && historicalData.length >= 2) {
+      const prevNDVI = historicalData[1]?.ndvi;
+      if (prevNDVI != null && currentNDVI < prevNDVI - 0.1)
         stressAreas.push(
           "Significant decline in vegetation health detected"
         );
@@ -360,7 +369,10 @@ export const getSatelliteAnalysis = query({
       vegetationIndex:
         satelliteData?.ndvi != null ? satelliteData.ndvi * 100 : null,
       cropDensity: satelliteData?.vegetationCoverage ?? null,
-      waterStress: (satelliteData?.ndwi ?? 0) < 0.1,
+      // null (unknown) when no NDWI measurement exists — never "no stress"
+      // fabricated from a default 0.
+      waterStress:
+        satelliteData?.ndwi != null ? satelliteData.ndwi < 0.1 : null,
       source: "sentinel-2",
       sceneCloudCover: null,
     };
@@ -687,33 +699,55 @@ export const compareSeasonalVegetation = query({
       .order("desc")
       .collect();
 
-    const currentNDVI =
-      allData.length > 0 ? allData[0].ndvi ?? 0 : 0.5;
-    const previousNDVI =
-      allData.length > 1 ? allData[1].ndvi ?? 0 : 0.5;
-    const change = currentNDVI - previousNDVI;
+    // Only REAL NDVI measurements count. No measurements → an explicit
+    // insufficient-data state; 0.5 is never fabricated as "current NDVI".
+    const measurements = allData
+      .map((d) => d.ndvi)
+      .filter((x): x is number => typeof x === "number" && Number.isFinite(x));
+
+    if (measurements.length === 0) {
+      return {
+        hasData: false,
+        currentNDVI: null,
+        previousNDVI: null,
+        change: null,
+        changePercent: null,
+        trend: null,
+        analysis:
+          "No satellite NDVI measurements are available for this farm yet. Run a satellite scan to enable season-to-season vegetation comparison.",
+      };
+    }
+
+    const currentNDVI = measurements[0];
+    const previousNDVI = measurements.length > 1 ? measurements[1] : null;
+    const change = previousNDVI != null ? currentNDVI - previousNDVI : null;
     const changePercent =
-      previousNDVI > 0
-        ? Math.round((change / previousNDVI) * 100)
-        : 0;
+      previousNDVI != null && previousNDVI > 0
+        ? Math.round((change! / previousNDVI) * 100)
+        : null;
 
     return {
+      hasData: true,
       currentNDVI,
       previousNDVI,
       change,
       changePercent,
       trend:
-        change > 0.05
-          ? "improving"
-          : change < -0.05
-            ? "declining"
-            : "stable",
+        change == null
+          ? null
+          : change > 0.05
+            ? "improving"
+            : change < -0.05
+              ? "declining"
+              : "stable",
       analysis:
-        change > 0.05
-          ? "Vegetation health has improved significantly compared to previous season."
-          : change < -0.05
-            ? "Vegetation health has declined. Consider soil testing and nutrient management."
-            : "Vegetation health is stable compared to previous season.",
+        change == null
+          ? "Only one satellite measurement is available — more observations are needed to compare vegetation health across seasons."
+          : change > 0.05
+            ? "Vegetation health has improved significantly compared to previous season."
+            : change < -0.05
+              ? "Vegetation health has declined. Consider soil testing and nutrient management."
+              : "Vegetation health is stable compared to previous season.",
     };
   },
 });

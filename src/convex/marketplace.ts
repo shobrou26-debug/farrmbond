@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalQuery } from "./_generated/server";
 import {
   requireAuth,
   requireAdmin,
@@ -8,6 +8,7 @@ import {
   validateString,
   validateNumber,
   sanitizeInput,
+  verifyConsultationAccess,
 } from "./authHelpers";
 import { ROLES } from "./schema";
 
@@ -642,6 +643,25 @@ export const deleteSeed = mutation({
 // Consultation Booking Module
 // ============================================================
 
+const CONSULTATION_CURRENCY = "KES";
+
+/**
+ * Pure: find the service on an agronomist profile by exact name and return
+ * its server-authoritative price and duration. Returns null when the
+ * service does not exist — the booking must then be rejected, because a
+ * client can never pick an arbitrary consultation amount.
+ */
+export function findAgronomistService(
+  profile: { services?: Array<{ name: string; price: number; duration: number }> } | null | undefined,
+  serviceName: string
+): { price: number; duration: number } | null {
+  const service = (profile?.services ?? []).find((s) => s.name === serviceName);
+  if (!service) return null;
+  if (typeof service.price !== "number" || !Number.isFinite(service.price) || service.price <= 0) return null;
+  const duration = typeof service.duration === "number" && service.duration > 0 ? service.duration : 30;
+  return { price: service.price, duration };
+}
+
 /** Book a consultation with an agronomist */
 export const bookConsultation = mutation({
   args: {
@@ -665,6 +685,18 @@ export const bookConsultation = mutation({
       throw new Error("This agronomist is not available for bookings");
     }
 
+    // The consultation price is ALWAYS the agronomist's published service
+    // price, resolved server-side. The client cannot choose an amount; a
+    // bogus serviceType is rejected rather than stored at amount 0.
+    const service = findAgronomistService(agronomistProfile, args.serviceType);
+    if (!service) {
+      throw new Error("The selected service is not available on this agronomist's profile");
+    }
+
+    if (args.scheduledAt <= Date.now()) {
+      throw new Error("Consultations must be scheduled in the future");
+    }
+
     const now = Date.now();
     const id = await ctx.db.insert("consultations", {
       farmerId: userId,
@@ -672,21 +704,44 @@ export const bookConsultation = mutation({
       farmId: args.farmId,
       serviceType: args.serviceType,
       scheduledAt: args.scheduledAt,
-      duration: args.duration,
+      // Duration is derived from the service definition, not the client.
+      duration: service.duration,
       status: "pending",
-      notes: args.notes,
-      amount: 0,
-      currency: "KES",
+      notes: args.notes ? sanitizeInput(args.notes).slice(0, 1000) : undefined,
+      amount: service.price,
+      currency: CONSULTATION_CURRENCY,
       paymentStatus: "pending",
       createdAt: now,
       updatedAt: now,
     });
-    await createAuditLog(ctx, { userId, action: "create", resource: "consultations", resourceId: id, changes: { agronomistId: args.agronomistId, serviceType: args.serviceType } });
+    await createAuditLog(ctx, { userId, action: "create", resource: "consultations", resourceId: id, changes: { agronomistId: args.agronomistId, serviceType: args.serviceType, amount: service.price } });
     return id;
   },
 });
 
-/** List user's consultations */
+/**
+ * Internal: fetch a consultation row for the payment actions.
+ * No auth — the caller (authenticated action) verifies ownership.
+ */
+export const getConsultationByIdInternal = internalQuery({
+  args: { consultationId: v.id("consultations") },
+  handler: async (ctx, args) => {
+    const consultation = await ctx.db.get(args.consultationId);
+    if (!consultation) return null;
+    return {
+      farmerId: consultation.farmerId,
+      agronomistId: consultation.agronomistId,
+      serviceType: consultation.serviceType,
+      scheduledAt: consultation.scheduledAt,
+      status: consultation.status,
+      amount: consultation.amount,
+      currency: consultation.currency,
+      paymentStatus: consultation.paymentStatus,
+    };
+  },
+});
+
+/** List user's consultations (farmer view) with payment status */
 export const listUserConsultations = query({
   args: {},
   handler: async (ctx) => {
@@ -698,18 +753,148 @@ export const listUserConsultations = query({
       .order("desc")
       .collect();
 
-    // Join with agronomist user data for display
+    // The user's own payment transactions (bounded per user) — used to
+    // surface the most recent pending payment reference per consultation
+    // so the UI can resume/poll a payment after a page refresh.
+    const payments = await ctx.db
+      .query("mobileMoneyTransactions")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .order("desc")
+      .take(200);
+
     const results = await Promise.all(
       consultations.map(async (c) => {
         const agronomist = await ctx.db.get(c.agronomistId);
+        const pendingPayment = payments.find(
+          (p) => p.consultationId === c._id && p.status !== "completed" && p.status !== "failed" && p.status !== "expired"
+        );
         return {
           ...c,
           agronomistName: agronomist?.name ?? "Unknown",
           agronomistImage: agronomist?.image ?? null,
+          pendingPayment: pendingPayment
+            ? {
+                referenceId: pendingPayment.referenceId,
+                provider: pendingPayment.provider,
+                status: pendingPayment.status,
+                countryCode: pendingPayment.countryCode ?? undefined,
+              }
+            : null,
         };
       })
     );
 
     return results;
+  },
+});
+
+/** List consultations booked with the authenticated agronomist. */
+export const listAgronomistConsultations = query({
+  args: {},
+  handler: async (ctx) => {
+    const { userId } = await requireAuth(ctx);
+
+    const consultations = await ctx.db
+      .query("consultations")
+      .withIndex("by_agronomist", (q) => q.eq("agronomistId", userId))
+      .order("desc")
+      .collect();
+
+    return Promise.all(
+      consultations.map(async (c) => {
+        const farmer = await ctx.db.get(c.farmerId);
+        return {
+          ...c,
+          farmerName: farmer?.name ?? "Unknown",
+          farmerImage: farmer?.image ?? null,
+        };
+      })
+    );
+  },
+});
+
+/**
+ * Agronomist (participant): confirm a booked consultation.
+ * Only the farmer or the agronomist on the consultation can act.
+ */
+export const confirmConsultation = mutation({
+  args: { consultationId: v.id("consultations") },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    const consultation = await verifyConsultationAccess(ctx, args.consultationId, userId);
+    if (consultation.status !== "pending") {
+      throw new Error("Only pending consultations can be confirmed");
+    }
+    await ctx.db.patch(args.consultationId, { status: "confirmed", updatedAt: Date.now() });
+    await createAuditLog(ctx, { userId, action: "confirm", resource: "consultations", resourceId: args.consultationId, changes: { status: "confirmed" } });
+    return { success: true };
+  },
+});
+
+/**
+ * Participant: cancel a consultation. Allowed only while unpaid — a paid
+ * consultation must go through support for a refund (never auto-refunded
+ * or silently flipped to refunded).
+ */
+export const cancelConsultation = mutation({
+  args: { consultationId: v.id("consultations") },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    const consultation = await verifyConsultationAccess(ctx, args.consultationId, userId);
+    if (consultation.status === "cancelled" || consultation.status === "completed") {
+      throw new Error("This consultation can no longer be cancelled");
+    }
+    if (consultation.paymentStatus === "paid") {
+      throw new Error(
+        "This consultation has already been paid. Contact support for a refund."
+      );
+    }
+    await ctx.db.patch(args.consultationId, { status: "cancelled", updatedAt: Date.now() });
+    await createAuditLog(ctx, { userId, action: "cancel", resource: "consultations", resourceId: args.consultationId, changes: { status: "cancelled" } });
+    return { success: true };
+  },
+});
+
+/** Participant: mark a consultation completed. */
+export const completeConsultation = mutation({
+  args: { consultationId: v.id("consultations") },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    const consultation = await verifyConsultationAccess(ctx, args.consultationId, userId);
+    if (consultation.status === "cancelled") {
+      throw new Error("A cancelled consultation cannot be completed");
+    }
+    await ctx.db.patch(args.consultationId, { status: "completed", updatedAt: Date.now() });
+    await createAuditLog(ctx, { userId, action: "complete", resource: "consultations", resourceId: args.consultationId, changes: { status: "completed" } });
+    return { success: true };
+  },
+});
+
+/** Farmer only: rate a completed consultation. */
+export const rateConsultation = mutation({
+  args: {
+    consultationId: v.id("consultations"),
+    rating: v.number(),
+    review: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    if (args.rating < 1 || args.rating > 5) {
+      throw new Error("Rating must be between 1 and 5");
+    }
+    const consultation = await verifyConsultationAccess(ctx, args.consultationId, userId);
+    if (consultation.farmerId !== userId) {
+      throw new Error("Only the booking farmer can rate this consultation");
+    }
+    if (consultation.status !== "completed") {
+      throw new Error("Only completed consultations can be rated");
+    }
+    await ctx.db.patch(args.consultationId, {
+      farmerRating: args.rating,
+      farmerReview: args.review ? sanitizeInput(args.review).slice(0, 1000) : undefined,
+      updatedAt: Date.now(),
+    });
+    await createAuditLog(ctx, { userId, action: "rate", resource: "consultations", resourceId: args.consultationId, changes: { rating: args.rating } });
+    return { success: true };
   },
 });
