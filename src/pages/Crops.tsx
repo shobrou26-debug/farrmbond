@@ -145,10 +145,14 @@ export default function Crops() {
 
   const activeCount = crops.filter((c) => c.status !== "harvested" && c.status !== "failed").length;
   const harvestReady = crops.filter((c) => c.status === "harvest_ready").length;
+  // Average of RECORDED health scores only; null when none are scored.
+  const scoredCrops = crops.filter((c) => typeof c.healthScore === "number");
   const avgHealth =
-    crops.length > 0
-      ? Math.round(crops.reduce((sum, c) => sum + (c.healthScore || 0), 0) / crops.length)
-      : 0;
+    scoredCrops.length > 0
+      ? Math.round(
+          scoredCrops.reduce((sum, c) => sum + (c.healthScore as number), 0) / scoredCrops.length
+        )
+      : null;
 
   const resetForm = () => setForm(emptyForm);
 
@@ -278,7 +282,9 @@ export default function Crops() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Avg Health Score</p>
-                <p className="text-2xl font-bold">{avgHealth}%</p>
+                <p className="text-2xl font-bold">
+                  {avgHealth != null ? `${avgHealth}%` : "No score yet"}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -385,17 +391,23 @@ export default function Crops() {
                       <div className="mt-4">
                         <div className="flex items-center justify-between text-sm mb-1">
                           <span className="text-muted-foreground">Health</span>
-                          <span className="font-medium">{crop.healthScore || 0}%</span>
+                          {crop.healthScore != null ? (
+                            <span className="font-medium">{crop.healthScore}%</span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No score yet</span>
+                          )}
                         </div>
-                        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-500"
-                            style={{
-                              width: `${crop.healthScore || 0}%`,
-                              background: (crop.healthScore || 0) >= 90 ? "linear-gradient(90deg, #22c55e, #16a34a)" : (crop.healthScore || 0) >= 70 ? "linear-gradient(90deg, #f59e0b, #d97706)" : "linear-gradient(90deg, #ef4444, #dc2626)",
-                            }}
-                          />
-                        </div>
+                        {crop.healthScore != null && (
+                          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-500"
+                              style={{
+                                width: `${crop.healthScore}%`,
+                                background: crop.healthScore >= 90 ? "linear-gradient(90deg, #22c55e, #16a34a)" : crop.healthScore >= 70 ? "linear-gradient(90deg, #f59e0b, #d97706)" : "linear-gradient(90deg, #ef4444, #dc2626)",
+                              }}
+                            />
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -531,7 +543,7 @@ export default function Crops() {
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between"><span className="text-muted-foreground">Farm</span><span className="font-medium">{farmMap.get(detailCrop.farmId)?.name || "Unknown"}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span className="font-medium">{statusConfig[detailCrop.status]?.label || detailCrop.status}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Health</span><span className="font-medium">{detailCrop.healthScore || 0}%</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Health</span><span className="font-medium">{detailCrop.healthScore != null ? `${detailCrop.healthScore}%` : "No score yet"}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Planted</span><span>{new Date(detailCrop.plantingDate).toLocaleDateString()}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Expected harvest</span><span>{detailCrop.expectedHarvestDate ? new Date(detailCrop.expectedHarvestDate).toLocaleDateString() : "—"}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Quantity</span><span className="font-medium">{detailCrop.quantity} {detailCrop.unit}</span></div>

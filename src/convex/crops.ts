@@ -153,7 +153,8 @@ export const createCrop = mutation({
       quantity: args.quantity,
       unit: args.unit,
       status: "seedling",
-      healthScore: 100,
+      // No fabricated health score: it stays unset until the farmer
+      // records a real health assessment via updateCrop.
       plotNumber: args.plotNumber ? sanitizeInput(args.plotNumber) : undefined,
       expectedYield: args.expectedYield,
       seedCost: args.seedCost,

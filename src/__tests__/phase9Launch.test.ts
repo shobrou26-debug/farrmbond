@@ -107,3 +107,44 @@ describe("Phase 9 — payment/webhook invariants (re-lock)", () => {
     expect(webhook).toContain("stripe-signature");
   });
 });
+
+describe("Phase 9 — crop/livestock health-score honesty", () => {
+  const cropsSrc = readConvex("crops.ts");
+  const liveSrc = readConvex("livestock.ts");
+  const farmsSrc = readConvex("farms.ts");
+
+  const readPage = (path: string): string =>
+    readFileSync(new URL(`../pages/${path}`, import.meta.url), "utf8");
+
+  test("createCrop no longer fabricates a 100 health score", () => {
+    expect(occurrences(cropsSrc, "healthScore: 100")).toBe(0);
+  });
+
+  test("createLivestock no longer fabricates a 100 health score", () => {
+    expect(occurrences(liveSrc, "healthScore: 100")).toBe(0);
+  });
+
+  test("farm crop-health metric averages only scored crops (never 0)", () => {
+    expect(farmsSrc).toContain('activeCrops.filter((c) => typeof c.healthScore === "number")');
+    // Averages over unscored crops must not be treated as 0.
+    expect(occurrences(farmsSrc, "c.healthScore || 0")).toBe(0);
+  });
+
+  test("Livestock page never displays a fabricated default health score", () => {
+    const page = readPage("Livestock.tsx");
+    expect(occurrences(page, "healthScore ?? 100")).toBe(0);
+    expect(page).toContain("No score yet");
+  });
+
+  test("Crops page never displays 0% for an unscored crop", () => {
+    const page = readPage("Crops.tsx");
+    expect(occurrences(page, "healthScore || 0")).toBe(0);
+    expect(page).toContain("No score yet");
+  });
+
+  test("Analytics page never displays 0% for an unscored crop", () => {
+    const page = readPage("Analytics.tsx");
+    expect(occurrences(page, "healthScore || 0")).toBe(0);
+    expect(page).toContain("No score yet");
+  });
+});

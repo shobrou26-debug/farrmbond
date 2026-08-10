@@ -153,12 +153,17 @@ export const getFarmComparisonData = query({
       const soilEntry = soil.find((s) => s.farmId === farm._id);
       const satEntry = satellite.find((s) => s.farmId === farm._id);
       const ndvi = satEntry?.ndvi ?? null;
+      // Crop health is the average of RECORDED health scores only —
+      // crops without an assessment are excluded, and the metric is null
+      // when none have been scored (never a fabricated 0).
+      const scoredCrops = activeCrops.filter((c) => typeof c.healthScore === "number");
       const cropHealth =
-        activeCrops.length > 0
+        scoredCrops.length > 0
           ? Math.round(
-              activeCrops.reduce((sum, c) => sum + (c.healthScore || 0), 0) / activeCrops.length
+              scoredCrops.reduce((sum, c) => sum + (c.healthScore as number), 0) /
+                scoredCrops.length
             )
-          : 0;
+          : null;
 
       const location = [farm.location?.city, farm.location?.country]
         .filter(Boolean)

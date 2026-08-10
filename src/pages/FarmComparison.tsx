@@ -50,7 +50,7 @@ interface FarmData {
     revenuePerHectare: number;
     totalCrops: number;
     activeCrops: number;
-    cropHealth: number;
+    cropHealth: number | null;
     livestockCount: number;
     healthyLivestock: number;
     livestockHealth: number;
@@ -106,8 +106,13 @@ export default function FarmComparison() {
       selectedData.reduce((s, f) => s + f.metrics.profitMargin, 0) / selectedData.length;
     const avgRevPerHa =
       selectedData.reduce((s, f) => s + f.metrics.revenuePerHectare, 0) / selectedData.length;
+    const cropHealthValues = selectedData
+      .map((f) => f.metrics.cropHealth)
+      .filter((v): v is number => v != null);
     const avgCropHealth =
-      selectedData.reduce((s, f) => s + f.metrics.cropHealth, 0) / selectedData.length;
+      cropHealthValues.length > 0
+        ? cropHealthValues.reduce((s, v) => s + v, 0) / cropHealthValues.length
+        : null;
     const avgLivestockHealth =
       selectedData.reduce((s, f) => s + f.metrics.livestockHealth, 0) / selectedData.length;
     return { totalRevenue, totalExpenses, totalProfit, avgMargin, avgRevPerHa, avgCropHealth, avgLivestockHealth };
@@ -128,8 +133,10 @@ export default function FarmComparison() {
       });
     }
 
-    const bestHealth = [...selectedData].sort((a, b) => b.metrics.cropHealth - a.metrics.cropHealth)[0];
-    if (bestHealth.metrics.cropHealth > 0) {
+    const bestHealth = [...selectedData].sort(
+      (a, b) => (b.metrics.cropHealth ?? -1) - (a.metrics.cropHealth ?? -1)
+    )[0];
+    if (bestHealth.metrics.cropHealth != null && bestHealth.metrics.cropHealth > 0) {
       result.push({
         id: "best-crop-health",
         type: "success",
@@ -373,7 +380,11 @@ export default function FarmComparison() {
                 <Card className="border-border/50">
                   <CardContent className="p-4">
                     <p className="text-sm text-muted-foreground">Avg Crop Health</p>
-                    <p className="text-2xl font-bold">{Math.round(comparativeStats?.avgCropHealth || 0)}%</p>
+                    <p className="text-2xl font-bold">
+                      {comparativeStats?.avgCropHealth != null
+                        ? `${Math.round(comparativeStats.avgCropHealth)}%`
+                        : "—"}
+                    </p>
                     <p className="text-xs text-muted-foreground mt-1">Across selected farms</p>
                   </CardContent>
                 </Card>
@@ -526,9 +537,13 @@ export default function FarmComparison() {
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <p className="text-xs text-muted-foreground mb-1">Crop health</p>
-                              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                <div className="h-full bg-gradient-to-r from-green-500 to-emerald-500 rounded-full" style={{ width: `${metrics.cropHealth}%` }} />
-                              </div>
+                              {metrics.cropHealth != null ? (
+                                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                  <div className="h-full bg-gradient-to-r from-green-500 to-emerald-500 rounded-full" style={{ width: `${metrics.cropHealth}%` }} />
+                                </div>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">No data yet</p>
+                              )}
                             </div>
                             <div>
                               <p className="text-xs text-muted-foreground mb-1">Livestock health</p>
@@ -551,7 +566,9 @@ export default function FarmComparison() {
                     <CardContent>
                       <MetricBar
                         label="Crop Health (%)"
-                        values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.cropHealth }))}
+                        values={selectedData
+                          .filter((f) => f.metrics.cropHealth != null)
+                          .map((f) => ({ farmId: f.farm._id, value: f.metrics.cropHealth as number }))}
                         max={100}
                         unit="%"
                       />

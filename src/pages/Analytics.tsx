@@ -67,21 +67,25 @@ export default function Analytics() {
     const incomeChange = financial?.incomeChange ?? 0;
 
     const activeCrops = crops.filter((c) => c.status !== "harvested" && c.status !== "failed");
+    // Average of RECORDED health scores only; null when none are scored.
+    const scoredCrops = activeCrops.filter((c) => typeof c.healthScore === "number");
     const avgHealth =
-      activeCrops.length > 0
-        ? Math.round(activeCrops.reduce((s, c) => s + (c.healthScore || 0), 0) / activeCrops.length)
-        : 0;
+      scoredCrops.length > 0
+        ? Math.round(
+            scoredCrops.reduce((s, c) => s + (c.healthScore as number), 0) / scoredCrops.length
+          )
+        : null;
 
     const healthyLivestock = livestock.filter((l) => l.status === "healthy").length;
     const livestockHealth =
       livestock.length > 0 ? Math.round((healthyLivestock / livestock.length) * 100) : 0;
 
     const bestCrops = [...activeCrops]
-      .sort((a, b) => (b.healthScore || 0) - (a.healthScore || 0))
+      .sort((a, b) => (b.healthScore ?? -1) - (a.healthScore ?? -1))
       .slice(0, 5);
 
     const insights: { title: string; desc: string; badge: string; color: string }[] = [];
-    if (bestCrops.length > 0) {
+    if (bestCrops.length > 0 && bestCrops[0].healthScore != null) {
       insights.push({
         title: `Best Performing Crop: ${bestCrops[0].name}`,
         desc: `${bestCrops[0].name} has the highest health score at ${bestCrops[0].healthScore}% across ${activeCrops.length} active crop${activeCrops.length === 1 ? "" : "s"}.`,
@@ -157,7 +161,7 @@ export default function Analytics() {
     () =>
       [...crops]
         .filter((c) => c.status !== "harvested" && c.status !== "failed")
-        .sort((a, b) => (b.healthScore || 0) - (a.healthScore || 0))
+        .sort((a, b) => (b.healthScore ?? -1) - (a.healthScore ?? -1))
         .slice(0, 5),
     [crops]
   );
@@ -184,7 +188,7 @@ export default function Analytics() {
             {[
               { title: "Total Revenue", value: format(stats.totalIncome), change: `${stats.incomeChange >= 0 ? "+" : ""}${stats.incomeChange.toFixed(1)}%`, icon: DollarSign, color: "bg-green-500" },
               { title: "Net Profit", value: format(stats.netProfit), change: `${stats.totalIncome > 0 ? ((stats.netProfit / stats.totalIncome) * 100).toFixed(1) : 0}% margin`, icon: TrendingUp, color: "bg-emerald-500" },
-              { title: "Active Crops", value: `${stats.activeCrops} · ${stats.avgHealth}% health`, change: `${farmCount} farm${farmCount === 1 ? "" : "s"}`, icon: Leaf, color: "bg-amber-500" },
+              { title: "Active Crops", value: `${stats.activeCrops} crops${stats.avgHealth != null ? ` · ${stats.avgHealth}% health` : ""}`, change: `${farmCount} farm${farmCount === 1 ? "" : "s"}`, icon: Leaf, color: "bg-amber-500" },
               { title: "Livestock Health", value: `${stats.livestockHealth}%`, change: `${livestock.length} animals`, icon: Beef, color: "bg-blue-500" },
             ].map((stat, i) => {
               const Icon = stat.icon;
@@ -271,20 +275,26 @@ export default function Analytics() {
                       <div key={crop._id} className="space-y-2">
                         <div className="flex items-center justify-between text-sm">
                           <span className="font-medium">{crop.name}</span>
-                          <span className="text-muted-foreground">{crop.healthScore || 0}% health</span>
+                          {crop.healthScore != null ? (
+                            <span className="text-muted-foreground">{crop.healthScore}% health</span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No score yet</span>
+                          )}
                         </div>
-                        <div className="h-2 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-700 ${
-                              (crop.healthScore || 0) >= 90
-                                ? "bg-gradient-to-r from-green-500 to-emerald-500"
-                                : (crop.healthScore || 0) >= 70
-                                ? "bg-gradient-to-r from-amber-400 to-orange-500"
-                                : "bg-gradient-to-r from-red-400 to-red-600"
-                            }`}
-                            style={{ width: `${crop.healthScore || 0}%` }}
-                          />
-                        </div>
+                        {crop.healthScore != null && (
+                          <div className="h-2 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-700 ${
+                                crop.healthScore >= 90
+                                  ? "bg-gradient-to-r from-green-500 to-emerald-500"
+                                  : crop.healthScore >= 70
+                                  ? "bg-gradient-to-r from-amber-400 to-orange-500"
+                                  : "bg-gradient-to-r from-red-400 to-red-600"
+                              }`}
+                              style={{ width: `${crop.healthScore}%` }}
+                            />
+                          </div>
+                        )}
                       </div>
                     ))
                   )}

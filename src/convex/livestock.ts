@@ -202,7 +202,8 @@ export const createLivestock = mutation({
       quantity: args.quantity,
       unit: args.unit,
       status: "healthy",
-      healthScore: 100,
+      // No fabricated health score: it stays unset until the farmer
+      // records a real health assessment via updateLivestock.
       acquisitionDate: args.acquisitionDate,
       acquisitionCost: args.acquisitionCost,
       productionType: args.productionType ? sanitizeInput(args.productionType) : undefined,

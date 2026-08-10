@@ -352,8 +352,11 @@ function AnimalDetailModal({
         <div className="grid grid-cols-4 gap-4 p-4 border-b border-border">
           <div className="text-center">
             <p className="text-sm text-muted-foreground">Health Score</p>
-            <p className="text-2xl font-bold" style={{ color: (animal.healthScore ?? 100) >= 80 ? "#22c55e" : (animal.healthScore ?? 100) >= 60 ? "#f59e0b" : "#ef4444" }}>
-              {animal.healthScore ?? 100}%
+            <p
+              className="text-2xl font-bold"
+              style={animal.healthScore != null ? { color: animal.healthScore >= 80 ? "#22c55e" : animal.healthScore >= 60 ? "#f59e0b" : "#ef4444" } : undefined}
+            >
+              {animal.healthScore != null ? `${animal.healthScore}%` : "No score yet"}
             </p>
           </div>
           <div className="text-center">
@@ -538,9 +541,10 @@ export default function Livestock() {
       if (!l.nextVaccination) return false;
       return getDaysUntilDate(l.nextVaccination) !== null && getDaysUntilDate(l.nextVaccination)! < 0;
     }).length;
-    const avgHealth = livestock.length > 0
-      ? Math.round(livestock.reduce((sum: number, l: LivestockDoc) => sum + (l.healthScore ?? 100), 0) / livestock.length)
-      : 0;
+    const scoredLivestock = livestock.filter((l: LivestockDoc) => typeof l.healthScore === "number");
+    const avgHealth = scoredLivestock.length > 0
+      ? Math.round(scoredLivestock.reduce((sum: number, l: LivestockDoc) => sum + (l.healthScore as number), 0) / scoredLivestock.length)
+      : null;
     return { totalHead, healthyCount, sickCount, vaccinationsDue, overdueVaccinations, avgHealth };
   }, [livestock]);
 
@@ -820,7 +824,7 @@ export default function Livestock() {
                     const status = statusConfig[animal.status] || { label: animal.status, color: "bg-gray-100 text-gray-600", icon: Beef };
                     const StatusIcon = status.icon;
                     const daysUntilVaccination = getDaysUntilDate(animal.nextVaccination);
-                    const health = animal.healthScore ?? 100;
+                    const health = animal.healthScore;
                     const farmName = farmMap[animal.farmId] || "Unknown Farm";
 
                     return (
@@ -919,30 +923,36 @@ export default function Livestock() {
                               </div>
                             </div>
 
-                            {/* Health Score Bar */}
+                            {/* Health Score Bar — only rendered when a real score exists */}
                             <div>
                               <div className="flex items-center justify-between text-sm mb-1">
                                 <span className="text-muted-foreground">Health Score</span>
-                                <span className="font-medium" style={{ color: health >= 80 ? "#22c55e" : health >= 60 ? "#f59e0b" : "#ef4444" }}>
-                                  {health}%
-                                </span>
+                                {health != null ? (
+                                  <span className="font-medium" style={{ color: health >= 80 ? "#22c55e" : health >= 60 ? "#f59e0b" : "#ef4444" }}>
+                                    {health}%
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">No score yet</span>
+                                )}
                               </div>
-                              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                <motion.div
-                                  initial={{ width: 0 }}
-                                  animate={{ width: `${health}%` }}
-                                  transition={{ duration: 1, ease: "easeOut" }}
-                                  className="h-full rounded-full"
-                                  style={{
-                                    background:
-                                      health >= 80
-                                        ? "linear-gradient(90deg, #22c55e, #16a34a)"
-                                        : health >= 60
-                                        ? "linear-gradient(90deg, #f59e0b, #d97706)"
-                                        : "linear-gradient(90deg, #ef4444, #dc2626)",
-                                  }}
-                                />
-                              </div>
+                              {health != null && (
+                                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                  <motion.div
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${health}%` }}
+                                    transition={{ duration: 1, ease: "easeOut" }}
+                                    className="h-full rounded-full"
+                                    style={{
+                                      background:
+                                        health >= 80
+                                          ? "linear-gradient(90deg, #22c55e, #16a34a)"
+                                          : health >= 60
+                                          ? "linear-gradient(90deg, #f59e0b, #d97706)"
+                                          : "linear-gradient(90deg, #ef4444, #dc2626)",
+                                    }}
+                                  />
+                                </div>
+                              )}
                             </div>
 
                             {/* Quick Actions */}
