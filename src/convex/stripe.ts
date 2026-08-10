@@ -13,6 +13,31 @@ const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID || "price_farmbond_pro_month
 const APP_URL = process.env.APP_URL || "https://farmbond.com";
 
 /**
+ * Pure: does this Stripe subscription ID belong to this user?
+ * The client actions accept a Stripe object ID from the browser; before
+ * acting on it we require it to match the ID stored on the authenticated
+ * user's own document. This prevents a user from cancelling/retrying
+ * someone else's subscription by supplying their ID.
+ */
+export function ownsStripeSubscription(
+  user: { stripeSubscriptionId?: string },
+  provided: string
+): boolean {
+  return !!user.stripeSubscriptionId && user.stripeSubscriptionId === provided;
+}
+
+/**
+ * Pure: does this Stripe customer ID belong to this user?
+ * Same ownership rule for billing-portal/checkout/retry flows.
+ */
+export function ownsStripeCustomer(
+  user: { stripeCustomerId?: string },
+  provided: string
+): boolean {
+  return !!user.stripeCustomerId && user.stripeCustomerId === provided;
+}
+
+/**
  * Get current user's Stripe subscription status
  */
 export const getStripeStatus = query({
@@ -56,6 +81,15 @@ export const createCheckoutSession = action({
     // Check if user already has a Stripe subscription
     if (args.stripeSubscriptionId) {
       throw new Error("You already have an active subscription. Please manage it in your billing portal.");
+    }
+
+    // A client-supplied customer ID is only honored when it matches the
+    // authenticated user's own Stripe customer — never someone else's.
+    if (args.stripeCustomerId) {
+      const user = await ctx.runQuery(internal.users.getUserById, { userId });
+      if (!user || !ownsStripeCustomer(user, args.stripeCustomerId)) {
+        throw new Error("Authorization denied: Stripe customer does not belong to your account.");
+      }
     }
 
     // Create or retrieve Stripe customer
@@ -147,6 +181,12 @@ export const createPortalSession = action({
       throw new Error("No billing account found. Please subscribe first.");
     }
 
+    // The billing portal may only be opened for the caller's own customer.
+    const user = await ctx.runQuery(internal.users.getUserById, { userId });
+    if (!user || !ownsStripeCustomer(user, args.stripeCustomerId)) {
+      throw new Error("Authorization denied: billing account does not belong to you.");
+    }
+
     const sessionResponse = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
       method: "POST",
       headers: {
@@ -192,6 +232,13 @@ export const cancelSubscription = action({
       throw new Error("No active subscription to cancel.");
     }
 
+    // A user may only cancel their OWN subscription. The ID is derived from
+    // the authenticated session's stored value — never trusted blindly.
+    const user = await ctx.runQuery(internal.users.getUserById, { userId });
+    if (!user || !ownsStripeSubscription(user, args.stripeSubscriptionId)) {
+      throw new Error("Authorization denied: subscription does not belong to you.");
+    }
+
     const response = await fetch(
       `https://api.stripe.com/v1/subscriptions/${args.stripeSubscriptionId}`,
       {
@@ -234,6 +281,17 @@ export const retryPayment = action({
 
     if (!args.stripeSubscriptionId) {
       throw new Error("No subscription found.");
+    }
+
+    // Retrying a payment is only allowed against the caller's own Stripe
+    // customer AND subscription — both must match the session user's doc.
+    const user = await ctx.runQuery(internal.users.getUserById, { userId });
+    if (
+      !user ||
+      !ownsStripeCustomer(user, args.stripeCustomerId) ||
+      !ownsStripeSubscription(user, args.stripeSubscriptionId)
+    ) {
+      throw new Error("Authorization denied: billing account does not belong to you.");
     }
 
     const invoicesResponse = await fetch(

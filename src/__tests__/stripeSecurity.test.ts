@@ -1,6 +1,10 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
-import { buildSubscriptionStatusUpdates } from "../convex/stripe";
+import {
+  buildSubscriptionStatusUpdates,
+  ownsStripeSubscription,
+  ownsStripeCustomer,
+} from "../convex/stripe";
 
 // ============================================================
 // Phase 6 — Security Remediation regression tests
@@ -111,6 +115,73 @@ describe("buildSubscriptionStatusUpdates — webhook state transition rule", () 
     expect(buildSubscriptionStatusUpdates(input)).toEqual(
       buildSubscriptionStatusUpdates(input)
     );
+  });
+});
+
+// ============================================================
+// P0 — Client actions only act on the CALLER's own Stripe objects.
+// A user-supplied customer/subscription ID is rejected unless it
+// matches the ID stored on the authenticated user's document.
+// ============================================================
+
+describe("ownsStripeSubscription — client cancellation ownership", () => {
+  test("the caller's own subscription ID is accepted", () => {
+    expect(ownsStripeSubscription({ stripeSubscriptionId: "sub_abc" }, "sub_abc")).toBe(true);
+  });
+
+  test("another user's subscription ID is rejected", () => {
+    expect(ownsStripeSubscription({ stripeSubscriptionId: "sub_abc" }, "sub_other")).toBe(false);
+  });
+
+  test("a user with no stored subscription cannot cancel anything", () => {
+    expect(ownsStripeSubscription({}, "sub_abc")).toBe(false);
+    expect(ownsStripeSubscription({ stripeSubscriptionId: undefined }, "")).toBe(false);
+  });
+
+  test("empty provided IDs are always rejected", () => {
+    expect(ownsStripeSubscription({ stripeSubscriptionId: "sub_abc" }, "")).toBe(false);
+  });
+});
+
+describe("ownsStripeCustomer — billing/retry ownership", () => {
+  test("the caller's own customer ID is accepted", () => {
+    expect(ownsStripeCustomer({ stripeCustomerId: "cus_abc" }, "cus_abc")).toBe(true);
+  });
+
+  test("another user's customer ID is rejected", () => {
+    expect(ownsStripeCustomer({ stripeCustomerId: "cus_abc" }, "cus_other")).toBe(false);
+  });
+
+  test("a user with no stored customer cannot use the billing portal", () => {
+    expect(ownsStripeCustomer({}, "cus_abc")).toBe(false);
+  });
+});
+
+describe("P0 — client actions resolve the identity server-side, never from args", () => {
+  const stripeSrc = readConvex("stripe.ts");
+
+  test("every client action fetches the user from the authenticated session", () => {
+    // The ownership checks must load the session user, not trust a userId arg.
+    expect(count(stripeSrc, /internal\.users\.getUserById/g)).toBeGreaterThanOrEqual(4);
+  });
+
+  test("cancelSubscription validates ownership of the supplied subscription", () => {
+    expect(stripeSrc).toContain("ownsStripeSubscription(user, args.stripeSubscriptionId)");
+  });
+
+  test("createPortalSession validates ownership of the supplied customer", () => {
+    expect(stripeSrc).toContain("ownsStripeCustomer(user, args.stripeCustomerId)");
+  });
+
+  test("retryPayment validates ownership of both customer and subscription", () => {
+    expect(stripeSrc).toContain("ownsStripeCustomer(user, args.stripeCustomerId)");
+    expect(stripeSrc).toContain("ownsStripeSubscription(user, args.stripeSubscriptionId)");
+  });
+
+  test("createCheckoutSession validates a supplied customer ID before reuse", () => {
+    const idx = stripeSrc.indexOf("createCheckoutSession");
+    const body = stripeSrc.slice(idx, idx + 3200);
+    expect(body).toContain("ownsStripeCustomer");
   });
 });
 

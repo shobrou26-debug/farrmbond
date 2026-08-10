@@ -26,6 +26,10 @@ export interface MarketPricesData {
   commodities: CommodityPrice[];
   lastUpdated: Date;
   source: string;
+  /** True when prices come from a live exchange; always false today. */
+  isLiveData: boolean;
+  /** Server-authoritative label: "reference" for benchmark data. */
+  dataSource: string;
 }
 
 // ============================================================
@@ -71,6 +75,8 @@ function mapBackendPrice(row: {
   change: number; // percent, rounded
   trend: string;
   lastUpdated: number;
+  isLiveData?: boolean;
+  dataSource?: string;
 }): CommodityPrice {
   const changePercent = row.change;
   // Reconstruct previous price from the reported percent change
@@ -138,10 +144,20 @@ export function useMarketPrices(options: UseMarketPricesOptions = {}): UseMarket
       (max, row) => Math.max(max, row.lastUpdated),
       0
     );
+    // The server marks every reference row isLiveData=false; the hook
+    // propagates that contract instead of claiming live data. The cast
+    // keeps this a runtime check even though today's type is a literal
+    // `false` — when a real live feed is wired up the flag flips.
+    const anyLive = backendPrices.some(
+      (row) => (row.isLiveData as boolean) === true
+    );
+    const dataSource = backendPrices[0]?.dataSource ?? "reference";
     return {
       commodities,
       lastUpdated: lastTs > 0 ? new Date(lastTs) : new Date(),
       source: "Reference market data",
+      isLiveData: anyLive,
+      dataSource,
     };
   }, [backendPrices, commodities]);
 

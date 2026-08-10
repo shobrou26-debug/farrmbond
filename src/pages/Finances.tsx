@@ -54,7 +54,7 @@ import {
   Beef,
   Leaf,
   Droplets,
-  Clock,
+  Info,
   AlertTriangle,
   ArrowRight,
   Minus,
@@ -642,9 +642,9 @@ export default function Finances() {
                 </p>
               </div>
               {marketData && (
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
-                  Updated {marketData.lastUpdated.toLocaleTimeString()}
+                <span className="text-xs text-muted-foreground flex items-center gap-1" title={marketData.dataSource === "reference" ? "Benchmark ranges, not live exchange data" : undefined}>
+                  <Info className="w-3 h-3" />
+                  Reference prices — not live market data
                 </span>
               )}
             </div>

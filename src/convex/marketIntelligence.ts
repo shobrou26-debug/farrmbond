@@ -19,6 +19,29 @@ const CROP_PRICES: Record<string, { min: number; max: number; unit: string; curr
   rice: { min: 80, max: 140, unit: "kg", currency: "KES" },
 };
 
+// Data honesty: CROP_PRICES are STATIC regional benchmark ranges (KES) and
+// the daily trend is a deterministic synthetic wave. Nothing here is live
+// exchange or auction data. Every query that returns these prices carries
+// `isLiveData: false` + `dataSource: "reference"` so the UI can never claim
+// real-time pricing, and consumers can label them clearly.
+export const MARKET_DATA_SOURCE = "reference" as const;
+export const MARKET_DATA_DISCLAIMER =
+  "Indicative reference prices for planning — not live market data.";
+
+export type ReferencePriceRow = {
+  crop: string;
+  currentPrice: number;
+  minPrice: number;
+  maxPrice: number;
+  unit: string;
+  currency: string;
+  change: number;
+  trend: "up" | "down" | "stable";
+  lastUpdated: number;
+  isLiveData: false;
+  dataSource: typeof MARKET_DATA_SOURCE;
+};
+
 /**
  * Deterministic pseudo-price trend: stable within a day, varies slowly
  * between days based on the crop key. No randomness — the same inputs
@@ -33,34 +56,46 @@ function deterministicVariation(crop: string, dayIndex: number): number {
   return Math.sin((dayIndex + hash / 100) * (Math.PI / 12)) * 0.1;
 }
 
+/**
+ * Pure: build one reference-price row. Extracted for testability — the
+ * data-honesty contract (isLiveData always false) lives here so a
+ * regression that turns these into "live" prices is caught by unit tests.
+ */
+export function buildReferencePriceRow(
+  crop: string,
+  now: number = Date.now()
+): ReferencePriceRow {
+  const key = crop.toLowerCase();
+  const base = CROP_PRICES[key] ?? { min: 50, max: 100, unit: "kg", currency: "KES" };
+  const dayIndex = Math.floor(now / (24 * 60 * 60 * 1000));
+  const mid = (base.min + base.max) / 2;
+  const variation = deterministicVariation(key, dayIndex);
+  const currentPrice = Math.round(mid * (1 + variation));
+  const prevPrice = Math.round(mid * (1 + deterministicVariation(key, dayIndex - 1)));
+  const change = currentPrice - prevPrice;
+  const changePercent = prevPrice > 0 ? (change / prevPrice) * 100 : 0;
+
+  return {
+    crop: key,
+    currentPrice,
+    minPrice: base.min,
+    maxPrice: base.max,
+    unit: base.unit,
+    currency: base.currency,
+    change: Math.round(changePercent),
+    trend: changePercent > 1 ? "up" : changePercent < -1 ? "down" : "stable",
+    lastUpdated: now,
+    isLiveData: false,
+    dataSource: MARKET_DATA_SOURCE,
+  };
+}
+
 /** Get current market prices for crops (deterministic reference prices) */
 export const getMarketPrices = query({
   args: { cropTypes: v.optional(v.array(v.string())) },
   handler: async (ctx, args) => {
     const crops = args.cropTypes ?? Object.keys(CROP_PRICES);
-    const dayIndex = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
-
-    return crops.map((crop) => {
-      const base = CROP_PRICES[crop.toLowerCase()] ?? { min: 50, max: 100, unit: "kg", currency: "KES" };
-      const mid = (base.min + base.max) / 2;
-      const variation = deterministicVariation(crop.toLowerCase(), dayIndex);
-      const currentPrice = Math.round(mid * (1 + variation));
-      const prevPrice = Math.round(mid * (1 + deterministicVariation(crop.toLowerCase(), dayIndex - 1)));
-      const change = currentPrice - prevPrice;
-      const changePercent = prevPrice > 0 ? (change / prevPrice) * 100 : 0;
-
-      return {
-        crop: crop.toLowerCase(),
-        currentPrice,
-        minPrice: base.min,
-        maxPrice: base.max,
-        unit: base.unit,
-        currency: base.currency,
-        change: Math.round(changePercent),
-        trend: changePercent > 1 ? "up" : changePercent < -1 ? "down" : "stable",
-        lastUpdated: Date.now(),
-      };
-    });
+    return crops.map((crop) => buildReferencePriceRow(crop));
   },
 });
 
@@ -94,6 +129,9 @@ export const getMarketInsights = query({
         unit: base.unit,
         currency: base.currency,
         trend: variation > 0.02 ? "up" : variation < -0.02 ? "down" : "stable",
+        // Data honesty: synthetic reference value, never live market data.
+        isLiveData: false as const,
+        dataSource: MARKET_DATA_SOURCE,
       };
     });
 
@@ -139,6 +177,11 @@ export const getMarketInsights = query({
       prices,
       insights,
       lastUpdated: Date.now(),
+      // Data honesty: these prices and trend insights are generated from
+      // reference benchmarks, not live exchange data.
+      isLiveData: false as const,
+      dataSource: MARKET_DATA_SOURCE,
+      disclaimer: MARKET_DATA_DISCLAIMER,
     };
   },
 });
@@ -176,6 +219,11 @@ export const getProfitabilityAnalysis = query({
       profitMargin,
       roi,
       isOptimalSellingWindow,
+      // Data honesty: the price input is a reference benchmark, so the
+      // profit estimate is planning-grade, not a live quote.
+      isLiveData: false as const,
+      dataSource: MARKET_DATA_SOURCE,
+      disclaimer: MARKET_DATA_DISCLAIMER,
       recommendation: profitMargin > 30
         ? "Good profit margin. Consider expanding production."
         : profitMargin > 15
