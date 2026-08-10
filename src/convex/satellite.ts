@@ -400,10 +400,12 @@ export const getNDVIHistory = query({
       .order("asc")
       .collect();
 
+    // A satellite record without a measurement is charted as null (no data),
+    // never as a fabricated 0 NDVI. Consumers must treat null as missing data.
     return history.map((d) => ({
       date: d.timestamp,
-      ndvi: d.ndvi ?? 0,
-      ndwi: d.ndwi ?? 0,
+      ndvi: d.ndvi ?? null,
+      ndwi: d.ndwi ?? null,
       label: new Date(d.timestamp).toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
@@ -768,8 +770,13 @@ export const detectCropStress = query({
 
     if (!satelliteData) return null;
 
-    const ndvi = satelliteData.ndvi ?? 0;
-    const ndwi = satelliteData.ndwi ?? 0;
+    // A record without NDVI/NDWI measurements cannot be diagnosed. Returning
+    // null here prevents a false "severe vegetation/water stress" verdict
+    // being derived from fabricated 0 values.
+    if (satelliteData.ndvi == null || satelliteData.ndwi == null) return null;
+
+    const ndvi = satelliteData.ndvi;
+    const ndwi = satelliteData.ndwi;
     const waterStress = ndwi < 0.1;
 
     const stressFactors: Array<{
