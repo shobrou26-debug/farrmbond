@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { query, action, internalMutation } from "./_generated/server";
+import { query, action, internalAction, internalMutation } from "./_generated/server";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
 
 // ============================================================
@@ -413,6 +414,13 @@ export const fetchAndCacheWeather = action({
     longitude: v.number(),
   },
   handler: async (ctx, args) => {
+    // Phase 7: requires an authenticated session — previously an
+    // unauthenticated action that any client could use to hammer the
+    // Open-Meteo API and churn the shared weather cache for arbitrary
+    // coordinates. All frontend callers run on authenticated pages.
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Authentication required");
+
     const latRounded = Math.round(args.latitude * 100) / 100;
     const lonRounded = Math.round(args.longitude * 100) / 100;
 
@@ -435,11 +443,15 @@ export const fetchAndCacheWeather = action({
  * locations with WEATHER_FETCH_CONCURRENCY parallel requests, instead of
  * serially fetching every farm (Phase 5 scale hardening).
  *
+ * Phase 7: now an INTERNAL action — previously public, any client could
+ * trigger cron-style Open-Meteo batches and cache churn. Only the cron
+ * scheduler calls it.
+ *
  * Explicit result types are required here: the generated api object is
  * circular with action return-type inference, so TS otherwise falls back
  * to implicit any for these locals.
  */
-export const prefetchAllFarmWeather = action({
+export const prefetchAllFarmWeather = internalAction({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();

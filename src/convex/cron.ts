@@ -1,5 +1,5 @@
 import { cronJobs } from "convex/server";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
@@ -85,7 +85,7 @@ crons.interval(
 crons.interval(
   "prefetch_farm_weather",
   { minutes: 30 },
-  api.weather.prefetchAllFarmWeather
+  internal.weather.prefetchAllFarmWeather
 );
 
 /**

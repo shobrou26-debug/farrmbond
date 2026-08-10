@@ -608,9 +608,11 @@ export const getUserTransactions = query({
     const userId = await getAuthUserId(ctx);
     if (!userId) return [];
 
+    // Phase 7: indexed by_user lookup (the previous filter walked the whole
+    // mobileMoneyTransactions table per request).
     const transactions = await ctx.db
       .query("mobileMoneyTransactions")
-      .filter((q) => q.eq(q.field("userId"), userId))
+      .withIndex("by_user", (q) => q.eq("userId", userId))
       .order("desc")
       .collect();
 
@@ -668,9 +670,11 @@ export const getMobileMoneyStats = query({
     const userId = await getAuthUserId(ctx);
     if (!userId) return null;
 
+    // Phase 7: indexed by_user lookup instead of a full-table filter.
     const transactions = await ctx.db
       .query("mobileMoneyTransactions")
-      .filter((q) => q.eq(q.field("userId"), userId))
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .order("desc")
       .collect();
 
     const completed = transactions.filter((t) => t.status === "completed");

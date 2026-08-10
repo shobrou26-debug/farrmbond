@@ -1,8 +1,28 @@
 import { v } from "convex/values";
-import { query, mutation, action } from "./_generated/server";
+import { query, mutation, action, type QueryCtx } from "./_generated/server";
 import { api } from "./_generated/api";
-import { requireAuth, isSubscriptionActive } from "./authHelpers";
+import {
+  requireAuth,
+  requireActiveSubscription,
+  isSubscriptionActive,
+  hasRole,
+} from "./authHelpers";
+import { ROLES } from "./schema";
 import type { Id } from "./_generated/dataModel";
+
+/**
+ * Phase 7: satellite analytics is a Pro feature. Every READ path is gated
+ * server-side exactly like the generation action (analyzeFarmSatellite) —
+ * free/expired users cannot bypass the UI and query cached NDVI/analysis
+ * directly. Platform admins are exempt (they may inspect any farm).
+ */
+async function requireSatelliteAccess(ctx: QueryCtx): Promise<Id<"users">> {
+  const { userId, user } = await requireAuth(ctx);
+  if (!hasRole(user.role, ROLES.ADMIN)) {
+    await requireActiveSubscription(ctx);
+  }
+  return userId;
+}
 
 // ============================================================
 // Sentinel-2 Satellite Intelligence Module
@@ -268,11 +288,11 @@ export function estimateNdviFromBuffer(bytes: Uint8Array): NdviStats | null {
 // Satellite Queries
 // ============================================================
 
-/** Get satellite analysis for a farm */
+/** Get satellite analysis for a farm (Pro-gated server-side) */
 export const getSatelliteAnalysis = query({
   args: { farmId: v.id("farms") },
   handler: async (ctx, args) => {
-    const { userId } = await requireAuth(ctx);
+    const userId = await requireSatelliteAccess(ctx);
     const farm = await ctx.db.get(args.farmId);
     if (!farm || farm.userId !== userId) return null;
 
@@ -347,14 +367,14 @@ export const getSatelliteAnalysis = query({
   },
 });
 
-/** Get NDVI history for a farm */
+/** Get NDVI history for a farm (Pro-gated server-side) */
 export const getNDVIHistory = query({
   args: {
     farmId: v.id("farms"),
     days: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const { userId } = await requireAuth(ctx);
+    const userId = await requireSatelliteAccess(ctx);
     const farm = await ctx.db.get(args.farmId);
     if (!farm || farm.userId !== userId) return [];
 
@@ -621,11 +641,11 @@ export const storeSatelliteData = mutation({
   },
 });
 
-/** Get field boundaries */
+/** Get field boundaries (Pro-gated server-side; derived from real farm data) */
 export const getFieldBoundaries = query({
   args: { farmId: v.id("farms") },
   handler: async (ctx, args) => {
-    const { userId } = await requireAuth(ctx);
+    const userId = await requireSatelliteAccess(ctx);
     const farm = await ctx.db.get(args.farmId);
     if (!farm || farm.userId !== userId) return null;
 
@@ -633,6 +653,10 @@ export const getFieldBoundaries = query({
     const lon = farm.location?.longitude ?? 36.8219;
     const buffer = Math.sqrt(farm.size) * 0.005;
 
+    // Phase 7 data honesty: the boundary box is derived from the farm's
+    // real location and size. The previous hardcoded "Zone A/B/C" crop
+    // divisions were fabricated (no real zone data exists) and are removed
+    // rather than presented as measured field zones.
     return {
       farmId: args.farmId,
       boundaries: [
@@ -641,28 +665,11 @@ export const getFieldBoundaries = query({
         { lat: lat - buffer, lon: lon + buffer },
         { lat: lat - buffer, lon: lon - buffer },
       ],
-      cropZones: [
-        {
-          name: "Zone A",
-          cropType: "Main Crop",
-          area: farm.size * 0.5,
-        },
-        {
-          name: "Zone B",
-          cropType: "Secondary Crop",
-          area: farm.size * 0.3,
-        },
-        {
-          name: "Zone C",
-          cropType: "Buffer Zone",
-          area: farm.size * 0.2,
-        },
-      ],
     };
   },
 });
 
-/** Compare seasonal vegetation */
+/** Compare seasonal vegetation (Pro-gated server-side) */
 export const compareSeasonalVegetation = query({
   args: {
     farmId: v.id("farms"),
@@ -670,7 +677,7 @@ export const compareSeasonalVegetation = query({
     previousSeason: v.string(),
   },
   handler: async (ctx, args) => {
-    const { userId } = await requireAuth(ctx);
+    const userId = await requireSatelliteAccess(ctx);
     const farm = await ctx.db.get(args.farmId);
     if (!farm || farm.userId !== userId) return null;
 
@@ -711,11 +718,11 @@ export const compareSeasonalVegetation = query({
   },
 });
 
-/** Detect crop stress from satellite data */
+/** Detect crop stress from satellite data (Pro-gated server-side) */
 export const detectCropStress = query({
   args: { farmId: v.id("farms") },
   handler: async (ctx, args) => {
-    const { userId } = await requireAuth(ctx);
+    const userId = await requireSatelliteAccess(ctx);
     const farm = await ctx.db.get(args.farmId);
     if (!farm || farm.userId !== userId) return null;
 

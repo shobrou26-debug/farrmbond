@@ -179,7 +179,11 @@ const schema = defineSchema(
       .index("email", ["email"])
       .index("role", ["role"])
       .index("country", ["country"])
-      .index("subscription", ["subscriptionTier"]),
+      .index("subscription", ["subscriptionTier"])
+      // Phase 7: the Stripe webhook resolves users by Stripe customer ID on
+      // every payment event. An indexed lookup replaces the previous
+      // full-table filter, so webhook traffic stays O(1) at 200k+ users.
+      .index("by_stripe_customer", ["stripeCustomerId"]),
 
     // ============================================================
     // FARMS TABLE

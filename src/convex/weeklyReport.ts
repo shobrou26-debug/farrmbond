@@ -215,14 +215,19 @@ export const getLatestReport = query({
   },
 });
 
-/** Get report history for a farm */
+/** Get report history for a farm (Pro-gated server-side) */
 export const getReportHistory = query({
   args: {
     farmId: v.id("farms"),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const { userId } = await requireAuth(ctx);
+    const { userId, user } = await requireAuth(ctx);
+    // Weekly reports are a Pro feature — the history read is gated like
+    // getLatestReport (admins bypass; free/expired users are treated as Free).
+    if (!hasRole(user.role, ROLES.ADMIN)) {
+      await requireActiveSubscription(ctx);
+    }
     const farm = await ctx.db.get(args.farmId);
     if (!farm || farm.userId !== userId) return [];
 

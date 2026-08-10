@@ -53,9 +53,13 @@ export const getUserById = internalQuery({
 export const getUserByStripeCustomer = internalQuery({
   args: { stripeCustomerId: v.string() },
   handler: async (ctx, args) => {
+    // Phase 7: indexed lookup (by_stripe_customer) — the previous filter
+    // walked the whole users table on every Stripe webhook event.
     const user = await ctx.db
       .query("users")
-      .filter((q) => q.eq(q.field("stripeCustomerId"), args.stripeCustomerId))
+      .withIndex("by_stripe_customer", (q) =>
+        q.eq("stripeCustomerId", args.stripeCustomerId)
+      )
       .first();
     return user || null;
   },

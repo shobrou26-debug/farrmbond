@@ -73,8 +73,24 @@ export const stripeWebhook = httpAction(async (ctx, request) => {
 });
 
 /**
+ * Pure: may a checkout.session.completed event activate Pro?
+ * Stripe fires this event when the customer finishes the checkout flow;
+ * for card payments it completes with payment_status "paid", but async
+ * payment methods (SEPA/bank debit, etc.) can complete "unpaid". Pro must
+ * never be granted until payment is actually settled — defense in depth
+ * on top of webhook signature verification.
+ */
+export function shouldActivateCheckoutSession(session: {
+  payment_status?: string;
+}): boolean {
+  return session.payment_status === "paid";
+}
+
+/**
  * Handle successful checkout session completion
- * Activates Pro subscription for the user
+ * Activates Pro subscription ONLY after payment_status is "paid" — a
+ * completed-but-unpaid session (async payment methods, fraud holds) never
+ * grants Pro.
  */
 async function handleCheckoutCompleted(ctx: any, session: any) {
   const userId = session.metadata?.userId;
@@ -83,6 +99,15 @@ async function handleCheckoutCompleted(ctx: any, session: any) {
 
   if (!userId) {
     console.error("No userId in checkout session metadata");
+    return;
+  }
+
+  // Phase 7 payment verification: never grant Pro on an unpaid session.
+  if (!shouldActivateCheckoutSession(session)) {
+    console.error(
+      "Checkout session not paid; Pro NOT activated. payment_status=",
+      session.payment_status
+    );
     return;
   }
 

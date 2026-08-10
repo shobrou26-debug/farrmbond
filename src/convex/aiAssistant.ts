@@ -49,15 +49,15 @@ export const getAiUsageCount = internalQuery({
   handler: async (ctx, args) => {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
+    // Phase 7: the by_user_action composite index narrows to (user, action)
+    // before the createdAt window filter — the previous by_user query walked
+    // the user's entire audit history on every AI call.
     const rows = await ctx.db
       .query("auditLogs")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("action"), args.usageAction),
-          q.gte(q.field("createdAt"), startOfDay.getTime())
-        )
+      .withIndex("by_user_action", (q) =>
+        q.eq("userId", args.userId).eq("action", args.usageAction)
       )
+      .filter((q) => q.gte(q.field("createdAt"), startOfDay.getTime()))
       .collect();
     return rows.length;
   },

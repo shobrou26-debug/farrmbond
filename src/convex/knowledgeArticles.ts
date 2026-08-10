@@ -181,6 +181,9 @@ export const setArticlePublished = mutation({
 export const incrementViews = mutation({
   args: { articleId: v.id("knowledgeArticles") },
   handler: async (ctx, args) => {
+    // Phase 7: requires authentication — previously an unauthenticated
+    // mutation that any client could call to inflate view counts.
+    await requireAuth(ctx);
     const article = await ctx.db.get(args.articleId);
     if (!article) throw new Error("Article not found");
     await ctx.db.patch(args.articleId, { views: article.views + 1 });

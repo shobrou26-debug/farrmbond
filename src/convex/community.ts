@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
-import { Id } from "./_generated/dataModel";
+import { Id, Doc } from "./_generated/dataModel";
 import {
   requireAuth,
   requireAdmin,
@@ -39,23 +39,45 @@ export const listPosts = query({
   handler: async (ctx, args) => {
     const { userId } = await requireAuth(ctx);
 
-    const all = await ctx.db
-      .query("communityPosts")
-      .withIndex("by_created")
-      .order("desc")
-      .collect();
+    // Phase 7 scale hardening: page the by_created index directly (opaque
+    // Convex cursors) instead of collecting the ENTIRE communityPosts table
+    // on every page render. Approved posts are filtered within each fetched
+    // page; the loop is bounded (max 5 index pages) so one API call never
+    // walks the whole table, even at 200k+ users. The contract
+    // ({ page, isDone, continueCursor }) is preserved for usePaginatedQuery.
+    const numItems = Math.max(
+      1,
+      Math.min(50, args.paginationOpts?.numItems ?? 20)
+    );
+    let cursor: string | null = args.paginationOpts?.cursor ?? null;
+    let isDone = false;
+    let pagesFetched = 0;
+    const collected: Doc<"communityPosts">[] = [];
 
-    const approved = all.filter((p) => p.isApproved);
-    const filtered = args.category
-      ? approved.filter((p) => p.category === args.category)
-      : approved;
+    while (collected.length < numItems && pagesFetched < 5) {
+      const page = await ctx.db
+        .query("communityPosts")
+        .withIndex("by_created")
+        .order("desc")
+        .paginate({ numItems: Math.max(numItems * 2, 50), cursor });
 
-    const numItems = args.paginationOpts?.numItems ?? 20;
-    const start = args.paginationOpts?.cursor
-      ? parseInt(args.paginationOpts.cursor, 10) || 0
-      : 0;
-    const page = filtered.slice(start, start + numItems);
-    const nextIndex = start + numItems;
+      for (const post of page.page) {
+        if (!post.isApproved) continue;
+        if (args.category && post.category !== args.category) continue;
+        collected.push(post);
+        if (collected.length >= numItems) break;
+      }
+
+      cursor = page.continueCursor;
+      pagesFetched++;
+      if (page.isDone) {
+        isDone = true;
+        cursor = null;
+        break;
+      }
+    }
+
+    const page = collected.slice(0, numItems);
 
     // Enrich with author + likedByMe
     const enriched = await Promise.all(
@@ -79,8 +101,8 @@ export const listPosts = query({
 
     return {
       page: enriched,
-      isDone: nextIndex >= filtered.length,
-      continueCursor: nextIndex < filtered.length ? String(nextIndex) : null,
+      isDone,
+      continueCursor: isDone ? null : cursor,
     };
   },
 });
@@ -270,6 +292,9 @@ export const listComments = query({
 export const incrementShareCount = mutation({
   args: { postId: v.id("communityPosts") },
   handler: async (ctx, args) => {
+    // Phase 7: requires authentication — previously an unauthenticated
+    // mutation that any client could call to inflate share counts.
+    await requireAuth(ctx);
     const post = await ctx.db.get(args.postId);
     if (!post) throw new Error("Post not found");
     await ctx.db.patch(args.postId, { shares: (post.shares ?? 0) + 1 });
