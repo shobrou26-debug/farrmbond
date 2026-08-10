@@ -1,6 +1,14 @@
 import { v } from "convex/values";
-import { query, mutation } from "./_generated/server";
-import { api } from "./_generated/api";
+import { query, mutation, internalMutation } from "./_generated/server";
+import { api, internal } from "./_generated/api";
+import {
+  CRON_BATCH_SIZE,
+  cronBatchArgs,
+  runCronBatch,
+  pageLivestock,
+  pageUsers,
+  type CronBatchResult,
+} from "./cronBatch";
 import {
   requireAuth,
   verifyLivestockOwnership,
@@ -534,76 +542,94 @@ export const completeVaccination = mutation({
 
 /**
  * Send vaccination reminders for upcoming/overdue vaccinations.
- * Called by cron job daily.
+ * Batched cron: each invocation processes at most CRON_BATCH_SIZE livestock and
+ * schedules the next batch when more remain. A `details` marker (livestockId +
+ * nextVaccination) makes the notification idempotent — retried batches never
+ * create duplicate reminders for the same animal within the window.
  */
-export const sendVaccinationReminders = mutation({
-  args: {},
-  handler: async (ctx) => {
+export const sendVaccinationReminders = internalMutation({
+  args: cronBatchArgs,
+  handler: async (ctx, args): Promise<CronBatchResult> => {
     const now = Date.now();
     const reminderWindow = 3 * 24 * 60 * 60 * 1000; // 3 days
     const cutoff = now + reminderWindow;
 
-    // Get all livestock with upcoming vaccinations
-    const allLivestock = await ctx.db.query("livestock").collect();
-    const dueSoon = allLivestock.filter(
-      (l) => l.nextVaccination && l.nextVaccination <= cutoff
+    return runCronBatch(
+      ctx,
+      args.cursor,
+      CRON_BATCH_SIZE,
+      pageLivestock,
+      async (ctx, animal) => {
+        if (!animal.nextVaccination || animal.nextVaccination > cutoff) {
+          return;
+        }
+
+        // Get user info
+        const user = await ctx.db.get(animal.userId);
+        if (!user || !user.email) return;
+
+        // Get farm info
+        const farm = await ctx.db.get(animal.farmId);
+        const daysUntilDue = Math.ceil(
+          (animal.nextVaccination! - now) / (24 * 60 * 60 * 1000)
+        );
+
+        // Determine vaccine type from medical history
+        const history = animal.medicalHistory || [];
+        const lastVaccine = history
+          .filter((h) => h.vaccineType && h.treatment.toLowerCase().includes("vaccin"))
+          .sort((a, b) => b.date - a.date)[0];
+        const vaccineType = lastVaccine?.vaccineType || "unknown";
+
+        // Idempotency: skip if this exact reminder was already created in the
+        // last 24h (retry-safe — no duplicate notifications per animal/day).
+        const recent = await ctx.db
+          .query("notifications")
+          .withIndex("by_user", (q) => q.eq("userId", animal.userId))
+          .order("desc")
+          .take(50);
+        if (hasRecentVaccinationReminder(recent, animal._id, now, 24 * 60 * 60 * 1000)) {
+          return;
+        }
+
+        // Create in-app notification
+        const isOverdue = daysUntilDue < 0;
+        const urgencyText = isOverdue
+          ? `${Math.abs(daysUntilDue)} days overdue`
+          : `in ${daysUntilDue} day${daysUntilDue === 1 ? '' : 's'}`;
+
+        await ctx.db.insert("notifications", {
+          userId: animal.userId,
+          title: isOverdue ? `⚠️ Vaccination Overdue: ${animal.name}` : `💉 Vaccination Due: ${animal.name}`,
+          message: `${animal.name} (${animal.type}) needs ${vaccineType !== 'unknown' ? vaccineType : 'a'} vaccination ${urgencyText}. Farm: ${farm?.name || 'Unknown Farm'}.`,
+          type: isOverdue ? "vaccination_overdue" : "vaccination_reminder",
+          actionUrl: "/livestock",
+          actionLabel: "View Livestock",
+          details: JSON.stringify({
+            livestockId: animal._id,
+            nextVaccination: animal.nextVaccination,
+          }),
+          isRead: false,
+          createdAt: now,
+        });
+
+        // Send reminder email via scheduler
+        await ctx.scheduler.runAfter(0, api.emails.sendVaccinationReminder, {
+          userId: animal.userId,
+          email: user.email,
+          name: user.name || "there",
+          livestockName: animal.name,
+          livestockType: animal.type,
+          farmName: farm?.name || "Unknown Farm",
+          daysUntilDue,
+          scheduledDate: animal.nextVaccination!,
+          vaccineType,
+        });
+      },
+      (ctx, cursor) =>
+        ctx.scheduler.runAfter(0, internal.livestock.sendVaccinationReminders, { cursor }),
+      "sendVaccinationReminders"
     );
-
-    if (dueSoon.length === 0) return { sent: 0 };
-
-    let sent = 0;
-    for (const animal of dueSoon) {
-      // Get user info
-      const user = await ctx.db.get(animal.userId);
-      if (!user || !user.email) continue;
-
-      // Get farm info
-      const farm = await ctx.db.get(animal.farmId);
-      const daysUntilDue = Math.ceil(
-        (animal.nextVaccination! - now) / (24 * 60 * 60 * 1000)
-      );
-
-      // Determine vaccine type from medical history
-      const history = animal.medicalHistory || [];
-      const lastVaccine = history
-        .filter((h) => h.vaccineType && h.treatment.toLowerCase().includes("vaccin"))
-        .sort((a, b) => b.date - a.date)[0];
-      const vaccineType = lastVaccine?.vaccineType || "unknown";
-
-      // Create in-app notification
-      const isOverdue = daysUntilDue < 0;
-      const urgencyText = isOverdue
-        ? `${Math.abs(daysUntilDue)} days overdue`
-        : `in ${daysUntilDue} day${daysUntilDue === 1 ? '' : 's'}`;
-
-      await ctx.db.insert("notifications", {
-        userId: animal.userId,
-        title: isOverdue ? `⚠️ Vaccination Overdue: ${animal.name}` : `💉 Vaccination Due: ${animal.name}`,
-        message: `${animal.name} (${animal.type}) needs ${vaccineType !== 'unknown' ? vaccineType : 'a'} vaccination ${urgencyText}. Farm: ${farm?.name || 'Unknown Farm'}.`,
-        type: isOverdue ? "vaccination_overdue" : "vaccination_reminder",
-        actionUrl: "/livestock",
-        actionLabel: "View Livestock",
-        isRead: false,
-        createdAt: now,
-      });
-
-      // Send reminder email via scheduler
-      await ctx.scheduler.runAfter(0, api.emails.sendVaccinationReminder, {
-        userId: animal.userId,
-        email: user.email,
-        name: user.name || "there",
-        livestockName: animal.name,
-        livestockType: animal.type,
-        farmName: farm?.name || "Unknown Farm",
-        daysUntilDue,
-        scheduledDate: animal.nextVaccination!,
-        vaccineType,
-      });
-
-      sent++;
-    }
-
-    return { sent };
   },
 });
 
@@ -1017,13 +1043,57 @@ export const getCoverageAlerts = query({
 });
 
 // ============================================================
+// Reminder/Alert dedup helpers (pure — unit tested)
+// ============================================================
+
+/**
+ * Pure: has a vaccination reminder for this exact livestock been created
+ * within `windowMs`? The notification carries a `details` marker with the
+ * livestockId, which is what makes the daily cron retry-safe.
+ */
+export function hasRecentVaccinationReminder(
+  recent: Array<{ type?: string; details?: string; createdAt?: number }>,
+  livestockId: string,
+  now: number,
+  windowMs: number
+): boolean {
+  const marker = `"livestockId":"${livestockId}"`;
+  return recent.some(
+    (n) =>
+      (n.type === "vaccination_reminder" || n.type === "vaccination_overdue") &&
+      typeof n.details === "string" &&
+      n.details.includes(marker) &&
+      typeof n.createdAt === "number" &&
+      n.createdAt > now - windowMs
+  );
+}
+
+/**
+ * Pure: has a low-coverage alert been created for this user within
+ * `windowMs`? The notification carries a `{ kind: "low_coverage_alert" }`
+ * details marker, which makes the daily cron retry-safe.
+ */
+export function hasRecentLowCoverageAlert(
+  recent: Array<{ details?: string; createdAt?: number }>,
+  now: number,
+  windowMs: number
+): boolean {
+  return recent.some(
+    (n) =>
+      typeof n.details === "string" &&
+      n.details.includes("low_coverage_alert") &&
+      typeof n.createdAt === "number" &&
+      n.createdAt > now - windowMs
+  );
+}
+
+// ============================================================
 // Low Coverage Alert Sender (Cron Job)
 // ============================================================
 
-export const sendLowCoverageAlerts = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const users = await ctx.db.query("users").collect();
+export const sendLowCoverageAlerts = internalMutation({
+  args: cronBatchArgs,
+  handler: async (ctx, args): Promise<CronBatchResult> => {
     const now = Date.now();
     const ninetyDaysAgo = now - 90 * 24 * 60 * 60 * 1000;
     const vaccineTypes = [
@@ -1034,78 +1104,99 @@ export const sendLowCoverageAlerts = mutation({
     let sent = 0;
     let skipped = 0;
 
-    for (const user of users) {
-      if (!user.email) { skipped++; continue; }
-      const livestock = await ctx.db
-        .query("livestock")
-        .withIndex("by_user", (q) => q.eq("userId", user._id))
-        .collect();
-      if (livestock.length === 0) { skipped++; continue; }
+    return runCronBatch(
+      ctx,
+      args.cursor,
+      CRON_BATCH_SIZE,
+      pageUsers,
+      async (ctx, user) => {
+        if (!user.email) { skipped++; return; }
+        const livestock = await ctx.db
+          .query("livestock")
+          .withIndex("by_user", (q) => q.eq("userId", user._id))
+          .collect();
+        if (livestock.length === 0) { skipped++; return; }
 
-      const animalsByType: Record<string, typeof livestock> = {};
-      for (const animal of livestock) {
-        if (animal.status === "quarantine") continue;
-        if (!animalsByType[animal.type]) animalsByType[animal.type] = [];
-        animalsByType[animal.type].push(animal);
-      }
+        // Idempotency: skip if a low-coverage alert was already sent within
+        // the last 24h for this user (retry-safe — no duplicate alert spam).
+        const recent = await ctx.db
+          .query("notifications")
+          .withIndex("by_user", (q) => q.eq("userId", user._id))
+          .order("desc")
+          .take(50);
+        if (hasRecentLowCoverageAlert(recent, now, 24 * 60 * 60 * 1000)) {
+          skipped++;
+          return;
+        }
 
-      const alerts: Array<{
-        vaccineName: string; animalType: string; percentage: number;
-        vaccinated: number; total: number; severity: string;
-        recommendation: string; interval: string;
-      }> = [];
+        const animalsByType: Record<string, typeof livestock> = {};
+        for (const animal of livestock) {
+          if (animal.status === "quarantine") continue;
+          if (!animalsByType[animal.type]) animalsByType[animal.type] = [];
+          animalsByType[animal.type].push(animal);
+        }
 
-      for (const [type, animals] of Object.entries(animalsByType)) {
-        const totalAnimals = animals.reduce((sum, a) => sum + a.quantity, 0);
-        const vaccineCoverage: Record<string, number> = {};
-        for (const vax of vaccineTypes) vaccineCoverage[vax] = 0;
-        for (const animal of animals) {
-          for (const record of (animal.medicalHistory || [])) {
-            if (record.date < ninetyDaysAgo) continue;
-            if (record.vaccineType && vaccineTypes.includes(record.vaccineType)) {
-              vaccineCoverage[record.vaccineType] += animal.quantity;
+        const alerts: Array<{
+          vaccineName: string; animalType: string; percentage: number;
+          vaccinated: number; total: number; severity: string;
+          recommendation: string; interval: string;
+        }> = [];
+
+        for (const [type, animals] of Object.entries(animalsByType)) {
+          const totalAnimals = animals.reduce((sum, a) => sum + a.quantity, 0);
+          const vaccineCoverage: Record<string, number> = {};
+          for (const vax of vaccineTypes) vaccineCoverage[vax] = 0;
+          for (const animal of animals) {
+            for (const record of (animal.medicalHistory || [])) {
+              if (record.date < ninetyDaysAgo) continue;
+              if (record.vaccineType && vaccineTypes.includes(record.vaccineType)) {
+                vaccineCoverage[record.vaccineType] += animal.quantity;
+              }
+            }
+          }
+          for (const [vaxName, vaccinated] of Object.entries(vaccineCoverage)) {
+            const pct = totalAnimals > 0 ? Math.min(100, Math.round((vaccinated / totalAnimals) * 100)) : 0;
+            if (pct < 50) {
+              const rec = COVERAGE_RECOMMENDATIONS[vaxName];
+              alerts.push({
+                vaccineName: vaxName, animalType: type, percentage: pct,
+                vaccinated: Math.min(vaccinated, totalAnimals), total: totalAnimals,
+                severity: pct === 0 ? "critical" : pct < 25 ? "critical" : "warning",
+                recommendation: rec?.recommendation || "Schedule vaccination as soon as possible.",
+                interval: rec?.interval || "As recommended",
+              });
             }
           }
         }
-        for (const [vaxName, vaccinated] of Object.entries(vaccineCoverage)) {
-          const pct = totalAnimals > 0 ? Math.min(100, Math.round((vaccinated / totalAnimals) * 100)) : 0;
-          if (pct < 50) {
-            const rec = COVERAGE_RECOMMENDATIONS[vaxName];
-            alerts.push({
-              vaccineName: vaxName, animalType: type, percentage: pct,
-              vaccinated: Math.min(vaccinated, totalAnimals), total: totalAnimals,
-              severity: pct === 0 ? "critical" : pct < 25 ? "critical" : "warning",
-              recommendation: rec?.recommendation || "Schedule vaccination as soon as possible.",
-              interval: rec?.interval || "As recommended",
-            });
-          }
-        }
-      }
 
-      if (alerts.length === 0) { skipped++; continue; }
-      alerts.sort((a, b) => {
-        const sevOrder: Record<string, number> = { critical: 0, warning: 1, info: 2 };
-        return (sevOrder[a.severity] - sevOrder[b.severity]) || (a.percentage - b.percentage);
-      });
-      const summary = {
-        total: alerts.length,
-        critical: alerts.filter((a) => a.severity === "critical").length,
-        high: alerts.filter((a) => a.severity === "critical" || a.percentage < 25).length,
-        medium: alerts.filter((a) => a.severity === "warning").length,
-      };
-      await ctx.db.insert("notifications", {
-        userId: user._id, type: "warning",
-        title: `${alerts.length} vaccine${alerts.length !== 1 ? 's' : ''} below 50% coverage`,
-        message: `${summary.critical} critical, ${summary.medium} warnings. Update your vaccination schedule.`,
-        isRead: false, createdAt: now,
-      });
-      await ctx.scheduler.runAfter(0, api.emails.sendLowCoverageAlert, {
-        userId: user._id, email: user.email, name: user.name || "there",
-        alerts: alerts.slice(0, 10), summary,
-      });
-      sent++;
-    }
-    return { sent, skipped, total: users.length };
+        if (alerts.length === 0) { skipped++; return; }
+        alerts.sort((a, b) => {
+          const sevOrder: Record<string, number> = { critical: 0, warning: 1, info: 2 };
+          return (sevOrder[a.severity] - sevOrder[b.severity]) || (a.percentage - b.percentage);
+        });
+        const summary = {
+          total: alerts.length,
+          critical: alerts.filter((a) => a.severity === "critical").length,
+          high: alerts.filter((a) => a.severity === "critical" || a.percentage < 25).length,
+          medium: alerts.filter((a) => a.severity === "warning").length,
+        };
+        await ctx.db.insert("notifications", {
+          userId: user._id, type: "warning",
+          title: `${alerts.length} vaccine${alerts.length !== 1 ? 's' : ''} below 50% coverage`,
+          message: `${summary.critical} critical, ${summary.medium} warnings. Update your vaccination schedule.`,
+          details: JSON.stringify({ kind: "low_coverage_alert" }),
+          isRead: false, createdAt: now,
+        });
+        await ctx.scheduler.runAfter(0, api.emails.sendLowCoverageAlert, {
+          userId: user._id, email: user.email, name: user.name || "there",
+          alerts: alerts.slice(0, 10), summary,
+        });
+        sent++;
+      },
+      (ctx, cursor) =>
+        ctx.scheduler.runAfter(0, internal.livestock.sendLowCoverageAlerts, { cursor }),
+      "sendLowCoverageAlerts"
+    );
   },
 });
 

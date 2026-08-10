@@ -334,9 +334,31 @@ describe("runIntelligencePipelineCore — insights", () => {
 });
 
 // ============================================================
-// Cron mutation — all users, failure isolation, pagination
+// Batched cron core — all users, bounded batches, failure
+// isolation, cursor chaining (Phase 5)
 // ============================================================
-describe("runIntelligencePipelineForAllUsers", () => {
+describe("runIntelligencePipelineForAllUsers — batched cron core", () => {
+  test("one batch processes only the batch size, then continues from the cursor", async () => {
+    const users: Row[] = [{ _id: "user_0", email: "a@x.com" }];
+    for (let i = 1; i < 105; i++) {
+      users.push({ _id: `user_${i}`, email: `u${i}@x.com` });
+    }
+    const db = makeDb({ users });
+
+    // First batch: 100 users (batch size), not done
+    const first = await runIntelligencePipelineForAllUsersCore(makeCtx(db), null, 100);
+    expect(first.isDone).toBe(false);
+    expect(typeof first.continueCursor).toBe("string");
+
+    // Second batch continues from the returned cursor and reaches the end
+    const second = await runIntelligencePipelineForAllUsersCore(
+      makeCtx(db),
+      first.continueCursor,
+      100
+    );
+    expect(second.isDone).toBe(true);
+  });
+
   test("processes all users across pagination boundaries", async () => {
     const farms: Row[] = [insightFarm({ _id: "farm_1", userId: "user_0" })];
     const users: Row[] = [{ _id: "user_0", email: "a@x.com" }];
@@ -347,13 +369,24 @@ describe("runIntelligencePipelineForAllUsers", () => {
     farms.push(insightFarm({ _id: "farm_105", userId: "user_104" }));
 
     const db = makeDb({ users, farms });
-    const result = await runIntelligencePipelineForAllUsersCore(makeCtx(db));
-    expect(result.failures).toBe(0);
+    // Drive the full batch chain until done
+    let cursor: string | null = null;
+    let processed = 0;
+    let failures = 0;
+    let isDone = false;
+    while (!isDone) {
+      const result = await runIntelligencePipelineForAllUsersCore(makeCtx(db), cursor, 100);
+      processed += result.processed;
+      failures += result.failures;
+      isDone = result.isDone;
+      cursor = result.isDone ? null : result.continueCursor;
+    }
+    expect(failures).toBe(0);
     // Both farmed users (page 1 and page 2) were processed
-    expect(result.processed).toBe(2);
+    expect(processed).toBe(2);
   });
 
-  test("isolates failures so one bad user does not abort the job", async () => {
+  test("isolates failures so one bad user does not abort the batch", async () => {
     const db = makeDb(
       {
         users: [
@@ -372,9 +405,10 @@ describe("runIntelligencePipelineForAllUsers", () => {
       }
     );
 
-    const result = await runIntelligencePipelineForAllUsersCore(makeCtx(db));
+    const result = await runIntelligencePipelineForAllUsersCore(makeCtx(db), null, 100);
     expect(result.failures).toBe(1);
     expect(result.processed).toBe(1); // good user still processed
+    expect(result.isDone).toBe(true); // small dataset finishes in one batch
     const scores = db.tables["farmHealthScores"] ?? [];
     expect(scores.some((s) => s.farmId === "farm_good")).toBe(true);
     expect(scores.some((s) => s.farmId === "farm_bad")).toBe(false);
@@ -384,7 +418,10 @@ describe("runIntelligencePipelineForAllUsers", () => {
     const db = makeDb({
       users: [{ _id: "user_1", email: "a@x.com" }],
     });
-    const result = await runIntelligencePipelineForAllUsersCore(makeCtx(db));
-    expect(result).toEqual({ processed: 0, insights: 0, failures: 0 });
+    const result = await runIntelligencePipelineForAllUsersCore(makeCtx(db), null, 100);
+    expect(result.processed).toBe(0);
+    expect(result.insights).toBe(0);
+    expect(result.failures).toBe(0);
+    expect(result.isDone).toBe(true);
   });
 });

@@ -1,6 +1,13 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { requireAuth, createAuditLog } from "./authHelpers";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
+import {
+  CRON_BATCH_SIZE,
+  cronBatchArgs,
+  runCronBatch,
+  pageUsers,
+  type CronBatchResult,
+} from "./cronBatch";
 
 // ============================================================
 // Subscription Management
@@ -92,56 +99,54 @@ export const getSubscriptionStats = query({
 });
 
 /**
- * Send subscription expiry warning emails to users whose paid subscriptions end soon
- * Called by the cron job to proactively warn users before renewal/expiration
+ * Send subscription expiry warning emails to users whose paid subscriptions end soon.
+ * Batched cron: each invocation processes at most CRON_BATCH_SIZE users and schedules
+ * the next batch when more remain. Audit-log dedup prevents duplicate warnings within
+ * 24h even if a batch is retried.
  */
-export const sendSubscriptionExpiryWarnings = mutation({
-  args: {},
-  handler: async (ctx) => {
+export const sendSubscriptionExpiryWarnings = internalMutation({
+  args: cronBatchArgs,
+  handler: async (ctx, args): Promise<CronBatchResult> => {
     const now = Date.now();
     let emailsSent = 0;
     let emailsSkipped = 0;
-    const errors: string[] = [];
 
-    // Find all users with paid subscriptions
-    const users = await ctx.db.query("users").collect();
-
-    for (const user of users) {
-      // Skip users without paid subscriptions or without email
-      if (!user.subscriptionEndDate || !user.email || user.subscriptionTier !== "pro") {
-        continue;
-      }
-
-      const subEnd = user.subscriptionEndDate;
-      const daysRemaining = Math.ceil((subEnd - now) / (24 * 60 * 60 * 1000));
-
-      // Skip if subscription has already expired (handled by expireSubscriptions)
-      if (daysRemaining <= 0) {
-        continue;
-      }
-
-      // Check if subscription is within warning window (1-3 days remaining)
-      if (daysRemaining <= SUBSCRIPTION_WARNING_DAYS) {
-        // Check if we already sent a warning for this subscription period
-        const existingLog = await ctx.db
-          .query("auditLogs")
-          .filter((q) =>
-            q.and(
-              q.eq(q.field("userId"), user._id),
-              q.eq(q.field("action"), "subscription_warning_sent")
-            )
-          )
-          .order("desc")
-          .first();
-
-        // Skip if we already sent a warning in the last 24 hours
-        if (existingLog && existingLog.createdAt > now - 24 * 60 * 60 * 1000) {
-          emailsSkipped++;
-          continue;
+    return runCronBatch(
+      ctx,
+      args.cursor,
+      CRON_BATCH_SIZE,
+      pageUsers,
+      async (ctx, user) => {
+        // Skip users without paid subscriptions or without email
+        if (!user.subscriptionEndDate || !user.email || user.subscriptionTier !== "pro") {
+          return;
         }
 
-        // Send the warning email
-        try {
+        const subEnd = user.subscriptionEndDate;
+        const daysRemaining = Math.ceil((subEnd - now) / (24 * 60 * 60 * 1000));
+
+        // Skip if subscription has already expired (handled by expireSubscriptions)
+        if (daysRemaining <= 0) {
+          return;
+        }
+
+        // Check if subscription is within warning window (1-3 days remaining)
+        if (daysRemaining <= SUBSCRIPTION_WARNING_DAYS) {
+          // Check if we already sent a warning for this subscription period (indexed by user)
+          const existingLog = await ctx.db
+            .query("auditLogs")
+            .withIndex("by_user", (q) => q.eq("userId", user._id))
+            .filter((q) => q.eq(q.field("action"), "subscription_warning_sent"))
+            .order("desc")
+            .first();
+
+          // Skip if we already sent a warning in the last 24 hours
+          if (existingLog && existingLog.createdAt > now - 24 * 60 * 60 * 1000) {
+            emailsSkipped++;
+            return;
+          }
+
+          // Send the warning email
           await ctx.scheduler.runAfter(0, api.emails.sendSubscriptionExpiryWarning, {
             userId: user._id,
             email: user.email,
@@ -165,75 +170,68 @@ export const sendSubscriptionExpiryWarnings = mutation({
           });
 
           emailsSent++;
-        } catch (error) {
-          console.error(`Failed to send subscription warning to ${user.email}:`, error);
-          errors.push(`${user.email}: ${String(error)}`);
         }
-      }
-    }
-
-    return {
-      success: true,
-      emailsSent,
-      emailsSkipped,
-      errors,
-    };
+      },
+      (ctx, cursor) =>
+        ctx.scheduler.runAfter(0, internal.subscriptions.sendSubscriptionExpiryWarnings, {
+          cursor,
+        }),
+      "sendSubscriptionExpiryWarnings"
+    );
   },
 });
 
 /**
- * Send payment method reminder emails to users before subscription renewal
- * Warns them to update payment details to avoid failed payments
+ * Send payment method reminder emails to users before subscription renewal.
+ * Batched cron: each invocation processes at most CRON_BATCH_SIZE users and schedules
+ * the next batch when more remain. Audit-log dedup prevents duplicate reminders within
+ * 24h even if a batch is retried.
  */
-export const sendPaymentMethodReminders = mutation({
-  args: {},
-  handler: async (ctx) => {
+export const sendPaymentMethodReminders = internalMutation({
+  args: cronBatchArgs,
+  handler: async (ctx, args): Promise<CronBatchResult> => {
     const now = Date.now();
     let emailsSent = 0;
     let emailsSkipped = 0;
-    const errors: string[] = [];
 
-    // Find all users with paid subscriptions
-    const users = await ctx.db.query("users").collect();
-
-    for (const user of users) {
-      // Skip users without paid subscriptions or without email
-      if (!user.subscriptionEndDate || !user.email || user.subscriptionTier !== "pro") {
-        continue;
-      }
-
-      const subEnd = user.subscriptionEndDate;
-      const daysUntilRenewal = Math.ceil((subEnd - now) / (24 * 60 * 60 * 1000));
-
-      // Skip if subscription has already expired
-      if (daysUntilRenewal <= 0) {
-        continue;
-      }
-
-      // Send reminder 7 days before renewal if payment method is not verified
-      const shouldRemind = !user.paymentMethodVerified && daysUntilRenewal <= 7;
-      
-      if (shouldRemind) {
-        // Check if we already sent a reminder for this subscription period
-        const existingLog = await ctx.db
-          .query("auditLogs")
-          .filter((q) =>
-            q.and(
-              q.eq(q.field("userId"), user._id),
-              q.eq(q.field("action"), "payment_method_reminder_sent")
-            )
-          )
-          .order("desc")
-          .first();
-
-        // Skip if we already sent a reminder in the last 24 hours
-        if (existingLog && existingLog.createdAt > now - 24 * 60 * 60 * 1000) {
-          emailsSkipped++;
-          continue;
+    return runCronBatch(
+      ctx,
+      args.cursor,
+      CRON_BATCH_SIZE,
+      pageUsers,
+      async (ctx, user) => {
+        // Skip users without paid subscriptions or without email
+        if (!user.subscriptionEndDate || !user.email || user.subscriptionTier !== "pro") {
+          return;
         }
 
-        // Send the reminder email
-        try {
+        const subEnd = user.subscriptionEndDate;
+        const daysUntilRenewal = Math.ceil((subEnd - now) / (24 * 60 * 60 * 1000));
+
+        // Skip if subscription has already expired
+        if (daysUntilRenewal <= 0) {
+          return;
+        }
+
+        // Send reminder 7 days before renewal if payment method is not verified
+        const shouldRemind = !user.paymentMethodVerified && daysUntilRenewal <= 7;
+
+        if (shouldRemind) {
+          // Check if we already sent a reminder for this subscription period (indexed by user)
+          const existingLog = await ctx.db
+            .query("auditLogs")
+            .withIndex("by_user", (q) => q.eq("userId", user._id))
+            .filter((q) => q.eq(q.field("action"), "payment_method_reminder_sent"))
+            .order("desc")
+            .first();
+
+          // Skip if we already sent a reminder in the last 24 hours
+          if (existingLog && existingLog.createdAt > now - 24 * 60 * 60 * 1000) {
+            emailsSkipped++;
+            return;
+          }
+
+          // Send the reminder email
           await ctx.scheduler.runAfter(0, api.emails.sendPaymentMethodReminder, {
             userId: user._id,
             email: user.email,
@@ -256,19 +254,14 @@ export const sendPaymentMethodReminders = mutation({
           });
 
           emailsSent++;
-        } catch (error) {
-          console.error(`Failed to send payment method reminder to ${user.email}:`, error);
-          errors.push(`${user.email}: ${String(error)}`);
         }
-      }
-    }
-
-    return {
-      success: true,
-      emailsSent,
-      emailsSkipped,
-      errors,
-    };
+      },
+      (ctx, cursor) =>
+        ctx.scheduler.runAfter(0, internal.subscriptions.sendPaymentMethodReminders, {
+          cursor,
+        }),
+      "sendPaymentMethodReminders"
+    );
   },
 });
 
@@ -300,61 +293,60 @@ export const verifyPaymentMethod = mutation({
 });
 
 /**
- * Expire subscriptions for users whose paid subscriptions have ended
- * Downgrades them to Free tier and sends notification email
+ * Expire subscriptions for users whose paid subscriptions have ended.
+ * Batched cron: each invocation downgrades at most CRON_BATCH_SIZE users and schedules
+ * the next batch when more remain. Idempotent by state — once downgraded to "free",
+ * a retried batch skips them, so retries never double-downgrade or duplicate emails.
  */
-export const expireSubscriptions = mutation({
-  args: {},
-  handler: async (ctx) => {
+export const expireSubscriptions = internalMutation({
+  args: cronBatchArgs,
+  handler: async (ctx, args): Promise<CronBatchResult> => {
     const now = Date.now();
-    let expiredCount = 0;
 
-    // Find all users with paid subscriptions that have ended
-    const users = await ctx.db.query("users").collect();
+    return runCronBatch(
+      ctx,
+      args.cursor,
+      CRON_BATCH_SIZE,
+      pageUsers,
+      async (ctx, user) => {
+        if (
+          user.subscriptionEndDate !== undefined &&
+          user.subscriptionEndDate < now &&
+          user.subscriptionTier === "pro"
+        ) {
+          // Subscription expired - downgrade to Free
+          await ctx.db.patch(user._id, {
+            subscriptionTier: "free",
+            subscriptionEndDate: undefined,
+            updatedAt: now,
+          });
 
-    for (const user of users) {
-      if (
-        user.subscriptionEndDate !== undefined &&
-        user.subscriptionEndDate < now &&
-        user.subscriptionTier === "pro"
-      ) {
-        // Subscription expired - downgrade to Free
-        await ctx.db.patch(user._id, {
-          subscriptionTier: "free",
-          subscriptionEndDate: undefined,
-          updatedAt: now,
-        });
-
-        // Send subscription expired email
-        if (user.email) {
-          try {
+          // Send subscription expired email
+          if (user.email) {
             await ctx.scheduler.runAfter(0, api.emails.sendSubscriptionExpiredEmail, {
               userId: user._id,
               email: user.email,
               name: user.name || "there",
             });
-          } catch (error) {
-            console.error(`Failed to send subscription expired email to ${user.email}:`, error);
           }
+
+          // Create audit log
+          await createAuditLog(ctx, {
+            userId: user._id,
+            action: "subscription_expired",
+            resource: "users",
+            resourceId: user._id,
+            changes: {
+              previousTier: "pro",
+              newTier: "free",
+              subscriptionEndDate: user.subscriptionEndDate,
+            },
+          });
         }
-
-        // Create audit log
-        await createAuditLog(ctx, {
-          userId: user._id,
-          action: "subscription_expired",
-          resource: "users",
-          resourceId: user._id,
-          changes: {
-            previousTier: "pro",
-            newTier: "free",
-            subscriptionEndDate: user.subscriptionEndDate,
-          },
-        });
-
-        expiredCount++;
-      }
-    }
-
-    return { success: true, expiredCount };
+      },
+      (ctx, cursor) =>
+        ctx.scheduler.runAfter(0, internal.subscriptions.expireSubscriptions, { cursor }),
+      "expireSubscriptions"
+    );
   },
 });

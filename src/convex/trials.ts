@@ -1,7 +1,14 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireAuth, createAuditLog } from "./authHelpers";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
+import {
+  CRON_BATCH_SIZE,
+  cronBatchArgs,
+  runCronBatch,
+  pageUsers,
+  type CronBatchResult,
+} from "./cronBatch";
 
 // ============================================================
 // Trial Management
@@ -100,104 +107,101 @@ export const startTrial = mutation({
 });
 
 /**
- * Check and expire trials for all users
- * This can be called periodically (e.g., daily) to clean up expired trials
- * Also usable as a Convex internal function
+ * Check and expire trials for all users.
+ * Batched cron: each invocation processes at most CRON_BATCH_SIZE users
+ * and schedules the next batch when more remain. Idempotent by state —
+ * once a user is downgraded to "free", a retried batch skips them, so
+ * retries never double-downgrade or duplicate audit entries.
  */
-export const expireTrials = mutation({
-  args: {},
-  handler: async (ctx) => {
+export const expireTrials = internalMutation({
+  args: cronBatchArgs,
+  handler: async (ctx, args): Promise<CronBatchResult> => {
     const now = Date.now();
-    let expiredCount = 0;
 
-    // Find all users with a trial end date that has passed
-    const users = await ctx.db.query("users").collect();
+    return runCronBatch(
+      ctx,
+      args.cursor,
+      CRON_BATCH_SIZE,
+      pageUsers,
+      async (ctx, user) => {
+        if (
+          user.trialEndDate !== undefined &&
+          user.trialEndDate < now &&
+          user.subscriptionTier === "pro"
+        ) {
+          // Trial expired - downgrade to Free
+          await ctx.db.patch(user._id, {
+            subscriptionTier: "free",
+            subscriptionEndDate: undefined,
+            trialEndDate: user.trialEndDate, // Keep the trial end date for history
+            updatedAt: now,
+          });
 
-    for (const user of users) {
-      if (
-        user.trialEndDate !== undefined &&
-        user.trialEndDate < now &&
-        user.subscriptionTier === "pro"
-      ) {
-        // Trial expired - downgrade to Free
-        await ctx.db.patch(user._id, {
-          subscriptionTier: "free",
-          subscriptionEndDate: undefined,
-          trialEndDate: user.trialEndDate, // Keep the trial end date for history
-          updatedAt: now,
-        });
-
-        // Create audit log
-        await createAuditLog(ctx, {
-          userId: user._id,
-          action: "trial_expired",
-          resource: "users",
-          resourceId: user._id,
-          changes: {
-            previousTier: "pro",
-            newTier: "free",
-            trialEndDate: user.trialEndDate,
-          },
-        });
-
-        expiredCount++;
-      }
-    }
-
-    return { success: true, expiredCount };
+          // Create audit log
+          await createAuditLog(ctx, {
+            userId: user._id,
+            action: "trial_expired",
+            resource: "users",
+            resourceId: user._id,
+            changes: {
+              previousTier: "pro",
+              newTier: "free",
+              trialEndDate: user.trialEndDate,
+            },
+          });
+        }
+      },
+      (ctx, cursor) =>
+        ctx.scheduler.runAfter(0, internal.trials.expireTrials, { cursor }),
+      "expireTrials"
+    );
   },
 });
 
 /**
- * Send trial expiry warning emails to users whose trials end in 2 days
- * Called by the cron job to proactively warn users before downgrade
+ * Send trial expiry warning emails to users whose trials end in 2 days.
+ * Batched cron: each invocation processes at most CRON_BATCH_SIZE users
+ * and schedules the next batch when more remain. Audit-log dedup keeps
+ * retried batches from sending duplicate warnings within 24h.
  */
-export const sendTrialExpiryWarnings = mutation({
-  args: {},
-  handler: async (ctx) => {
+export const sendTrialExpiryWarnings = internalMutation({
+  args: cronBatchArgs,
+  handler: async (ctx, args): Promise<CronBatchResult> => {
     const now = Date.now();
     let emailsSent = 0;
     let emailsSkipped = 0;
-    const errors: string[] = [];
 
-    // Calculate the warning window (2 days from now)
-    const warningStart = now;
-    const warningEnd = now + WARNING_DAYS * 24 * 60 * 60 * 1000;
-
-    // Find all users with active trials
-    const users = await ctx.db.query("users").collect();
-
-    for (const user of users) {
-      // Skip users without trials or without email
-      if (!user.trialEndDate || !user.email) {
-        continue;
-      }
-
-      const trialEnd = user.trialEndDate;
-      const daysRemaining = Math.ceil((trialEnd - now) / (24 * 60 * 60 * 1000));
-
-      // Check if trial is within warning window (1-2 days remaining)
-      if (daysRemaining <= WARNING_DAYS && daysRemaining > 0 && user.subscriptionTier === "pro") {
-        // Check if we already sent a warning for this trial
-        const existingLog = await ctx.db
-          .query("auditLogs")
-          .filter((q) =>
-            q.and(
-              q.eq(q.field("userId"), user._id),
-              q.eq(q.field("action"), "trial_warning_sent")
-            )
-          )
-          .order("desc")
-          .first();
-
-        // Skip if we already sent a warning in the last 24 hours
-        if (existingLog && existingLog.createdAt > now - 24 * 60 * 60 * 1000) {
-          emailsSkipped++;
-          continue;
+    return runCronBatch(
+      ctx,
+      args.cursor,
+      CRON_BATCH_SIZE,
+      pageUsers,
+      async (ctx, user) => {
+        // Skip users without trials or without email
+        if (!user.trialEndDate || !user.email) {
+          return;
         }
 
-        // Send the warning email
-        try {
+        const trialEnd = user.trialEndDate;
+        const daysRemaining = Math.ceil((trialEnd - now) / (24 * 60 * 60 * 1000));
+
+        // Check if trial is within warning window (1-2 days remaining)
+        if (daysRemaining <= WARNING_DAYS && daysRemaining > 0 && user.subscriptionTier === "pro") {
+          // Check if we already sent a warning for this trial (indexed by user)
+          const existingLog = await ctx.db
+            .query("auditLogs")
+            .withIndex("by_user", (q) => q.eq("userId", user._id))
+            .filter((q) => q.eq(q.field("action"), "trial_warning_sent"))
+            .order("desc")
+            .first();
+
+          // Skip if we already sent a warning in the last 24 hours
+          if (existingLog && existingLog.createdAt > now - 24 * 60 * 60 * 1000) {
+            emailsSkipped++;
+            return;
+          }
+
+          // Send the warning email
           await ctx.scheduler.runAfter(0, api.emails.sendTrialExpiryWarning, {
             userId: user._id,
             email: user.email,
@@ -220,19 +224,12 @@ export const sendTrialExpiryWarnings = mutation({
           });
 
           emailsSent++;
-        } catch (error) {
-          console.error(`Failed to send trial warning to ${user.email}:`, error);
-          errors.push(`${user.email}: ${String(error)}`);
         }
-      }
-    }
-
-    return {
-      success: true,
-      emailsSent,
-      emailsSkipped,
-      errors,
-    };
+      },
+      (ctx, cursor) =>
+        ctx.scheduler.runAfter(0, internal.trials.sendTrialExpiryWarnings, { cursor }),
+      "sendTrialExpiryWarnings"
+    );
   },
 });
 

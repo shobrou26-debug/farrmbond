@@ -1,10 +1,12 @@
-import { mutation } from "./_generated/server";
+import { mutation, internalMutation } from "./_generated/server";
 import {
   generateWeatherNotificationsCore,
   generateLivestockNotificationsCore,
   generateCropNotificationsCore,
   generateMarketNotificationsCore,
 } from "./smartNotifications";
+import { internal } from "./_generated/api";
+import { cronBatchArgs } from "./cronBatch";
 
 // ============================================================
 // Smart Notifications Cron
@@ -24,90 +26,94 @@ const PAGE_SIZE = 100;
 
 /**
  * Run smart notifications for ALL farms across ALL users.
- * Called by the cron job every 2 hours.
+ * Batched cron: each invocation processes ONE page of users and schedules
+ * the next batch when more users remain. Farm-scoped generators stay
+ * bounded per user (a user's farm list is small and page-limited).
  */
-export const runAllNotificationsForAllFarms = mutation({
-  args: {},
-  handler: async (ctx) => {
+export const runAllNotificationsForAllFarms = internalMutation({
+  args: cronBatchArgs,
+  handler: async (ctx, args) => {
     const now = Date.now();
     let totalCreated = 0;
     let failures = 0;
     let usersProcessed = 0;
 
-    // Iterate users in pages (scales to 100k+ users)
-    let cursor: string | null = null;
-    let done = false;
-    while (!done) {
-      const page = await ctx.db.query("users").paginate({
-        numItems: PAGE_SIZE,
-        cursor,
-      });
-      const users = page.page;
+    // One user page per invocation (chained via scheduler until done)
+    const page = await ctx.db.query("users").paginate({
+      numItems: PAGE_SIZE,
+      cursor: args.cursor,
+    });
+    const users = page.page;
 
-      for (const user of users) {
-        // Skip users with no email (guest accounts)
-        if (!user.email) continue;
-        usersProcessed++;
-        const userId = user._id;
+    for (const user of users) {
+      // Skip users with no email (guest accounts)
+      if (!user.email) continue;
+      usersProcessed++;
+      const userId = user._id;
 
-        // Market notifications run once per user (no farm needed)
-        try {
-          const marketResult = await generateMarketNotificationsCore(ctx, { userId });
-          totalCreated += marketResult.created;
-        } catch (error) {
-          failures++;
-          console.error(`[SmartNotificationsCron] market notifications failed for user ${userId}:`, error);
-        }
-
-        // Farm-scoped generators (weather / livestock / crop)
-        let farmCursor: string | null = null;
-        let farmsDone = false;
-        while (!farmsDone) {
-          const farmPage = await ctx.db
-            .query("farms")
-            .withIndex("by_user", (q) => q.eq("userId", userId))
-            .paginate({ numItems: PAGE_SIZE, cursor: farmCursor });
-          const farms = farmPage.page;
-
-          for (const farm of farms) {
-            try {
-              const weatherResult = await generateWeatherNotificationsCore(ctx, { userId, farmId: farm._id });
-              totalCreated += weatherResult.created;
-            } catch (error) {
-              failures++;
-              console.error(`[SmartNotificationsCron] weather notifications failed for user ${userId} farm ${farm._id}:`, error);
-            }
-
-            try {
-              const livestockResult = await generateLivestockNotificationsCore(ctx, { userId, farmId: farm._id });
-              totalCreated += livestockResult.created;
-            } catch (error) {
-              failures++;
-              console.error(`[SmartNotificationsCron] livestock notifications failed for user ${userId} farm ${farm._id}:`, error);
-            }
-
-            try {
-              const cropResult = await generateCropNotificationsCore(ctx, { userId, farmId: farm._id });
-              totalCreated += cropResult.created;
-            } catch (error) {
-              failures++;
-              console.error(`[SmartNotificationsCron] crop notifications failed for user ${userId} farm ${farm._id}:`, error);
-            }
-          }
-
-          farmCursor = farmPage.continueCursor;
-          farmsDone = farmPage.isDone;
-        }
+      // Market notifications run once per user (no farm needed)
+      try {
+        const marketResult = await generateMarketNotificationsCore(ctx, { userId });
+        totalCreated += marketResult.created;
+      } catch (error) {
+        failures++;
+        console.error(`[SmartNotificationsCron] market notifications failed for user ${userId}:`, error);
       }
 
-      cursor = page.continueCursor;
-      done = page.isDone;
+      // Farm-scoped generators (weather / livestock / crop)
+      let farmCursor: string | null = null;
+      let farmsDone = false;
+      while (!farmsDone) {
+        const farmPage = await ctx.db
+          .query("farms")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .paginate({ numItems: PAGE_SIZE, cursor: farmCursor });
+        const farms = farmPage.page;
+
+        for (const farm of farms) {
+          try {
+            const weatherResult = await generateWeatherNotificationsCore(ctx, { userId, farmId: farm._id });
+            totalCreated += weatherResult.created;
+          } catch (error) {
+            failures++;
+            console.error(`[SmartNotificationsCron] weather notifications failed for user ${userId} farm ${farm._id}:`, error);
+          }
+
+          try {
+            const livestockResult = await generateLivestockNotificationsCore(ctx, { userId, farmId: farm._id });
+            totalCreated += livestockResult.created;
+          } catch (error) {
+            failures++;
+            console.error(`[SmartNotificationsCron] livestock notifications failed for user ${userId} farm ${farm._id}:`, error);
+          }
+
+          try {
+            const cropResult = await generateCropNotificationsCore(ctx, { userId, farmId: farm._id });
+            totalCreated += cropResult.created;
+          } catch (error) {
+            failures++;
+            console.error(`[SmartNotificationsCron] crop notifications failed for user ${userId} farm ${farm._id}:`, error);
+          }
+        }
+
+        farmCursor = farmPage.continueCursor;
+        farmsDone = farmPage.isDone;
+      }
+    }
+
+    // Chain the next user page unless done or everything in this page failed
+    const allFailed = users.length > 0 && totalCreated === 0 && failures >= users.length;
+    const scheduledNext = !page.isDone && users.length > 0 && !allFailed;
+    if (scheduledNext) {
+      await ctx.scheduler.runAfter(0, internal.smartNotificationsCron.runAllNotificationsForAllFarms, {
+        cursor: page.continueCursor,
+      });
     }
 
     console.log(
-      `[SmartNotificationsCron] Done: ${totalCreated} notifications, ${failures} failures, ${usersProcessed} users processed`
+      `[SmartNotificationsCron] Batch: ${totalCreated} notifications, ${failures} failures, ${usersProcessed} users, done=${page.isDone}`
     );
-    return { totalCreated, failures, usersProcessed };
+    return { totalCreated, failures, usersProcessed, isDone: page.isDone, scheduledNext };
   },
 });
 

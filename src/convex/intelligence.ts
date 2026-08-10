@@ -1,8 +1,9 @@
 import { v } from "convex/values";
-import { query, mutation, action } from "./_generated/server";
+import { query, mutation, action, internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { requireAuth } from "./authHelpers";
+import { cronBatchArgs } from "./cronBatch";
 import type { Id } from "./_generated/dataModel";
 
 // ============================================================
@@ -754,54 +755,69 @@ export const runIntelligencePipeline = mutation({
 });
 
 /**
- * Server-safe core: run the intelligence pipeline for ALL users.
- * Called by the cron mutation below (every 4 hours). No auth —
- * resolves each user from the database and delegates to the
- * per-user core. Users are processed in pages so the job scales;
- * failures are logged and counted, not swallowed.
+ * Server-safe core: run the intelligence pipeline for ONE bounded batch
+ * of users. No auth — resolves each user from the database. Failures are
+ * logged and counted, not swallowed, and never abort the rest of the batch.
+ * The mutation wrapper chains batches via the scheduler until isDone.
  */
-export async function runIntelligencePipelineForAllUsersCore(ctx: MutationCtx) {
+export async function runIntelligencePipelineForAllUsersCore(
+  ctx: MutationCtx,
+  cursor: string | null,
+  batchSize: number = 100
+) {
   let processed = 0;
   let insights = 0;
   let failures = 0;
 
-  let cursor: string | null = null;
-  let done = false;
-  while (!done) {
-    const page = await ctx.db.query("users").paginate({
-      numItems: 100,
-      cursor,
-    });
+  const page = await ctx.db.query("users").paginate({
+    numItems: batchSize,
+    cursor,
+  });
 
-    for (const user of page.page) {
-      try {
-        const result = await runIntelligencePipelineCore(ctx, { userId: user._id });
-        processed += result.processed;
-        insights += result.insights;
-      } catch (error) {
-        failures++;
-        console.error(`[IntelligenceCron] pipeline failed for user ${user._id}:`, error);
-      }
+  for (const user of page.page) {
+    try {
+      const result = await runIntelligencePipelineCore(ctx, { userId: user._id });
+      processed += result.processed;
+      insights += result.insights;
+    } catch (error) {
+      failures++;
+      console.error(`[IntelligenceCron] pipeline failed for user ${user._id}:`, error);
     }
-
-    cursor = page.continueCursor;
-    done = page.isDone;
   }
 
-  console.log(
-    `[IntelligenceCron] Done: ${processed} farms processed, ${insights} insights stored, ${failures} failures`
-  );
-  return { processed, insights, failures };
+  return {
+    processed,
+    insights,
+    failures,
+    isDone: page.isDone,
+    continueCursor: page.continueCursor,
+  };
 }
 
 /**
- * Run the intelligence pipeline for ALL users. Called by the cron job
- * (every 4 hours). No auth — delegates to the server-safe core.
+ * Run the intelligence pipeline for ALL users. Batched cron: each
+ * invocation processes one bounded batch and schedules the next when
+ * more users remain, so no single mutation walks the whole user table.
  */
-export const runIntelligencePipelineForAllUsers = mutation({
-  args: {},
-  handler: async (ctx) => {
-    return runIntelligencePipelineForAllUsersCore(ctx);
+export const runIntelligencePipelineForAllUsers = internalMutation({
+  args: cronBatchArgs,
+  handler: async (ctx, args) => {
+    const result = await runIntelligencePipelineForAllUsersCore(ctx, args.cursor);
+
+    // Chain the next batch only when some progress was made — if every
+    // user in this batch failed, stop so a systemic error doesn't spin
+    // through the whole table (the cron retries on its next fire).
+    const allFailed = result.processed === 0 && result.failures > 0;
+    if (!result.isDone && !allFailed) {
+      await ctx.scheduler.runAfter(0, internal.intelligence.runIntelligencePipelineForAllUsers, {
+        cursor: result.continueCursor,
+      });
+    }
+
+    console.log(
+      `[IntelligenceCron] Batch: ${result.processed} farms processed, ${result.insights} insights, ${result.failures} failures, done=${result.isDone}`
+    );
+    return { ...result, scheduledNext: !result.isDone && !allFailed };
   },
 });
 

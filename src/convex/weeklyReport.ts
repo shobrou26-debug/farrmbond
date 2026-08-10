@@ -1,6 +1,13 @@
 import { v } from "convex/values";
-import { query, mutation, action } from "./_generated/server";
-import { api } from "./_generated/api";
+import { query, mutation, action, internalMutation } from "./_generated/server";
+import { api, internal } from "./_generated/api";
+import {
+  CRON_BATCH_SIZE,
+  cronBatchArgs,
+  runCronBatch,
+  pageFarms,
+  type CronBatchResult,
+} from "./cronBatch";
 import {
   requireAuth,
   requireActiveSubscription,
@@ -368,77 +375,83 @@ export function deriveRisks(
   return unique.slice(0, 5);
 }
 
-/** Generate weekly reports for all farms (called by cron) */
-export const generateWeeklyReports = mutation({
-  args: {},
-  handler: async (ctx) => {
+/** Generate weekly reports for all farms. Batched cron: each invocation
+ * processes at most CRON_BATCH_SIZE farms and schedules the next batch
+ * when more remain. The per-farm work is bounded (indexed by_farm reads)
+ * and idempotent — a farm that already has this week's report is skipped,
+ * so retried batches never duplicate reports. */
+export const generateWeeklyReports = internalMutation({
+  args: cronBatchArgs,
+  handler: async (ctx, args): Promise<CronBatchResult> => {
     const now = Date.now();
     const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-    
-    // Get all farms
-    const farms = await ctx.db.query("farms").collect();
-    let generated = 0;
-    
-    for (const farm of farms) {
-      // Check if a report was already generated this week
-      const existing = await ctx.db
-        .query("weeklyReports")
-        .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
-        .order("desc")
-        .first();
-      
-      if (existing && existing.generatedAt > weekAgo) continue;
-      
-      // Gather data
-      const crops = await ctx.db
-        .query("crops")
-        .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
-        .collect();
-      const livestock = await ctx.db
-        .query("livestock")
-        .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
-        .collect();
-      const healthScore = await ctx.db
-        .query("farmHealthScores")
-        .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
-        .order("desc")
-        .first();
-      const transactions = await ctx.db
-        .query("transactions")
-        .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
-        .collect();
-      const recentTx = transactions.filter((t) => t.date > weekAgo);
-      const income = recentTx.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
-      const expenses = recentTx.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
-      const completedTasks = crops.filter((c) => c.status === "harvested").length;
-      
-      await ctx.db.insert("weeklyReports", {
-        farmId: farm._id,
-        userId: farm.userId,
-        weekStart: weekAgo,
-        weekEnd: now,
-        farmHealthSummary: `Overall farm health score: ${healthScore?.overall ?? 75}%. Risk level: ${healthScore?.riskLevel ?? "medium"}.`,
-        cropProgress: `${crops.length} crops tracked. ${crops.filter((c) => (c.healthScore ?? 80) >= 70).length} healthy, ${crops.filter((c) => (c.healthScore ?? 80) < 70).length} need attention.`,
-        livestockStatus: `${livestock.length} livestock managed. ${livestock.filter((l) => l.status === "healthy").length} healthy.`,
-        weatherSummary: "Weather data updated via intelligence pipeline.",
-        financialPerformance: `Income: ${income.toFixed(2)}. Expenses: ${expenses.toFixed(2)}. Net: ${(income - expenses).toFixed(2)}.`,
-        tasksCompleted: completedTasks,
-        tasksUpcoming: crops.filter((c) => c.status !== "harvested" && c.status !== "failed").length,
-        recommendations: healthScore?.riskFactors?.map((rf) => ({
-          category: "general",
-          title: rf,
-          description: "Address this risk factor to improve farm health.",
-          priority: "medium",
-          confidence: 80,
-        })) ?? [],
-        riskAnalysis: `Risk factors: ${healthScore?.riskFactors?.join("; ") ?? "None identified"}. Trend: ${healthScore?.trend ?? "stable"}.`,
-        riskScore: healthScore ? Math.max(0, 100 - healthScore.overall) : 0,
-        ...(healthScore?.overall != null ? { healthScore: healthScore.overall } : {}),
-        generatedAt: now,
-      });
-      generated++;
-    }
-    
-    return { generated };
+
+    return runCronBatch(
+      ctx,
+      args.cursor,
+      CRON_BATCH_SIZE,
+      pageFarms,
+      async (ctx, farm) => {
+        // Check if a report was already generated this week (idempotency)
+        const existing = await ctx.db
+          .query("weeklyReports")
+          .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
+          .order("desc")
+          .first();
+
+        if (existing && existing.generatedAt > weekAgo) return;
+
+        // Gather data
+        const crops = await ctx.db
+          .query("crops")
+          .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
+          .collect();
+        const livestock = await ctx.db
+          .query("livestock")
+          .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
+          .collect();
+        const healthScore = await ctx.db
+          .query("farmHealthScores")
+          .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
+          .order("desc")
+          .first();
+        const transactions = await ctx.db
+          .query("transactions")
+          .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
+          .collect();
+        const recentTx = transactions.filter((t) => t.date > weekAgo);
+        const income = recentTx.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
+        const expenses = recentTx.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+        const completedTasks = crops.filter((c) => c.status === "harvested").length;
+
+        await ctx.db.insert("weeklyReports", {
+          farmId: farm._id,
+          userId: farm.userId,
+          weekStart: weekAgo,
+          weekEnd: now,
+          farmHealthSummary: `Overall farm health score: ${healthScore?.overall ?? 75}%. Risk level: ${healthScore?.riskLevel ?? "medium"}.`,
+          cropProgress: `${crops.length} crops tracked. ${crops.filter((c) => (c.healthScore ?? 80) >= 70).length} healthy, ${crops.filter((c) => (c.healthScore ?? 80) < 70).length} need attention.`,
+          livestockStatus: `${livestock.length} livestock managed. ${livestock.filter((l) => l.status === "healthy").length} healthy.`,
+          weatherSummary: "Weather data updated via intelligence pipeline.",
+          financialPerformance: `Income: ${income.toFixed(2)}. Expenses: ${expenses.toFixed(2)}. Net: ${(income - expenses).toFixed(2)}.`,
+          tasksCompleted: completedTasks,
+          tasksUpcoming: crops.filter((c) => c.status !== "harvested" && c.status !== "failed").length,
+          recommendations: healthScore?.riskFactors?.map((rf) => ({
+            category: "general",
+            title: rf,
+            description: "Address this risk factor to improve farm health.",
+            priority: "medium",
+            confidence: 80,
+          })) ?? [],
+          riskAnalysis: `Risk factors: ${healthScore?.riskFactors?.join("; ") ?? "None identified"}. Trend: ${healthScore?.trend ?? "stable"}.`,
+          riskScore: healthScore ? Math.max(0, 100 - healthScore.overall) : 0,
+          ...(healthScore?.overall != null ? { healthScore: healthScore.overall } : {}),
+          generatedAt: now,
+        });
+      },
+      (ctx, cursor) =>
+        ctx.scheduler.runAfter(0, internal.weeklyReport.generateWeeklyReports, { cursor }),
+      "generateWeeklyReports"
+    );
   },
 });

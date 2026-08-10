@@ -1,6 +1,14 @@
 import { v } from "convex/values";
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { requireAuth, verifyNotificationOwnership, createAuditLog, sanitizeInput, validateNumber, validateCoordinates } from "./authHelpers";
+import { internal } from "./_generated/api";
+import {
+  CRON_BATCH_SIZE,
+  cronBatchArgs,
+  runCronBatch,
+  pageWeatherAlertConfigs,
+  type CronBatchResult,
+} from "./cronBatch";
 
 // ============================================================
 // Allowed values
@@ -746,112 +754,125 @@ export const generateWeatherAlerts = mutation({
 
 /**
  * Cron entry: generate weather alerts for ALL users with an enabled config.
- * Server-side (no auth). Deduplication via per-subtype cooldowns keeps
- * repeated cron runs from creating unlimited duplicate alerts.
+ * Server-side (no auth). Batched cron: each invocation processes at most
+ * CRON_BATCH_SIZE configs and schedules the next batch when more remain.
+ * Deduplication via per-subtype cooldowns keeps repeated cron runs from
+ * creating unlimited duplicate alerts. The per-user notification scan is
+ * bounded to the 100 most recent (cooldowns only need the latest trigger).
  */
-export const generateWeatherAlertsForAllUsers = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const configs = await ctx.db.query("weatherAlertConfigs").collect();
+export const generateWeatherAlertsForAllUsers = internalMutation({
+  args: cronBatchArgs,
+  handler: async (ctx, args): Promise<CronBatchResult> => {
     const now = Date.now();
     let totalCreated = 0;
     let usersProcessed = 0;
 
-    for (const configDoc of configs) {
-      if (!configDoc.enabled) continue;
+    return runCronBatch(
+      ctx,
+      args.cursor,
+      CRON_BATCH_SIZE,
+      pageWeatherAlertConfigs,
+      async (ctx, configDoc) => {
+        if (!configDoc.enabled) return;
 
-      const latRounded = Math.round(configDoc.location.latitude * 100) / 100;
-      const lonRounded = Math.round(configDoc.location.longitude * 100) / 100;
+        const latRounded = Math.round(configDoc.location.latitude * 100) / 100;
+        const lonRounded = Math.round(configDoc.location.longitude * 100) / 100;
 
-      const weather = await ctx.db
-        .query("weatherData")
-        .withIndex("by_location", (q) => q.eq("latitude", latRounded).eq("longitude", lonRounded))
-        .order("desc")
-        .first();
-      if (!weather || weather.expiresAt <= now) continue;
+        const weather = await ctx.db
+          .query("weatherData")
+          .withIndex("by_location", (q) => q.eq("latitude", latRounded).eq("longitude", lonRounded))
+          .order("desc")
+          .first();
+        if (!weather || weather.expiresAt <= now) return;
 
-      const snapshot: WeatherSnapshot = {
-        temperature: weather.temperature,
-        humidity: weather.humidity,
-        windSpeed: weather.windSpeed,
-        precipitation: weather.precipitation,
-        uvIndex: weather.uvIndex,
-        forecast: (weather.forecast ?? []).map((f) => ({
-          date: f.date,
-          tempHigh: f.tempHigh,
-          tempLow: f.tempLow,
-          precipitation: f.precipitation,
-          windSpeed: f.windSpeed,
-        })),
-        soilMoisture: weather.soil?.moisture0to1cm,
-      };
+        const snapshot: WeatherSnapshot = {
+          temperature: weather.temperature,
+          humidity: weather.humidity,
+          windSpeed: weather.windSpeed,
+          precipitation: weather.precipitation,
+          uvIndex: weather.uvIndex,
+          forecast: (weather.forecast ?? []).map((f) => ({
+            date: f.date,
+            tempHigh: f.tempHigh,
+            tempLow: f.tempLow,
+            precipitation: f.precipitation,
+            windSpeed: f.windSpeed,
+          })),
+          soilMoisture: weather.soil?.moisture0to1cm,
+        };
 
-      const config: WeatherAlertConfig = {
-        enabled: configDoc.enabled,
-        types: configDoc.types as WeatherAlertType[],
-        severityThreshold: configDoc.severityThreshold,
-        pushNotifications: configDoc.pushNotifications,
-        emailNotifications: configDoc.emailNotifications,
-        checkInterval: configDoc.checkInterval,
-        location: configDoc.location,
-      };
+        const config: WeatherAlertConfig = {
+          enabled: configDoc.enabled,
+          types: configDoc.types as WeatherAlertType[],
+          severityThreshold: configDoc.severityThreshold,
+          pushNotifications: configDoc.pushNotifications,
+          emailNotifications: configDoc.emailNotifications,
+          checkInterval: configDoc.checkInterval,
+          location: configDoc.location,
+        };
 
-      const evaluated = evaluateWeatherAlerts(snapshot, config, now);
+        const evaluated = evaluateWeatherAlerts(snapshot, config, now);
 
-      const recent = await ctx.db
-        .query("notifications")
-        .withIndex("by_user", (q) => q.eq("userId", configDoc.userId))
-        .order("desc")
-        .collect();
-      const lastTriggered: Partial<Record<WeatherAlertType, number>> = {};
-      for (const n of recent) {
-        if (n.type !== "weather_alert" || !n.severity || !n.details) continue;
-        try {
-          const d = JSON.parse(n.details) as { type?: string };
-          if (d.type && WEATHER_ALERT_TYPES.includes(d.type as WeatherAlertType)) {
-            const t = d.type as WeatherAlertType;
-            if (lastTriggered[t] === undefined || n.createdAt > lastTriggered[t]!) lastTriggered[t] = n.createdAt;
+        // Bounded: only the most recent 100 notifications are needed to
+        // enforce per-subtype cooldowns (was an unbounded collect()).
+        const recent = await ctx.db
+          .query("notifications")
+          .withIndex("by_user", (q) => q.eq("userId", configDoc.userId))
+          .order("desc")
+          .take(100);
+        const lastTriggered: Partial<Record<WeatherAlertType, number>> = {};
+        for (const n of recent) {
+          if (n.type !== "weather_alert" || !n.severity || !n.details) continue;
+          try {
+            const d = JSON.parse(n.details) as { type?: string };
+            if (d.type && WEATHER_ALERT_TYPES.includes(d.type as WeatherAlertType)) {
+              const t = d.type as WeatherAlertType;
+              if (lastTriggered[t] === undefined || n.createdAt > lastTriggered[t]!) lastTriggered[t] = n.createdAt;
+            }
+          } catch {
+            // skip malformed details
           }
-        } catch {
-          // skip malformed details
         }
-      }
 
-      let created = 0;
-      for (const alert of evaluated) {
-        if (!shouldGenerateAlert(lastTriggered[alert.type], alert.type, now)) continue;
-        await ctx.db.insert("notifications", {
-          userId: configDoc.userId,
-          title: alert.title,
-          message: alert.message,
-          type: "weather_alert",
-          severity: alert.severity,
-          details: JSON.stringify({
-            type: alert.type,
+        let created = 0;
+        for (const alert of evaluated) {
+          if (!shouldGenerateAlert(lastTriggered[alert.type], alert.type, now)) continue;
+          await ctx.db.insert("notifications", {
+            userId: configDoc.userId,
+            title: alert.title,
+            message: alert.message,
+            type: "weather_alert",
             severity: alert.severity,
-            category: getAlertCategory(alert.type),
-            recommendations: alert.recommendations,
-            affectedCrops: alert.affectedCrops ?? [],
-            estimatedImpact: alert.estimatedImpact ?? "",
-            expiresAt: alert.expiresAt,
-            source: "Open-Meteo weather data",
-          }),
-          isRead: false,
-          actionUrl: "/weather-alerts",
-          actionLabel: "View Alerts",
-          createdAt: now,
-        });
-        created++;
-      }
+            details: JSON.stringify({
+              type: alert.type,
+              severity: alert.severity,
+              category: getAlertCategory(alert.type),
+              recommendations: alert.recommendations,
+              affectedCrops: alert.affectedCrops ?? [],
+              estimatedImpact: alert.estimatedImpact ?? "",
+              expiresAt: alert.expiresAt,
+              source: "Open-Meteo weather data",
+            }),
+            isRead: false,
+            actionUrl: "/weather-alerts",
+            actionLabel: "View Alerts",
+            createdAt: now,
+          });
+          created++;
+        }
 
-      if (created > 0 || now - (configDoc.lastCheckedAt ?? 0) > 60 * 60 * 1000) {
-        await ctx.db.patch(configDoc._id, { lastCheckedAt: now, updatedAt: now });
-      }
-      usersProcessed++;
-      totalCreated += created;
-    }
-
-    return { totalCreated, usersProcessed };
+        if (created > 0 || now - (configDoc.lastCheckedAt ?? 0) > 60 * 60 * 1000) {
+          await ctx.db.patch(configDoc._id, { lastCheckedAt: now, updatedAt: now });
+        }
+        usersProcessed++;
+        totalCreated += created;
+      },
+      (ctx, cursor) =>
+        ctx.scheduler.runAfter(0, internal.weatherAlerts.generateWeatherAlertsForAllUsers, {
+          cursor,
+        }),
+      "generateWeatherAlertsForAllUsers"
+    );
   },
 });
 
