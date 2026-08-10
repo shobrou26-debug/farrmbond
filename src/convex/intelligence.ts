@@ -1,7 +1,7 @@
 import { v } from "convex/values";
-import { query, mutation, action, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import { requireAuth } from "./authHelpers";
 import {
   cronBatchArgs,
@@ -204,12 +204,7 @@ export const getRecommendations = query({
     const recommendations: Recommendation[] = [];
     const now = Date.now();
 
-    // Get farm data
-    const crops = await ctx.db
-      .query("crops")
-      .withIndex("by_farm", (q) => q.eq("farmId", args.farmId))
-      .collect();
-
+    // Get farm data (livestock is used by vaccination recs)
     const livestock = await ctx.db
       .query("livestock")
       .withIndex("by_farm", (q) => q.eq("farmId", args.farmId))
@@ -313,7 +308,7 @@ export const getRecommendations = query({
     }
 
     // Filter by category if specified
-    let filtered = args.category
+    const filtered = args.category
       ? recommendations.filter((r) => r.category === args.category)
       : recommendations;
 
@@ -423,7 +418,6 @@ export const getCrossModuleInsights = query({
     const farm = await ctx.db.get(args.farmId);
     if (!farm || farm.userId !== userId) return null;
 
-    const now = Date.now();
     const insights: Array<{
       type: string;
       title: string;

@@ -580,7 +580,9 @@ export default function Dashboard() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                       {farms.slice(0, 3).map((farm) => {
-                        const score = farm.ndviScore ?? 85;
+                        // Data honesty: a real NDVI score is shown only when
+                        // one exists — no fabricated default %.
+                        const score = typeof farm.ndviScore === "number" ? farm.ndviScore : null;
                         return (
                           <div key={farm._id} className="p-3 sm:p-4 rounded-xl bg-muted/30 space-y-2 sm:space-y-3">
                             <div className="flex items-center justify-between">
@@ -590,21 +592,29 @@ export default function Dashboard() {
                             <div className="space-y-1.5">
                               <div className="flex items-center justify-between text-[10px] sm:text-xs">
                                 <span className="text-muted-foreground">Health Score</span>
-                                <span className="font-medium">{score}%</span>
+                                {score === null ? (
+                                  <span className="text-muted-foreground/60">No data yet</span>
+                                ) : (
+                                  <span className="font-medium">{score}%</span>
+                                )}
                               </div>
-                              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className="h-full rounded-full transition-all duration-500"
-                                  style={{
-                                    width: `${score}%`,
-                                    background: score >= 90
-                                      ? "linear-gradient(90deg, #22c55e, #16a34a)"
-                                      : score >= 70
-                                      ? "linear-gradient(90deg, #f59e0b, #d97706)"
-                                      : "linear-gradient(90deg, #ef4444, #dc2626)",
-                                  }}
-                                />
-                              </div>
+                              {score === null ? (
+                                <p className="text-[10px] text-muted-foreground/60">Run a satellite scan to get an NDVI health score.</p>
+                              ) : (
+                                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full transition-all duration-500"
+                                    style={{
+                                      width: `${score}%`,
+                                      background: score >= 90
+                                        ? "linear-gradient(90deg, #22c55e, #16a34a)"
+                                        : score >= 70
+                                        ? "linear-gradient(90deg, #f59e0b, #d97706)"
+                                        : "linear-gradient(90deg, #ef4444, #dc2626)",
+                                    }}
+                                  />
+                                </div>
+                              )}
                             </div>
                           </div>
                         );

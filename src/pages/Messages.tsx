@@ -8,8 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { motion } from "framer-motion";
-import { Mail, Send, ArrowLeft, Loader2, User, MessageSquare } from "lucide-react";
-import { useAuth } from "@/hooks/use-auth";
+import { Mail, Send, ArrowLeft, Loader2, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Messages() {
@@ -17,7 +16,6 @@ export default function Messages() {
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
 
-  const { user } = useAuth();
   const conversations = useQuery(api.messaging.listConversations);
   const messages = useQuery(
     api.messaging.listMessages,

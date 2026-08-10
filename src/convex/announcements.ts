@@ -117,7 +117,7 @@ export const deleteAnnouncement = mutation({
 export const listPublishedAnnouncements = query({
   args: {},
   handler: async (ctx) => {
-    const { userId, user } = await requireAuth(ctx);
+    const { user } = await requireAuth(ctx);
     const now = Date.now();
 
     const allAnnouncements = await ctx.db

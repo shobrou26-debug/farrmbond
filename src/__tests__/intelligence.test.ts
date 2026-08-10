@@ -72,7 +72,7 @@ function makeDb(seed: Record<string, Row[]>, options: FakeDbOptions = {}) {
           }
           return builder;
         },
-        order: (_dir: "asc" | "desc") => builder,
+        order: () => builder,
         collect: async () => rows,
         first: async () => rows[rows.length - 1] ?? null,
         take: async (n: number) => rows.slice(0, n),
@@ -142,8 +142,18 @@ describe("runIntelligencePipelineCore — empty data", () => {
 // ============================================================
 describe("runIntelligencePipelineCore — ownership", () => {
   test("processes an owned farm when farmId is provided", async () => {
+    // Real crop data is seeded so an honest score is written.
     const db = makeDb({
       farms: [insightFarm()],
+      crops: [
+        {
+          _id: "crop_1",
+          farmId: "farm_1",
+          userId: "user_1",
+          name: "Maize",
+          healthScore: 88,
+        },
+      ],
     });
     const result = await runIntelligencePipelineCore(makeCtx(db), {
       userId: "user_1" as never,
@@ -157,17 +167,44 @@ describe("runIntelligencePipelineCore — ownership", () => {
     expect(scores[0].userId).toBe("user_1");
   });
 
+  test("a bare farm with no real data gets NO fabricated score", async () => {
+    // Phase 8 data-honesty: no crops/livestock/weather/satellite/soil/
+    // financial data means no components — the pipeline must NOT invent
+    // a default score and must not persist any health row.
+    const db = makeDb({
+      farms: [insightFarm()],
+    });
+    const result = await runIntelligencePipelineCore(makeCtx(db), {
+      userId: "user_1" as never,
+      farmId: "farm_1" as never,
+    });
+    expect(result.processed).toBe(1);
+    expect(db.tables["farmHealthScores"] ?? []).toHaveLength(0);
+    expect(db.inserts.filter((i) => i.table === "farmHealthScores")).toHaveLength(0);
+  });
+
   test("skips farms belonging to other users in the all-farms path", async () => {
     // The all-farms path only queries farms by the authenticated
     // user, so an intruder's farm is never present in the set.
+    // Real data is seeded so the honest pipeline writes a score.
     const db = makeDb({
       farms: [insightFarm({ _id: "farm_mine", userId: "user_1" })],
+      crops: [
+        {
+          _id: "crop_mine",
+          farmId: "farm_mine",
+          userId: "user_1",
+          name: "Maize",
+          healthScore: 88,
+        },
+      ],
     });
     const result = await runIntelligencePipelineCore(makeCtx(db), {
       userId: "user_1" as never,
     });
     expect(result.processed).toBe(1);
     expect(db.tables["farmHealthScores"].length).toBe(1);
+    expect(db.tables["farmHealthScores"][0].farmId).toBe("farm_mine");
   });
 });
 
@@ -236,8 +273,19 @@ describe("runIntelligencePipelineCore — persistence", () => {
   });
 
   test("second run patches the existing score instead of duplicating", async () => {
+    // Real crop data is seeded so the pipeline computes an honest
+    // overall score — the second run must PATCH the existing row.
     const db = makeDb({
       farms: [insightFarm()],
+      crops: [
+        {
+          _id: "crop_1",
+          farmId: "farm_1",
+          userId: "user_1",
+          name: "Maize",
+          healthScore: 88,
+        },
+      ],
       farmHealthScores: [
         {
           _id: "score_1",
@@ -387,6 +435,8 @@ describe("runIntelligencePipelineForAllUsers — batched cron core", () => {
   });
 
   test("isolates failures so one bad user does not abort the batch", async () => {
+    // Both farms are seeded with real crop data so the honest pipeline
+    // reaches the insert path — the bad user's insert then fails.
     const db = makeDb(
       {
         users: [
@@ -396,6 +446,22 @@ describe("runIntelligencePipelineForAllUsers — batched cron core", () => {
         farms: [
           insightFarm({ _id: "farm_good", userId: "user_good" }),
           insightFarm({ _id: "farm_bad", userId: "user_bad" }),
+        ],
+        crops: [
+          {
+            _id: "crop_good",
+            farmId: "farm_good",
+            userId: "user_good",
+            name: "Maize",
+            healthScore: 88,
+          },
+          {
+            _id: "crop_bad",
+            farmId: "farm_bad",
+            userId: "user_bad",
+            name: "Maize",
+            healthScore: 70,
+          },
         ],
       },
       {

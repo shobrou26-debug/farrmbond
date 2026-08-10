@@ -439,8 +439,6 @@ export const getTransactionByReference = internalQuery({
 
 export type MobileMoneyStatus = "pending" | "completed" | "failed" | "expired";
 
-const TERMINAL_STATUSES: MobileMoneyStatus[] = ["completed", "failed", "expired"];
-
 /**
  * Pure idempotency rule for a status transition.
  * - Re-applying the same terminal status is a no-op (duplicate webhook).

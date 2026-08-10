@@ -3,12 +3,10 @@ import { query, mutation } from "./_generated/server";
 import {
   requireAuth,
   requireAdmin,
-  requireAnyRole,
   createAuditLog,
   sanitizeInput,
   validateString,
 } from "./authHelpers";
-import { ROLES } from "./schema";
 import { Doc } from "./_generated/dataModel";
 
 // ============================================================

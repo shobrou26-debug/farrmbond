@@ -1,29 +1,22 @@
 import { useState, useEffect, useCallback } from "react";
-import { useQuery, useMutation, useAction } from "convex/react";
+import { useQuery, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Calendar,
   Clock,
   Video,
-  MessageSquare,
-  MapPin,
   CheckCircle2,
   XCircle,
-  AlertTriangle,
   User,
   Star,
-  Filter,
   Loader2,
   CalendarCheck,
-  CalendarX,
-  History,
   Smartphone,
   CreditCard,
-  ArrowUpRight,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -56,7 +49,6 @@ export default function MyConsultations() {
   const [showPayModal, setShowPayModal] = useState(false);
   const [payingConsultationId, setPayingConsultationId] = useState<string | null>(null);
   const [payingAmount, setPayingAmount] = useState(0);
-  const [payingPaymentRef, setPayingPaymentRef] = useState<string | null>(null);
   const [payingProvider, setPayingProvider] = useState<string>("mtn_momo");
   const [phoneInput, setPhoneInput] = useState("");
   const [countryCodeInput, setCountryCodeInput] = useState("KE");
@@ -65,7 +57,6 @@ export default function MyConsultations() {
   const [pollIntervalId, setPollIntervalId] = useState<ReturnType<typeof setInterval> | null>(null);
 
   const consultations = useQuery(api.marketplace.listUserConsultations);
-  const providers = useQuery(api.mobileMoney.getSupportedProviders, { countryCode: countryCodeInput });
 
   const initiatePayment = useAction(api.mobileMoney.initiateConsultationPayment);
   const checkMtnStatus = useAction(api.mobileMoney.checkMtnPaymentStatus);
@@ -73,8 +64,20 @@ export default function MyConsultations() {
 
   const isLoading = consultations === undefined;
 
-  // Filter consultations by tab
-  const now = Date.now();
+  // Filter consultations by tab; the clock snapshot lives in state and is
+  // refreshed on a timer (Date.now() must not run synchronously in render).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    let cancelled = false;
+    const tick = () => {
+      if (!cancelled) setNow(Date.now());
+    };
+    const t = setInterval(tick, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
   const filtered = (consultations ?? []).filter((c) => {
     if (activeTab === "upcoming") return c.scheduledAt > now && c.status !== "cancelled";
     if (activeTab === "past") return c.scheduledAt <= now || c.status === "completed" || c.status === "cancelled";
@@ -96,7 +99,6 @@ export default function MyConsultations() {
     setPayingAmount(consultation.amount);
     setShowPayModal(true);
     setPaymentStep("init");
-    setPayingPaymentRef(null);
     setPayingProvider("mtn_momo");
     setPhoneInput("");
     setCountryCodeInput("KE");
@@ -114,7 +116,6 @@ export default function MyConsultations() {
         countryCode: payingProvider === "airtel_money" ? countryCodeInput : undefined,
       });
       const ref = (result as any).referenceId || (result as any).transactionId;
-      setPayingPaymentRef(ref);
       setPaymentStep("sent");
       toast.success("Payment request sent! Please check your phone to approve.");
       // Start polling
