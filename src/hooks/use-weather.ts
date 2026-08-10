@@ -269,6 +269,9 @@ interface UseWeatherReturn {
   setLocation: (lat: number, lon: number) => void;
   getWeatherDescription: (code: number) => string;
   getConditionCategory: (code: number) => string;
+  // true when no location was provided/selected yet — the fallback
+  // coordinates are a DEFAULT region, not the user's actual location.
+  isDefaultLocation: boolean;
 }
 
 export function useWeather(options?: UseWeatherOptions): UseWeatherReturn {
@@ -277,6 +280,12 @@ export function useWeather(options?: UseWeatherOptions): UseWeatherReturn {
     latitude: options?.latitude ?? -1.2921,
     longitude: options?.longitude ?? 36.8219,
   });
+  // True until the caller explicitly selects/provides a location. Keeps the
+  // Nairobi fallback honest: it is a default region, never presented as the
+  // user's actual weather.
+  const [locationOverridden, setLocationOverridden] = useState(
+    options?.latitude !== undefined || options?.longitude !== undefined
+  );
 
   // Round to ~1km precision for cache key
   const latRounded = Math.round(location.latitude * 100) / 100;
@@ -426,6 +435,7 @@ export function useWeather(options?: UseWeatherOptions): UseWeatherReturn {
 
   const setLocation = useCallback((lat: number, lon: number) => {
     setLocationState({ latitude: lat, longitude: lon });
+    setLocationOverridden(true);
   }, []);
 
   return {
@@ -436,6 +446,7 @@ export function useWeather(options?: UseWeatherOptions): UseWeatherReturn {
     setLocation,
     getWeatherDescription,
     getConditionCategory,
+    isDefaultLocation: !locationOverridden,
   };
 }
 

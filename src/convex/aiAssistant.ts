@@ -342,28 +342,32 @@ export const detectDisease = action({
       );
     }
 
+    // The client parses the response as JSON (see DiseaseDetection.tsx), so the
+    // model MUST return strict JSON — never markdown. Severity is a lowercase
+    // enum and confidence is numeric so the UI never renders "High%" or
+    // invents a risk level from a missing field.
     const prompt = `You are an expert plant pathologist. Analyze this image of a plant/leaf/crop and identify any diseases, pests, or health issues.
 
-Provide your analysis in this format:
-**Diagnosis:** [Primary disease/pest identified]
-**Confidence:** [High/Medium/Low]
-**Severity:** [Low/Medium/High/Critical]
+Respond with ONLY a single valid JSON object — no markdown, no code fences, no commentary. Use exactly this schema:
+{
+  "type": "disease" | "pest",
+  "name": "short disease or pest name, or "No issue detected" when the plant looks healthy",
+  "confidence": 0-100 numeric integer, or null when the image is unclear,
+  "severity": "low" | "medium" | "high" | "critical",
+  "description": "brief plain-text explanation",
+  "symptoms": ["symptom", "..."],
+  "causes": ["cause", "..."],
+  "recommendations": ["action", "..."],
+  "organicTreatments": ["organic treatment", "..."],
+  "chemicalTreatments": ["chemical treatment", "..."],
+  "prevention": ["prevention tip", "..."],
+  "affectedCrops": ["crop", "..."]
+}
 
-**Description:** Brief explanation of what you see
-
-**Treatment:**
-• [Treatment step 1]
-• [Treatment step 2]
-• [Treatment step 3]
-
-**Prevention:**
-• [Prevention tip 1]
-• [Prevention tip 2]
-
-**Immediate Actions:**
-• [What to do right now]
-
-If the image is unclear or you cannot identify a specific disease, provide general plant health assessment tips and ask for a clearer image.
+Rules:
+- severity must be one of the lowercase values "low", "medium", "high", "critical".
+- confidence must be a number between 0 and 100, or null when the image is unclear.
+- If the image is unclear or no disease is identifiable, set name to "No issue detected", severity to "low", and provide general plant health tips in recommendations.
 
 ${args.additionalInfo ? `Additional context from farmer: ${args.additionalInfo}` : ""}`;
 
@@ -385,7 +389,11 @@ ${args.additionalInfo ? `Additional context from farmer: ${args.additionalInfo}`
               ],
             },
           ],
-          generationConfig: { temperature: 0.4, maxOutputTokens: 1500 },
+          generationConfig: {
+            temperature: 0.4,
+            maxOutputTokens: 1500,
+            responseMimeType: "application/json",
+          },
         }),
       });
 

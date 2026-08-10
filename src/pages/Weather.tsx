@@ -27,6 +27,7 @@ import {
   Sunrise,
   Sunset,
   Gauge,
+  LocateFixed,
 } from "lucide-react";
 import { useWeather, useGeolocation } from "@/hooks/use-weather";
 import { useUnits } from "@/hooks/use-units";
@@ -412,11 +413,26 @@ function FarmingRecommendations({ recommendations }: { recommendations: import("
 
 export default function Weather() {
   const [lastUpdated, setLastUpdated] = useState(new Date());
-  const { data, isLoading, error, refetch } = useWeather();
+  const { data, isLoading, error, refetch, setLocation, isDefaultLocation } = useWeather();
+  const {
+    latitude: geoLatitude,
+    longitude: geoLongitude,
+    loading: geoLoading,
+    error: geoError,
+    requestLocation,
+  } = useGeolocation();
   const { unitSystem, temp, wind, precip, tempUnit } = useUnits();
   const { timezone, formatTime: tzFormatTime } = useTimezone();
   const isMobile = useIsMobile();
   const haptic = useHaptic();
+
+  // Once the user opts in to geolocation, show weather for their real
+  // location instead of the default region.
+  useEffect(() => {
+    if (geoLatitude != null && geoLongitude != null) {
+      setLocation(geoLatitude, geoLongitude);
+    }
+  }, [geoLatitude, geoLongitude, setLocation]);
 
   useEffect(() => {
     if (data) setLastUpdated(new Date());
@@ -491,9 +507,33 @@ export default function Weather() {
 
               <div className="relative grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                 <div>
-                  <div className="flex items-center gap-2 mb-2">
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <MapPin className="w-4 h-4" />
-                    <span className="text-white/80">{location.name}</span>
+                    <span className="text-white/80">
+                      {isDefaultLocation
+                        ? "Default region — enable location for your area"
+                        : location.name}
+                    </span>
+                    {isDefaultLocation && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="h-6 px-2 text-[10px]"
+                        disabled={geoLoading}
+                        onClick={() => {
+                          haptic.light();
+                          requestLocation();
+                        }}
+                      >
+                        <LocateFixed className="w-3 h-3 mr-1" />
+                        {geoLoading ? "Locating…" : "Use my location"}
+                      </Button>
+                    )}
+                    {geoError && isDefaultLocation && (
+                      <span className="text-[10px] text-white/70">
+                        Location unavailable: {geoError}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-end gap-4 mb-4">
                     <span className="text-4xl sm:text-5xl md:text-6xl font-bold">{Math.round(current.temperature)}°</span>

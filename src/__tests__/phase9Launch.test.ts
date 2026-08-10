@@ -191,3 +191,56 @@ describe("Phase 9 — intelligence/detection/chart honesty", () => {
     expect(soilBar).not.toContain("?? 0");
   });
 });
+
+describe("Phase 9 — final adversarial audit locks", () => {
+  const readPage = (path: string): string =>
+    readFileSync(new URL(`../pages/${path}`, import.meta.url), "utf8");
+  const readHook = (path: string): string =>
+    readFileSync(new URL(`../hooks/${path}`, import.meta.url), "utf8");
+
+  test("disease detection never invents a severity (medium fallback removed)", () => {
+    const page = readPage("DiseaseDetection.tsx");
+    expect(occurrences(page, 'parsed.severity || "medium"')).toBe(0);
+    expect(page).toContain('severity: "low" | "medium" | "high" | "critical" | null');
+    expect(page).toContain("Not Assessed");
+    // Missing severity is persisted as absent, never as a fabricated value.
+    expect(page).toContain("severity: detectionResult.severity ?? undefined");
+  });
+
+  test("detection severity is optional in schema and save validator", () => {
+    const schemaBody = sliceFrom(readConvex("schema.ts"), "detectionResults: defineTable", 1400);
+    expect(schemaBody).toContain("severity: v.optional(v.union(");
+    const saveBody = sliceFrom(readConvex("detectionResults.ts"), "export const saveDetection", 1200);
+    expect(saveBody).toContain("severity: v.optional(");
+  });
+
+  test("AI disease prompt returns strict JSON, not markdown (runtime contract)", () => {
+    const body = sliceFrom(readConvex("aiAssistant.ts"), "export const detectDisease", 4000);
+    expect(body).toContain("Respond with ONLY a single valid JSON object");
+    expect(body).toContain('responseMimeType: "application/json"');
+    expect(body).toContain("severity must be one of the lowercase values");
+  });
+
+  test("yield prediction never invents a 70% weather impact or a 1.1x target", () => {
+    const page = readPage("YieldPrediction.tsx");
+    expect(occurrences(page, "p.weatherImpact || 70")).toBe(0);
+    expect(occurrences(page, "p.predictedYield * 1.1")).toBe(0);
+    expect(page).toContain('typeof p.weatherImpact === "number"');
+    expect(page).toContain('typeof crop?.expectedYield === "number"');
+    expect(page).toContain("weatherImpact: number | null");
+    expect(page).toContain("targetYield: number | null");
+  });
+
+  test("yield weather impact is normalized to the 0-100 display scale", () => {
+    const page = readPage("YieldPrediction.tsx");
+    expect(page).toContain("(p.weatherImpact + 100) / 2");
+  });
+
+  test("weather page labels the default region honestly and supports geolocation opt-in", () => {
+    const hook = readHook("use-weather.ts");
+    expect(hook).toContain("isDefaultLocation");
+    const page = readPage("Weather.tsx");
+    expect(page).toContain("Default region — enable location for your area");
+    expect(page).toContain("Use my location");
+  });
+});

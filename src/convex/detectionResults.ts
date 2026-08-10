@@ -153,11 +153,15 @@ export const saveDetection = mutation({
     imageUrl: v.optional(v.string()),
     imageStorageId: v.optional(v.id("_storage")),
     description: v.string(),
-    severity: v.union(
-      v.literal("low"),
-      v.literal("medium"),
-      v.literal("high"),
-      v.literal("critical")
+    // Absent when the AI report does not state a severity — the frontend
+    // sends undefined in that case rather than inventing a risk level.
+    severity: v.optional(
+      v.union(
+        v.literal("low"),
+        v.literal("medium"),
+        v.literal("high"),
+        v.literal("critical")
+      )
     ),
     recommendations: v.array(v.string()),
   },

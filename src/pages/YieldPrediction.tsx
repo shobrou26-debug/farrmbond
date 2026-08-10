@@ -42,13 +42,18 @@ interface YieldPredictionItem {
   plantingDate: string;
   expectedHarvest: string;
   predictedYield: number;
-  targetYield: number;
+  // null = the crop has no expected yield recorded — a target is never
+  // invented from the prediction itself.
+  targetYield: number | null;
   unit: string;
   confidence: number;
   factors: YieldFactor[];
-  weatherImpact: number;
+  // null = the prediction stored no weather impact — never defaulted to a
+  // fabricated favorable 70%.
+  weatherImpact: number | null;
   recommendations: string[];
-  status: "excellent" | "good" | "average" | "poor";
+  // null = cannot be judged because there is no real target to compare.
+  status: "excellent" | "good" | "average" | "poor" | null;
 }
 
 // ============================================================
@@ -83,9 +88,10 @@ function YieldPredictionCard({
   isSelected: boolean;
   onSelect: () => void;
 }) {
-  const config = statusConfig[prediction.status];
-  const progress = (prediction.predictedYield / prediction.targetYield) * 100;
-  const isOnTrack = prediction.predictedYield >= prediction.targetYield * 0.9;
+  const config = prediction.status ? statusConfig[prediction.status] : null;
+  const hasTarget = prediction.targetYield != null && prediction.targetYield > 0;
+  const progress = hasTarget ? (prediction.predictedYield / prediction.targetYield!) * 100 : null;
+  const isOnTrack = hasTarget ? prediction.predictedYield >= prediction.targetYield! * 0.9 : false;
 
   return (
     <Card
@@ -105,7 +111,11 @@ function YieldPredictionCard({
               <p className="text-xs text-muted-foreground">{prediction.variety} • {prediction.farm}</p>
             </div>
           </div>
-          <Badge className={`${config.bgColor} ${config.color}`}>{config.label}</Badge>
+          {config ? (
+            <Badge className={`${config.bgColor} ${config.color}`}>{config.label}</Badge>
+          ) : (
+            <Badge variant="outline" className="text-muted-foreground">No Target</Badge>
+          )}
         </div>
 
         <div className="mb-4">
@@ -113,18 +123,26 @@ function YieldPredictionCard({
             <span className="text-muted-foreground">Predicted Yield</span>
             <span className="font-bold">{prediction.predictedYield.toLocaleString()} {prediction.unit}</span>
           </div>
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-700 ${
-                isOnTrack ? "bg-green-500" : "bg-amber-500"
-              }`}
-              style={{ width: `${Math.min(100, progress)}%` }}
-            />
-          </div>
-          <div className="flex items-center justify-between text-xs text-muted-foreground mt-1">
-            <span>Target: {prediction.targetYield.toLocaleString()} {prediction.unit}</span>
-            <span>{progress.toFixed(0)}% of target</span>
-          </div>
+          {hasTarget ? (
+            <>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-700 ${
+                    isOnTrack ? "bg-green-500" : "bg-amber-500"
+                  }`}
+                  style={{ width: `${Math.min(100, progress ?? 0)}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-xs text-muted-foreground mt-1">
+                <span>Target: {prediction.targetYield?.toLocaleString()} {prediction.unit}</span>
+                <span>{progress?.toFixed(0)}% of target</span>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground mt-1">
+              No expected yield recorded — add one to track target progress.
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -135,9 +153,15 @@ function YieldPredictionCard({
           <div className="p-2 rounded-lg bg-muted/30 text-center">
             <p className="text-xs text-muted-foreground">Weather Impact</p>
             <p className={`text-lg font-bold ${
-              prediction.weatherImpact >= 70 ? "text-green-600" : "text-amber-600"
+              prediction.weatherImpact == null
+                ? "text-muted-foreground"
+                : prediction.weatherImpact >= 70
+                ? "text-green-600"
+                : prediction.weatherImpact >= 50
+                ? "text-amber-600"
+                : "text-red-600"
             }`}>
-              {prediction.weatherImpact}%
+              {prediction.weatherImpact != null ? `${prediction.weatherImpact}%` : "—"}
             </p>
           </div>
         </div>
@@ -195,7 +219,7 @@ function FactorAnalysis({ factors }: { factors: YieldFactor[] }) {
 // Weather Impact Panel
 // ============================================================
 
-function WeatherImpactPanel({ impact }: { impact: number }) {
+function WeatherImpactPanel({ impact }: { impact: number | null }) {
   return (
     <Card className="border-border/50">
       <CardHeader className="pb-3">
@@ -216,14 +240,29 @@ function WeatherImpactPanel({ impact }: { impact: number }) {
                 stroke="currentColor"
                 strokeWidth="8"
                 fill="none"
-                className={impact >= 70 ? "text-green-500" : "text-amber-500"}
-                strokeDasharray={`${(impact / 100) * 251} 251`}
+                className={
+                  impact == null
+                    ? "text-muted"
+                    : impact >= 70
+                    ? "text-green-500"
+                    : impact >= 50
+                    ? "text-amber-500"
+                    : "text-red-500"
+                }
+                strokeDasharray={`${((impact ?? 0) / 100) * 251} 251`}
                 strokeLinecap="round"
               />
             </svg>
-            <span className="absolute text-2xl font-bold">{impact}%</span>
+            <span className="absolute text-2xl font-bold">
+              {impact != null ? `${impact}%` : "—"}
+            </span>
           </div>
           <p className="text-sm text-muted-foreground mt-2">Overall Weather Score</p>
+          {impact == null && (
+            <p className="text-xs text-muted-foreground">
+              No weather impact data recorded for this prediction.
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -310,8 +349,14 @@ export default function YieldPrediction() {
     return predictionsData.map((p: any) => {
       const crop = crops.find((c: any) => c._id === p.cropId);
       const farm = farms.find((f: any) => f._id === p.farmId);
-      const targetYield = crop?.expectedYield || p.predictedYield * 1.1;
-      const status = getStatus(p.predictedYield, targetYield);
+      // Honest target: only the crop's own recorded expected yield counts.
+      // Never invent a 110%-of-predicted target — that would fabricate the
+      // "on target" verdict shown on the card.
+      const targetYield =
+        typeof crop?.expectedYield === "number" && crop.expectedYield > 0
+          ? crop.expectedYield
+          : null;
+      const status = targetYield != null ? getStatus(p.predictedYield, targetYield) : null;
       return {
         id: p._id,
         cropName: crop?.name || "Unknown Crop",
@@ -330,7 +375,13 @@ export default function YieldPrediction() {
           impact: Math.round((f.impact + 100) / 2), // Convert -100..100 to 0..100
           description: f.description,
         })),
-        weatherImpact: p.weatherImpact || 70,
+        // weatherImpact is stored on a -100..100 scale; normalize to a
+        // 0..100 favorability score for display (same convention as the
+        // factor impacts), or null when the prediction has none.
+        weatherImpact:
+          typeof p.weatherImpact === "number"
+            ? Math.round((p.weatherImpact + 100) / 2)
+            : null,
         recommendations: p.factors
           .filter((f: any) => f.impact < 50)
           .map((f: any) => `Improve ${f.name.toLowerCase()}: ${f.description}`),
@@ -348,7 +399,8 @@ export default function YieldPrediction() {
 
   // Summary stats
   const totalPredicted = predictions.reduce((sum, p) => sum + p.predictedYield, 0);
-  const totalTarget = predictions.reduce((sum, p) => sum + p.targetYield, 0);
+  const targetCount = predictions.filter((p) => p.targetYield != null).length;
+  const totalTarget = predictions.reduce((sum, p) => sum + (p.targetYield ?? 0), 0);
   const avgConfidence = predictions.length > 0
     ? Math.round(predictions.reduce((sum, p) => sum + p.confidence, 0) / predictions.length)
     : 0;
@@ -518,7 +570,9 @@ export default function YieldPrediction() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Target Yield</p>
-                    <p className="text-2xl font-bold">{totalTarget.toLocaleString()} kg</p>
+                    <p className="text-2xl font-bold">
+                      {targetCount > 0 ? `${totalTarget.toLocaleString()} kg` : "—"}
+                    </p>
                   </div>
                 </CardContent>
               </Card>

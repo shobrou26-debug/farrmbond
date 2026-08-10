@@ -1040,7 +1040,9 @@ const schema = defineSchema(
       
       // Analysis
       description: v.string(),
-      severity: v.union(v.literal("low"), v.literal("medium"), v.literal("high"), v.literal("critical")),
+      // Absent when the AI report does not state a severity — never
+      // defaulted to a fabricated "medium" risk.
+      severity: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"), v.literal("critical"))),
       
       // Recommendations
       recommendations: v.array(v.string()),

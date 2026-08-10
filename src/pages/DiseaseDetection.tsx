@@ -63,7 +63,9 @@ interface DetectionResult {
   name: string;
   // null = the AI report carried no numeric confidence — never fabricated.
   confidence: number | null;
-  severity: "low" | "medium" | "high" | "critical";
+  // null = the AI report did not state a severity — never defaulted to a
+  // fabricated "medium" risk.
+  severity: "low" | "medium" | "high" | "critical" | null;
   description: string;
   symptoms: string[];
   causes: string[];
@@ -82,13 +84,17 @@ interface DetectionResult {
 // Severity Badge Component
 // ============================================================
 
-function SeverityBadge({ severity }: { severity: string }) {
+function SeverityBadge({ severity }: { severity: string | null }) {
   const config: Record<string, { color: string; label: string }> = {
     low: { color: "bg-green-500/10 text-green-600 border-green-500/20", label: "Low Risk" },
     medium: { color: "bg-amber-500/10 text-amber-600 border-amber-500/20", label: "Medium Risk" },
     high: { color: "bg-orange-500/10 text-orange-600 border-orange-500/20", label: "High Risk" },
     critical: { color: "bg-red-500/10 text-red-600 border-red-500/20", label: "Critical" },
   };
+  // Honest no-data state: an absent severity is never shown as "Medium Risk".
+  if (severity == null) {
+    return <Badge variant="outline" className="text-muted-foreground">Not Assessed</Badge>;
+  }
   const cfg = config[severity] || config.medium;
   return <Badge className={cfg.color}>{cfg.label}</Badge>;
 }
@@ -486,6 +492,8 @@ function DetectionHistoryList({
                         ? "bg-orange-500"
                         : item.severity === "medium"
                         ? "bg-amber-500"
+                        : item.severity === null
+                        ? "bg-slate-400"
                         : "bg-green-500"
                     }`}
                   />
@@ -572,7 +580,7 @@ export default function DiseaseDetection() {
     type: d.type,
     name: d.name,
     confidence: d.confidence ?? null,
-    severity: d.severity,
+    severity: d.severity ?? null,
     description: d.description,
     symptoms: [],
     causes: [],
@@ -618,7 +626,14 @@ export default function DiseaseDetection() {
         type: parsed.type || "disease",
         name: parsed.name || "Unknown Issue",
         confidence: typeof parsed.confidence === "number" ? parsed.confidence : null,
-        severity: parsed.severity || "medium",
+        // Only the lowercase enum values are accepted; a capitalized value
+        // from the model is normalized, and anything else stays null so the
+        // UI shows "Not Assessed" instead of an invented risk level.
+        severity:
+          typeof parsed.severity === "string" &&
+          ["low", "medium", "high", "critical"].includes(parsed.severity.toLowerCase())
+            ? parsed.severity.toLowerCase()
+            : null,
         description: parsed.description || "Analysis completed.",
         symptoms: parsed.symptoms || [],
         causes: parsed.causes || [],
@@ -662,7 +677,7 @@ export default function DiseaseDetection() {
           imageUrl: imageStorageId ? undefined : preview,
           imageStorageId,
           description: detectionResult.description,
-          severity: detectionResult.severity,
+          severity: detectionResult.severity ?? undefined,
           recommendations: detectionResult.recommendations,
         });
       } catch (saveError) {
