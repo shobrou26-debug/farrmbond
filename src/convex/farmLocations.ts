@@ -1,8 +1,10 @@
-import { query } from "./_generated/server";
+import { internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
 // ============================================================
-// Internal Queries (no auth — used by cron actions)
+// Internal Queries (used by cron actions — NOT client-callable)
+// These were previously public queries, which let any anonymous client
+// trigger expensive paginated scans of the farms/weatherData tables.
 // ============================================================
 
 /**
@@ -11,7 +13,7 @@ import { v } from "convex/values";
  * stops early once `limit` unique locations have been collected — the cron
  * only refreshes a bounded batch per run (Phase 5 scale hardening).
  */
-export const getAllFarmLocations = query({
+export const getAllFarmLocations = internalQuery({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const locationMap = new Map<string, { latitude: number; longitude: number }>();
@@ -49,7 +51,7 @@ export const getAllFarmLocations = query({
  * old row), so the cron can refresh the stalest locations first and skip
  * everything still fresh — without a per-location N+1 query.
  */
-export const getWeatherExpiries = query({
+export const getWeatherExpiries = internalQuery({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const docs = await ctx.db

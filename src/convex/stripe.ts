@@ -1,4 +1,4 @@
-import { action, query, mutation, internalMutation } from "./_generated/server";
+import { action, query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
@@ -303,7 +303,15 @@ export const updateStripeCustomerId = internalMutation({
 /**
  * Activate subscription after successful checkout
  */
-export const activateSubscription = mutation({
+/**
+ * Activate subscription after a VERIFIED Stripe checkout.
+ * INTERNAL ONLY — called by the signature-verified Stripe webhook, never by
+ * the client. Accepting a userId argument is safe here because the caller
+ * (stripeWebhook) authenticates the event signature before invoking this.
+ * Previously a public mutation, any signed-in client could grant themselves
+ * or any other user Pro by calling it directly.
+ */
+export const activateSubscription = internalMutation({
   args: {
     userId: v.id("users"),
     stripeCustomerId: v.string(),
@@ -348,7 +356,13 @@ export const activateSubscription = mutation({
 /**
  * Renew subscription after successful payment
  */
-export const renewSubscription = mutation({
+/**
+ * Renew subscription after a VERIFIED invoice payment.
+ * INTERNAL ONLY — reachable exclusively from the signature-verified Stripe
+ * webhook. Was public: a client could extend anyone's subscription by
+ * supplying their userId.
+ */
+export const renewSubscription = internalMutation({
   args: {
     userId: v.id("users"),
     subscriptionEndDate: v.number(),
@@ -368,7 +382,12 @@ export const renewSubscription = mutation({
 /**
  * Handle payment failure
  */
-export const handlePaymentFailure = mutation({
+/**
+ * Record a payment failure.
+ * INTERNAL ONLY — called by the signature-verified Stripe webhook. Was
+ * public: a client could poison any user's payment-failure state.
+ */
+export const handlePaymentFailure = internalMutation({
   args: {
     userId: v.id("users"),
     failureCount: v.number(),
@@ -395,10 +414,51 @@ export const handlePaymentFailure = mutation({
   },
 });
 
+export type SubscriptionStatusUpdates = {
+  stripeCurrentPeriodEnd: number;
+  stripePriceId: string;
+  paymentFailedAt?: number;
+  subscriptionTier?: "free";
+  subscriptionEndDate?: undefined;
+  stripeSubscriptionId?: undefined;
+};
+
 /**
- * Update subscription status from webhook
+ * Pure: map a Stripe subscription status into the user-document patch fields
+ * that should be applied. Extracted for testability — this is the exact rule
+ * the webhook path applies, so a regression here is caught by unit tests.
  */
-export const updateSubscriptionStatus = mutation({
+export function buildSubscriptionStatusUpdates(input: {
+  status: string;
+  subscriptionEndDate: number;
+  stripePriceId: string;
+  now?: number;
+}): SubscriptionStatusUpdates {
+  const updates: SubscriptionStatusUpdates = {
+    stripeCurrentPeriodEnd: input.subscriptionEndDate,
+    stripePriceId: input.stripePriceId,
+  };
+
+  if (input.status === "past_due") {
+    updates.paymentFailedAt = input.now ?? Date.now();
+  }
+
+  if (input.status === "canceled" || input.status === "unpaid") {
+    updates.subscriptionTier = "free";
+    updates.subscriptionEndDate = undefined;
+    updates.stripeSubscriptionId = undefined;
+  }
+
+  return updates;
+}
+
+/**
+ * Update subscription status from webhook.
+ * INTERNAL ONLY — called by the signature-verified Stripe webhook. Was
+ * public: a client could downgrade any user, forge past_due state, or
+ * mutate subscription dates by supplying an arbitrary userId.
+ */
+export const updateSubscriptionStatus = internalMutation({
   args: {
     userId: v.id("users"),
     subscriptionEndDate: v.number(),
@@ -406,30 +466,25 @@ export const updateSubscriptionStatus = mutation({
     status: v.string(),
   },
   handler: async (ctx, args) => {
-    const updates: Record<string, any> = {
-      stripeCurrentPeriodEnd: args.subscriptionEndDate,
+    const updates = buildSubscriptionStatusUpdates({
+      status: args.status,
+      subscriptionEndDate: args.subscriptionEndDate,
       stripePriceId: args.stripePriceId,
+    });
+    await ctx.db.patch(args.userId, {
+      ...updates,
       updatedAt: Date.now(),
-    };
-
-    if (args.status === "past_due") {
-      updates.paymentFailedAt = Date.now();
-    }
-
-    if (args.status === "canceled" || args.status === "unpaid") {
-      updates.subscriptionTier = "free";
-      updates.subscriptionEndDate = undefined;
-      updates.stripeSubscriptionId = undefined;
-    }
-
-    await ctx.db.patch(args.userId, updates);
+    });
   },
 });
 
 /**
- * Cancel subscription and downgrade to Free
+ * Cancel subscription and downgrade to Free.
+ * INTERNAL ONLY — called by the signature-verified Stripe webhook on
+ * customer.subscription.deleted. Was public: a client could cancel any
+ * other user's subscription by supplying their userId.
  */
-export const cancelSubscriptionMutation = mutation({
+export const cancelSubscriptionMutation = internalMutation({
   args: {
     userId: v.id("users"),
   },

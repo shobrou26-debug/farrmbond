@@ -1,6 +1,6 @@
 import { query, mutation, internalMutation } from "./_generated/server";
 import { requireAuth, createAuditLog } from "./authHelpers";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import {
   CRON_BATCH_SIZE,
   cronBatchArgs,
@@ -157,7 +157,7 @@ export const sendSubscriptionExpiryWarnings = internalMutation({
           }
 
           // Send the warning email
-          await ctx.scheduler.runAfter(0, api.emails.sendSubscriptionExpiryWarning, {
+          await ctx.scheduler.runAfter(0, internal.emails.sendSubscriptionExpiryWarning, {
             userId: user._id,
             email: user.email,
             name: user.name || "there",
@@ -246,7 +246,7 @@ export const sendPaymentMethodReminders = internalMutation({
           }
 
           // Send the reminder email
-          await ctx.scheduler.runAfter(0, api.emails.sendPaymentMethodReminder, {
+          await ctx.scheduler.runAfter(0, internal.emails.sendPaymentMethodReminder, {
             userId: user._id,
             email: user.email,
             name: user.name || "there",
@@ -338,7 +338,7 @@ export const expireSubscriptions = internalMutation({
 
           // Send subscription expired email
           if (user.email) {
-            await ctx.scheduler.runAfter(0, api.emails.sendSubscriptionExpiredEmail, {
+            await ctx.scheduler.runAfter(0, internal.emails.sendSubscriptionExpiredEmail, {
               userId: user._id,
               email: user.email,
               name: user.name || "there",

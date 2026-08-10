@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { query, mutation, internalMutation } from "./_generated/server";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import {
   CRON_BATCH_SIZE,
   cronBatchArgs,
@@ -614,7 +614,7 @@ export const sendVaccinationReminders = internalMutation({
         });
 
         // Send reminder email via scheduler
-        await ctx.scheduler.runAfter(0, api.emails.sendVaccinationReminder, {
+        await ctx.scheduler.runAfter(0, internal.emails.sendVaccinationReminder, {
           userId: animal.userId,
           email: user.email,
           name: user.name || "there",
@@ -1194,7 +1194,7 @@ export const sendLowCoverageAlerts = internalMutation({
           details: JSON.stringify({ kind: "low_coverage_alert" }),
           isRead: false, createdAt: now,
         });
-        await ctx.scheduler.runAfter(0, api.emails.sendLowCoverageAlert, {
+        await ctx.scheduler.runAfter(0, internal.emails.sendLowCoverageAlert, {
           userId: user._id, email: user.email, name: user.name || "there",
           alerts: alerts.slice(0, 10), summary,
         });

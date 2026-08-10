@@ -1,5 +1,5 @@
 import { httpAction } from "./_generated/server";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import { ConvexError } from "convex/values";
 
 // ============================================================
@@ -96,8 +96,9 @@ async function handleCheckoutCompleted(ctx: any, session: any) {
   const now = Date.now();
   const periodEnd = subscription.current_period_end * 1000;
 
-  // Update user in Convex
-  await ctx.runMutation(api.stripe.activateSubscription, {
+  // Update user in Convex — internal function: only this signature-verified
+  // webhook (or other server-side code) may activate a subscription.
+  await ctx.runMutation(internal.stripe.activateSubscription, {
     userId,
     stripeCustomerId,
     stripeSubscriptionId,
@@ -109,7 +110,7 @@ async function handleCheckoutCompleted(ctx: any, session: any) {
   // Send welcome email
   const user = await ctx.runQuery(internal.users.getUserById, { userId });
   if (user?.email) {
-    await ctx.scheduler.runAfter(0, api.emails.sendSubscriptionActivatedEmail, {
+    await ctx.scheduler.runAfter(0, internal.emails.sendSubscriptionActivatedEmail, {
       userId,
       email: user.email,
       name: user.name || "there",
@@ -145,7 +146,7 @@ async function handlePaymentSucceeded(ctx: any, invoice: any) {
   const periodEnd = subscription.current_period_end * 1000;
 
   // Update subscription end date and reset failure count
-  await ctx.runMutation(api.stripe.renewSubscription, {
+  await ctx.runMutation(internal.stripe.renewSubscription, {
     userId: user._id,
     subscriptionEndDate: periodEnd,
     paymentFailureCount: 0,
@@ -176,7 +177,7 @@ async function handlePaymentFailed(ctx: any, invoice: any) {
   const now = Date.now();
 
   // Update user with failure info
-  await ctx.runMutation(api.stripe.handlePaymentFailure, {
+  await ctx.runMutation(internal.stripe.handlePaymentFailure, {
     userId: user._id,
     failureCount,
     failedAt: now,
@@ -184,7 +185,7 @@ async function handlePaymentFailed(ctx: any, invoice: any) {
 
   // Send payment failure email with retry instructions
   if (user.email) {
-    await ctx.scheduler.runAfter(0, api.emails.sendPaymentFailedEmail, {
+    await ctx.scheduler.runAfter(0, internal.emails.sendPaymentFailedEmail, {
       userId: user._id,
       email: user.email,
       name: user.name || "there",
@@ -212,7 +213,7 @@ async function handleSubscriptionUpdated(ctx: any, subscription: any) {
   const status = subscription.status;
 
   // Update subscription details
-  await ctx.runMutation(api.stripe.updateSubscriptionStatus, {
+  await ctx.runMutation(internal.stripe.updateSubscriptionStatus, {
     userId: user._id,
     subscriptionEndDate: periodEnd,
     stripePriceId: subscription.items.data[0]?.price?.id || "",
@@ -233,13 +234,13 @@ async function handleSubscriptionDeleted(ctx: any, subscription: any) {
   if (!user) return;
 
   // Downgrade to Free
-  await ctx.runMutation(api.stripe.cancelSubscriptionMutation, {
+  await ctx.runMutation(internal.stripe.cancelSubscriptionMutation, {
     userId: user._id,
   });
 
   // Send cancellation email
   if (user.email) {
-    await ctx.scheduler.runAfter(0, api.emails.sendSubscriptionCancelledEmail, {
+    await ctx.scheduler.runAfter(0, internal.emails.sendSubscriptionCancelledEmail, {
       userId: user._id,
       email: user.email,
       name: user.name || "there",

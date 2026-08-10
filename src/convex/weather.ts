@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import { query, mutation, action } from "./_generated/server";
-import { api } from "./_generated/api";
+import { query, action, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 
 // ============================================================
 // Weather Caching Layer
@@ -308,8 +308,14 @@ export const getCachedWeather = query({
 // Mutations
 // ============================================================
 
-/** Upsert weather data for a location. */
-export const upsertWeather = mutation({
+/**
+ * Upsert weather data for a location.
+ * INTERNAL ONLY — the cache is written exclusively from the Open-Meteo
+ * fetch actions (fetchAndCacheWeather / prefetchAllFarmWeather), never from
+ * the client. Was public: any client could inject fabricated weather for
+ * any location, poisoning the weather every farmer sees.
+ */
+export const upsertWeather = internalMutation({
   args: {
     latitude: v.number(),
     longitude: v.number(),
@@ -412,7 +418,7 @@ export const fetchAndCacheWeather = action({
 
     const weatherData = await fetchOpenMeteoWeather(latRounded, lonRounded);
 
-    await ctx.runMutation(api.weather.upsertWeather, {
+    await ctx.runMutation(internal.weather.upsertWeather, {
       latitude: latRounded,
       longitude: lonRounded,
       ...weatherData,
@@ -440,11 +446,11 @@ export const prefetchAllFarmWeather = action({
 
     // Bounded scan: only look at a limited set of locations per run.
     const locations = (await ctx.runQuery(
-      api.farmLocations.getAllFarmLocations,
+      internal.farmLocations.getAllFarmLocations,
       { limit: WEATHER_LOCATION_SCAN_LIMIT }
     )) as Array<{ latitude: number; longitude: number }>;
     const expiries = (await ctx.runQuery(
-      api.farmLocations.getWeatherExpiries,
+      internal.farmLocations.getWeatherExpiries,
       { limit: WEATHER_EXPIRY_SCAN_LIMIT }
     )) as Array<{ latitude: number; longitude: number; expiresAt: number }>;
 
@@ -470,7 +476,7 @@ export const prefetchAllFarmWeather = action({
           try {
             const weatherData = await fetchOpenMeteoWeather(loc.latitude, loc.longitude);
 
-            await ctx.runMutation(api.weather.upsertWeather, {
+            await ctx.runMutation(internal.weather.upsertWeather, {
               latitude: loc.latitude,
               longitude: loc.longitude,
               ...weatherData,

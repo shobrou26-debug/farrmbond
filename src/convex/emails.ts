@@ -1,4 +1,5 @@
-import { action } from "./_generated/server";
+import { action, internalAction } from "./_generated/server";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 
 // ============================================================
@@ -15,7 +16,7 @@ const APP_URL = process.env.APP_URL || "https://farmbond.com";
 /**
  * Send a trial expiry warning email to a user
  */
-export const sendTrialExpiryWarning = action({
+export const sendTrialExpiryWarning = internalAction({
   args: {
     userId: v.id("users"),
     email: v.string(),
@@ -37,7 +38,7 @@ export const sendTrialExpiryWarning = action({
 /**
  * Send a subscription expiry warning email
  */
-export const sendSubscriptionExpiryWarning = action({
+export const sendSubscriptionExpiryWarning = internalAction({
   args: { userId: v.id("users"), email: v.string(), name: v.string(), daysRemaining: v.number(), subscriptionEndDate: v.number() },
   handler: async (ctx, args) => {
     if (!BREVO_API_KEY) return { sent: false, reason: "API key not configured" };
@@ -51,7 +52,7 @@ export const sendSubscriptionExpiryWarning = action({
 /**
  * Send a subscription expired email
  */
-export const sendSubscriptionExpiredEmail = action({
+export const sendSubscriptionExpiredEmail = internalAction({
   args: { userId: v.id("users"), email: v.string(), name: v.string() },
   handler: async (ctx, args) => {
     if (!BREVO_API_KEY) return { sent: false, reason: "API key not configured" };
@@ -64,7 +65,7 @@ export const sendSubscriptionExpiredEmail = action({
 /**
  * Send payment method reminder email
  */
-export const sendPaymentMethodReminder = action({
+export const sendPaymentMethodReminder = internalAction({
   args: { userId: v.id("users"), email: v.string(), name: v.string(), daysUntilRenewal: v.number(), subscriptionEndDate: v.number() },
   handler: async (ctx, args) => {
     if (!BREVO_API_KEY) return { sent: false, reason: "API key not configured" };
@@ -78,7 +79,7 @@ export const sendPaymentMethodReminder = action({
 /**
  * Send subscription activated email after successful payment
  */
-export const sendSubscriptionActivatedEmail = action({
+export const sendSubscriptionActivatedEmail = internalAction({
   args: { userId: v.id("users"), email: v.string(), name: v.string(), subscriptionEndDate: v.number() },
   handler: async (ctx, args) => {
     if (!BREVO_API_KEY) return { sent: false, reason: "API key not configured" };
@@ -92,7 +93,7 @@ export const sendSubscriptionActivatedEmail = action({
 /**
  * Send payment failed email with retry instructions
  */
-export const sendPaymentFailedEmail = action({
+export const sendPaymentFailedEmail = internalAction({
   args: { userId: v.id("users"), email: v.string(), name: v.string(), failureCount: v.number(), subscriptionEndDate: v.number() },
   handler: async (ctx, args) => {
     if (!BREVO_API_KEY) return { sent: false, reason: "API key not configured" };
@@ -106,7 +107,7 @@ export const sendPaymentFailedEmail = action({
 /**
  * Send subscription cancelled email
  */
-export const sendSubscriptionCancelledEmail = action({
+export const sendSubscriptionCancelledEmail = internalAction({
   args: { userId: v.id("users"), email: v.string(), name: v.string() },
   handler: async (ctx, args) => {
     if (!BREVO_API_KEY) return { sent: false, reason: "API key not configured" };
@@ -117,7 +118,11 @@ export const sendSubscriptionCancelledEmail = action({
 });
 
 /**
- * Send an invoice email to a user
+ * Send an invoice email to a user.
+ * Remains public because the Payment History page calls it directly, but it
+ * is now guarded: the caller must be signed in AND the invoice must belong
+ * to the caller. An anonymous client can no longer email arbitrary
+ * addresses, and one user cannot spam another user's inbox.
  */
 export const sendInvoiceEmail = action({
   args: {
@@ -134,6 +139,14 @@ export const sendInvoiceEmail = action({
   },
   handler: async (ctx, args) => {
     if (!BREVO_API_KEY) return { sent: false, reason: "API key not configured" };
+
+    // The invoice can only be emailed to its owner by the owner. The
+    // session identity (never the client-supplied userId) is the gate.
+    const sessionUserId = await getAuthUserId(ctx);
+    if (!sessionUserId) throw new Error("Authentication required");
+    if (sessionUserId !== args.userId) {
+      throw new Error("You can only email your own invoices");
+    }
     const invoiceUrl = `${APP_URL}/payment-history`;
     const periodStart = new Date(args.periodStart).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
     const periodEnd = new Date(args.periodEnd).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -179,7 +192,7 @@ async function sendEmail(to: string, subject: string, html: string) {
 /**
  * Send vaccination reminder email
  */
-export const sendVaccinationReminder = action({
+export const sendVaccinationReminder = internalAction({
   args: {
     userId: v.id("users"),
     email: v.string(),
@@ -206,7 +219,7 @@ export const sendVaccinationReminder = action({
 /**
  * Send a low vaccine coverage alert email to a farmer
  */
-export const sendLowCoverageAlert = action({
+export const sendLowCoverageAlert = internalAction({
   args: {
     userId: v.id("users"),
     email: v.string(),

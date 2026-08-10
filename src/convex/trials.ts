@@ -1,7 +1,7 @@
 import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requireAuth, createAuditLog } from "./authHelpers";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import {
   CRON_BATCH_SIZE,
   cronBatchArgs,
@@ -215,7 +215,7 @@ export const sendTrialExpiryWarnings = internalMutation({
           }
 
           // Send the warning email
-          await ctx.scheduler.runAfter(0, api.emails.sendTrialExpiryWarning, {
+          await ctx.scheduler.runAfter(0, internal.emails.sendTrialExpiryWarning, {
             userId: user._id,
             email: user.email,
             name: user.name || "there",

@@ -1,14 +1,20 @@
 import { mutation } from "./_generated/server";
+import { requireAdmin } from "./authHelpers";
 
 // ============================================================
 // Marketplace Seed Data
-// Run: bunx convex run seedData:seedMarketplace
+// ADMIN ONLY — these mutations create approved agronomist profiles,
+// marketplace companies, seeds, knowledge articles, and farming events.
+// They are gated server-side with requireAdmin(); the Admin Dashboard
+// (Settings > Admin > Seed Demo Data) is the supported way to run them.
+// CLI runs must supply an authenticated admin session.
 // ============================================================
 
-/** Seed all marketplace tables with realistic sample data */
+/** Seed all marketplace tables with realistic sample data (admin only) */
 export const seedMarketplace = mutation({
   args: {},
   handler: async (ctx) => {
+    await requireAdmin(ctx);
     const now = Date.now();
     const results = {
       agronomists: 0,
@@ -514,6 +520,8 @@ export const seedMarketplace = mutation({
 export const clearMarketplace = mutation({
   args: {},
   handler: async (ctx) => {
+    await requireAdmin(ctx);
+
     // Delete all agronomist profiles
     const agronomists = await ctx.db.query("agronomistProfiles").collect();
     for (const a of agronomists) {
@@ -547,10 +555,11 @@ export const clearMarketplace = mutation({
 // Knowledge Articles Seed Data
 // ============================================================
 
-/** Seed knowledge articles with agronomy best practices */
+/** Seed knowledge articles with agronomy best practices (admin only) */
 export const seedKnowledgeArticles = mutation({
   args: {},
   handler: async (ctx) => {
+    await requireAdmin(ctx);
     const now = Date.now();
     const anyUser = await ctx.db.query("users").first();
     if (!anyUser) return { message: "No users found", count: 0 };
@@ -597,10 +606,11 @@ export const seedKnowledgeArticles = mutation({
 // Run: bunx convex run seedData:seedFarmingEvents
 // ============================================================
 
-/** Seed the farming events table with realistic public events */
+/** Seed the farming events table with realistic public events (admin only) */
 export const seedFarmingEvents = mutation({
   args: {},
   handler: async (ctx) => {
+    await requireAdmin(ctx);
     const existing = await ctx.db.query("farmingEvents").first();
     if (existing) return { message: "Already seeded", count: 0 };
 

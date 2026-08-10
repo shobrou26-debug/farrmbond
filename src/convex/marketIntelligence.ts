@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, mutation, action } from "./_generated/server";
+import { query, internalMutation } from "./_generated/server";
 import { requireAuth } from "./authHelpers";
 
 // ============================================================
@@ -185,8 +185,15 @@ export const getProfitabilityAnalysis = query({
   },
 });
 
-/** Store market price snapshot */
-export const storeMarketPrice = mutation({
+/**
+ * Store a market price snapshot.
+ * INTERNAL ONLY — intended for a trusted market-data ingestion job (cron/
+ * admin pipeline). Was public and unauthenticated: any client could inject
+ * arbitrary price records that would surface as "real" market data in
+ * price-history charts. No public caller exists today, so it is now
+ * server-side only.
+ */
+export const storeMarketPrice = internalMutation({
   args: {
     cropType: v.string(),
     price: v.number(),
