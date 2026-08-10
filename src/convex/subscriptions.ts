@@ -17,6 +17,12 @@ import {
 const SUBSCRIPTION_WARNING_DAYS = 3; // Send warning 3 days before expiry
 const SUBSCRIPTION_URGENT_DAYS = 1; // Urgent warning 1 day before expiry
 
+// Phase 5 batch sizing: the pure downgrade job is one patch + one audit
+// row per user (no external calls) and pages in larger chunks; the
+// warning/reminder jobs do an indexed dedup lookup + a scheduled email
+// per user and stay at the default 200.
+const EXPIRE_SUBSCRIPTIONS_BATCH = 500;
+
 /**
  * Get the current user's subscription status
  */
@@ -132,11 +138,15 @@ export const sendSubscriptionExpiryWarnings = internalMutation({
 
         // Check if subscription is within warning window (1-3 days remaining)
         if (daysRemaining <= SUBSCRIPTION_WARNING_DAYS) {
-          // Check if we already sent a warning for this subscription period (indexed by user)
+          // Check if we already sent a warning for this subscription
+          // period. Phase 5: composite by_user_action index — no in-memory
+          // filter over the user's whole audit history on this daily
+          // all-user hot path.
           const existingLog = await ctx.db
             .query("auditLogs")
-            .withIndex("by_user", (q) => q.eq("userId", user._id))
-            .filter((q) => q.eq(q.field("action"), "subscription_warning_sent"))
+            .withIndex("by_user_action", (q) =>
+              q.eq("userId", user._id).eq("action", "subscription_warning_sent")
+            )
             .order("desc")
             .first();
 
@@ -176,7 +186,8 @@ export const sendSubscriptionExpiryWarnings = internalMutation({
         ctx.scheduler.runAfter(0, internal.subscriptions.sendSubscriptionExpiryWarnings, {
           cursor,
         }),
-      "sendSubscriptionExpiryWarnings"
+      "sendSubscriptionExpiryWarnings",
+      { jobName: "subscription_expiry_warnings", ttlMs: 6 * 60 * 60 * 1000 }
     );
   },
 });
@@ -217,11 +228,14 @@ export const sendPaymentMethodReminders = internalMutation({
         const shouldRemind = !user.paymentMethodVerified && daysUntilRenewal <= 7;
 
         if (shouldRemind) {
-          // Check if we already sent a reminder for this subscription period (indexed by user)
+          // Check if we already sent a reminder for this subscription
+          // period. Phase 5: composite by_user_action index — no in-memory
+          // filter over the user's whole audit history.
           const existingLog = await ctx.db
             .query("auditLogs")
-            .withIndex("by_user", (q) => q.eq("userId", user._id))
-            .filter((q) => q.eq(q.field("action"), "payment_method_reminder_sent"))
+            .withIndex("by_user_action", (q) =>
+              q.eq("userId", user._id).eq("action", "payment_method_reminder_sent")
+            )
             .order("desc")
             .first();
 
@@ -260,7 +274,8 @@ export const sendPaymentMethodReminders = internalMutation({
         ctx.scheduler.runAfter(0, internal.subscriptions.sendPaymentMethodReminders, {
           cursor,
         }),
-      "sendPaymentMethodReminders"
+      "sendPaymentMethodReminders",
+      { jobName: "payment_method_reminders", ttlMs: 6 * 60 * 60 * 1000 }
     );
   },
 });
@@ -306,7 +321,7 @@ export const expireSubscriptions = internalMutation({
     return runCronBatch(
       ctx,
       args.cursor,
-      CRON_BATCH_SIZE,
+      EXPIRE_SUBSCRIPTIONS_BATCH,
       pageUsers,
       async (ctx, user) => {
         if (
@@ -346,7 +361,8 @@ export const expireSubscriptions = internalMutation({
       },
       (ctx, cursor) =>
         ctx.scheduler.runAfter(0, internal.subscriptions.expireSubscriptions, { cursor }),
-      "expireSubscriptions"
+      "expireSubscriptions",
+      { jobName: "expire_subscriptions", ttlMs: 6 * 60 * 60 * 1000 }
     );
   },
 });

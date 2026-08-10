@@ -18,6 +18,12 @@ import {
 const TRIAL_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const WARNING_DAYS = 2; // Send warning 2 days before expiry
 
+// Phase 5 batch sizing: the pure downgrade job costs one patch + one
+// audit row per user (no external calls), so it safely pages in larger
+// chunks; the email-warning job does an indexed dedup lookup + a
+// scheduled email per user and stays at the default 200.
+const EXPIRE_TRIALS_BATCH = 500;
+
 /**
  * Get the current user's trial status
  */
@@ -121,7 +127,7 @@ export const expireTrials = internalMutation({
     return runCronBatch(
       ctx,
       args.cursor,
-      CRON_BATCH_SIZE,
+      EXPIRE_TRIALS_BATCH,
       pageUsers,
       async (ctx, user) => {
         if (
@@ -153,7 +159,11 @@ export const expireTrials = internalMutation({
       },
       (ctx, cursor) =>
         ctx.scheduler.runAfter(0, internal.trials.expireTrials, { cursor }),
-      "expireTrials"
+      "expireTrials",
+      // Overlap protection: the 24h interval is far longer than the chain
+      // for any realistic dataset, but the lease makes a duplicate chain
+      // (e.g. after a deploy restart) a no-op instead of extra work.
+      { jobName: "expire_trials", ttlMs: 6 * 60 * 60 * 1000 }
     );
   },
 });
@@ -187,11 +197,14 @@ export const sendTrialExpiryWarnings = internalMutation({
 
         // Check if trial is within warning window (1-2 days remaining)
         if (daysRemaining <= WARNING_DAYS && daysRemaining > 0 && user.subscriptionTier === "pro") {
-          // Check if we already sent a warning for this trial (indexed by user)
+          // Check if we already sent a warning for this trial. Phase 5:
+          // composite by_user_action index — no in-memory filter over the
+          // user's whole audit history on this daily all-user hot path.
           const existingLog = await ctx.db
             .query("auditLogs")
-            .withIndex("by_user", (q) => q.eq("userId", user._id))
-            .filter((q) => q.eq(q.field("action"), "trial_warning_sent"))
+            .withIndex("by_user_action", (q) =>
+              q.eq("userId", user._id).eq("action", "trial_warning_sent")
+            )
             .order("desc")
             .first();
 
@@ -228,7 +241,8 @@ export const sendTrialExpiryWarnings = internalMutation({
       },
       (ctx, cursor) =>
         ctx.scheduler.runAfter(0, internal.trials.sendTrialExpiryWarnings, { cursor }),
-      "sendTrialExpiryWarnings"
+      "sendTrialExpiryWarnings",
+      { jobName: "trial_expiry_warnings", ttlMs: 6 * 60 * 60 * 1000 }
     );
   },
 });

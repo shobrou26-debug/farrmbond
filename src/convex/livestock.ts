@@ -628,7 +628,10 @@ export const sendVaccinationReminders = internalMutation({
       },
       (ctx, cursor) =>
         ctx.scheduler.runAfter(0, internal.livestock.sendVaccinationReminders, { cursor }),
-      "sendVaccinationReminders"
+      "sendVaccinationReminders",
+      // Overlap protection: daily job with a short chain, but the lease
+      // makes a duplicate chain (e.g. after a deploy restart) a no-op.
+      { jobName: "vaccination_reminders", ttlMs: 6 * 60 * 60 * 1000 }
     );
   },
 });
@@ -1087,6 +1090,10 @@ export function hasRecentLowCoverageAlert(
   );
 }
 
+// Low-coverage alert batches stay smaller (100) because each item scans the
+// user's full livestock table and can schedule an email.
+const LOW_COVERAGE_BATCH = 100;
+
 // ============================================================
 // Low Coverage Alert Sender (Cron Job)
 // ============================================================
@@ -1107,7 +1114,7 @@ export const sendLowCoverageAlerts = internalMutation({
     return runCronBatch(
       ctx,
       args.cursor,
-      CRON_BATCH_SIZE,
+      LOW_COVERAGE_BATCH,
       pageUsers,
       async (ctx, user) => {
         if (!user.email) { skipped++; return; }
@@ -1195,7 +1202,9 @@ export const sendLowCoverageAlerts = internalMutation({
       },
       (ctx, cursor) =>
         ctx.scheduler.runAfter(0, internal.livestock.sendLowCoverageAlerts, { cursor }),
-      "sendLowCoverageAlerts"
+      "sendLowCoverageAlerts",
+      // Overlap protection: daily job — a duplicate chain is a no-op.
+      { jobName: "low_coverage_alerts", ttlMs: 6 * 60 * 60 * 1000 }
     );
   },
 });

@@ -101,11 +101,14 @@ export async function generateWeatherNotificationsCore(
   let created = 0;
 
   // Check cooldowns for recent similar notifications
+  // Phase 5: only the most recent notifications matter for cooldown
+  // dedup (getLastNotificationTimes reads the first 50 anyway), so the
+  // per-user scan is bounded instead of walking the full history.
   const recentNotifications = await ctx.db
     .query("notifications")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .order("desc")
-    .collect();
+    .take(50);
 
   const recentTypeTimes = getLastNotificationTimes(recentNotifications);
   const canNotify = (type: string) =>
@@ -240,11 +243,14 @@ export async function generateLivestockNotificationsCore(
   const now = Date.now();
   let created = 0;
 
+  // Phase 5: only the most recent notifications matter for cooldown
+  // dedup (getLastNotificationTimes reads the first 50 anyway), so the
+  // per-user scan is bounded instead of walking the full history.
   const recentNotifications = await ctx.db
     .query("notifications")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .order("desc")
-    .collect();
+    .take(50);
 
   const recentTypeTimes = getLastNotificationTimes(recentNotifications);
   const canNotify = (type: string) =>
@@ -340,11 +346,14 @@ export async function generateCropNotificationsCore(
   const now = Date.now();
   let created = 0;
 
+  // Phase 5: only the most recent notifications matter for cooldown
+  // dedup (getLastNotificationTimes reads the first 50 anyway), so the
+  // per-user scan is bounded instead of walking the full history.
   const recentNotifications = await ctx.db
     .query("notifications")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .order("desc")
-    .collect();
+    .take(50);
 
   const recentTypeTimes = getLastNotificationTimes(recentNotifications);
   const canNotify = (type: string) =>
@@ -442,11 +451,14 @@ export async function generateMarketNotificationsCore(
   const now = Date.now();
   let created = 0;
 
+  // Phase 5: only the most recent notifications matter for cooldown
+  // dedup (getLastNotificationTimes reads the first 50 anyway), so the
+  // per-user scan is bounded instead of walking the full history.
   const recentNotifications = await ctx.db
     .query("notifications")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .order("desc")
-    .collect();
+    .take(50);
 
   const recentTypeTimes = getLastNotificationTimes(recentNotifications);
   const canNotify = (type: string) =>
@@ -470,10 +482,14 @@ export async function generateMarketNotificationsCore(
   if (userCropTypes.size === 0) return { created: 0 };
 
   // Check market insights for relevant crops
+  // Phase 5: bound the global market-insight scan. The insights table is
+  // keyed per cropType×region and is refreshed on a schedule, so the
+  // newest 200 rows always represent the full market surface. This stops
+  // the cron from re-reading the entire table for every user.
   const marketInsights = await ctx.db
     .query("marketInsights")
     .withIndex("by_fetched", (q) => q.gte("fetchedAt", now - 7 * 24 * 60 * 60 * 1000))
-    .collect();
+    .take(200);
 
   for (const insight of marketInsights) {
     if (userCropTypes.has(insight.cropType.toLowerCase())) {

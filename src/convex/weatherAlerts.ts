@@ -871,7 +871,13 @@ export const generateWeatherAlertsForAllUsers = internalMutation({
         ctx.scheduler.runAfter(0, internal.weatherAlerts.generateWeatherAlertsForAllUsers, {
           cursor,
         }),
-      "generateWeatherAlertsForAllUsers"
+      "generateWeatherAlertsForAllUsers",
+      // Overlap protection is REQUIRED here: this 30-minute cron's chain can
+      // legitimately outlive its own interval at 200k configs. Continuation
+      // batches refresh the lease, so a running chain is never doubled; a
+      // crashed chain self-heals once the 2h TTL lapses. Correctness never
+      // depends on the lease (per-subtype cooldowns dedup alerts).
+      { jobName: "weather_alerts", ttlMs: 2 * 60 * 60 * 1000 }
     );
   },
 });

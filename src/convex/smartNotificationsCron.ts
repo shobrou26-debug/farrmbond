@@ -6,7 +6,12 @@ import {
   generateMarketNotificationsCore,
 } from "./smartNotifications";
 import { internal } from "./_generated/api";
-import { cronBatchArgs } from "./cronBatch";
+import {
+  cronBatchArgs,
+  acquireCronLease,
+  refreshCronLease,
+  releaseCronLease,
+} from "./cronBatch";
 
 // ============================================================
 // Smart Notifications Cron
@@ -33,6 +38,19 @@ const PAGE_SIZE = 100;
 export const runAllNotificationsForAllFarms = internalMutation({
   args: cronBatchArgs,
   handler: async (ctx, args) => {
+    // Overlap protection: 2-hour cron whose chain can outlive its interval
+    // at 200k users. Chain-start claims the lease (exits when another chain
+    // is live); continuations refresh it; the end of the chain releases it.
+    const lease = { jobName: "smart_notifications", ttlMs: 6 * 60 * 60 * 1000 };
+    if (args.cursor === null) {
+      const acquired = await acquireCronLease(ctx, lease.jobName, lease.ttlMs);
+      if (!acquired) {
+        return { totalCreated: 0, failures: 0, usersProcessed: 0, isDone: true, scheduledNext: false };
+      }
+    } else {
+      await refreshCronLease(ctx, lease.jobName, lease.ttlMs);
+    }
+
     const now = Date.now();
     let totalCreated = 0;
     let failures = 0;
@@ -108,6 +126,8 @@ export const runAllNotificationsForAllFarms = internalMutation({
       await ctx.scheduler.runAfter(0, internal.smartNotificationsCron.runAllNotificationsForAllFarms, {
         cursor: page.continueCursor,
       });
+    } else {
+      await releaseCronLease(ctx, lease.jobName);
     }
 
     console.log(

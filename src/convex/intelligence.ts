@@ -3,7 +3,12 @@ import { query, mutation, action, internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { requireAuth } from "./authHelpers";
-import { cronBatchArgs } from "./cronBatch";
+import {
+  cronBatchArgs,
+  acquireCronLease,
+  refreshCronLease,
+  releaseCronLease,
+} from "./cronBatch";
 import type { Id } from "./_generated/dataModel";
 
 // ============================================================
@@ -798,10 +803,33 @@ export async function runIntelligencePipelineForAllUsersCore(
  * Run the intelligence pipeline for ALL users. Batched cron: each
  * invocation processes one bounded batch and schedules the next when
  * more users remain, so no single mutation walks the whole user table.
+ *
+ * Overlap protection: the chain-start invocation (cursor null) claims a
+ * job lease and exits immediately when another chain is live; every
+ * continuation batch refreshes the lease so a long AI-heavy chain is
+ * never doubled; the chain releases the lease when it ends. Correctness
+ * never depends on the lease — insight generation is deduplicated.
  */
 export const runIntelligencePipelineForAllUsers = internalMutation({
   args: cronBatchArgs,
   handler: async (ctx, args) => {
+    const lease = { jobName: "intelligence_pipeline", ttlMs: 12 * 60 * 60 * 1000 };
+
+    if (args.cursor === null) {
+      const acquired = await acquireCronLease(ctx, lease.jobName, lease.ttlMs);
+      if (!acquired) {
+        return {
+          processed: 0,
+          insights: 0,
+          failures: 0,
+          isDone: true,
+          scheduledNext: false,
+        };
+      }
+    } else {
+      await refreshCronLease(ctx, lease.jobName, lease.ttlMs);
+    }
+
     const result = await runIntelligencePipelineForAllUsersCore(ctx, args.cursor);
 
     // Chain the next batch only when some progress was made — if every
@@ -812,6 +840,8 @@ export const runIntelligencePipelineForAllUsers = internalMutation({
       await ctx.scheduler.runAfter(0, internal.intelligence.runIntelligencePipelineForAllUsers, {
         cursor: result.continueCursor,
       });
+    } else {
+      await releaseCronLease(ctx, lease.jobName);
     }
 
     console.log(

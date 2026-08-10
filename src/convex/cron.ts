@@ -11,6 +11,14 @@ const crons = cronJobs();
 // most CRON_BATCH_SIZE records, chaining the next batch via the
 // scheduler until the whole dataset is covered. No single mutation
 // walks the entire table, so the jobs scale to 200k+ users.
+//
+// Overlap protection: every chain-start invocation claims a cronRuns
+// lease (see cronBatch.ts). When another chain for the same job is
+// live, the fire exits immediately; continuation batches refresh the
+// lease; the chain releases it when done. Correctness never depends on
+// the lease — every cron is idempotent — so a racing double-chain is
+// merely wasteful, never harmful, and a crashed chain self-heals once
+// the lease TTL lapses.
 // ============================================================
 
 /**

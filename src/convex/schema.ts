@@ -810,7 +810,8 @@ const schema = defineSchema(
       .index("by_user", ["userId"])
       .index("by_action", ["action"])
       .index("by_resource", ["resource"])
-      .index("by_created", ["createdAt"]),
+      .index("by_created", ["createdAt"])
+      .index("by_user_action", ["userId", "action"]), // Phase 5: dedup hot path for cron warning/reminder jobs
 
     // ============================================================
     // KNOWLEDGE ARTICLES TABLE (Agronomist)
@@ -1523,6 +1524,19 @@ const schema = defineSchema(
       .index("by_user", ["userId"])
       .index("by_farm", ["farmId"])
       .index("by_week", ["weekStart"]),
+
+    // ============================================================
+    // CRON RUN LEASES (Phase 5 — overlap protection)
+    // One row per chain-starting cron job. A fire that claims a live
+    // lease skips (another chain is already covering the dataset). The
+    // lease auto-expires so a crashed chain can never deadlock a job.
+    // ============================================================
+    cronRuns: defineTable({
+      jobName: v.string(),
+      startedAt: v.number(),
+      leaseExpiresAt: v.number(),
+    })
+      .index("by_job", ["jobName"]),
 
   },
   {

@@ -451,7 +451,11 @@ export const generateWeeklyReports = internalMutation({
       },
       (ctx, cursor) =>
         ctx.scheduler.runAfter(0, internal.weeklyReport.generateWeeklyReports, { cursor }),
-      "generateWeeklyReports"
+      "generateWeeklyReports",
+      // Overlap protection: weekly interval, so TTL only needs to cover a
+      // crashed chain (self-heals within 24h) — continuation batches keep
+      // the lease fresh while a long farm chain is legitimately running.
+      { jobName: "weekly_reports", ttlMs: 24 * 60 * 60 * 1000 }
     );
   },
 });
