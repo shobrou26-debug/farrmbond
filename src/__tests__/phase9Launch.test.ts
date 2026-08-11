@@ -243,4 +243,10 @@ describe("Phase 9 — final adversarial audit locks", () => {
     expect(page).toContain("Default region — enable location for your area");
     expect(page).toContain("Use my location");
   });
+
+  test("dashboard weather widget labels the default region honestly", () => {
+    const page = readPage("Dashboard.tsx");
+    expect(page).toContain("isDefaultLocation");
+    expect(page).toContain("Default region — set your location on the Weather page");
+  });
 });

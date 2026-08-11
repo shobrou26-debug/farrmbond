@@ -160,7 +160,7 @@ function StatCard({
 
 function WeatherWidget() {
   const haptic = useHaptic();
-  const { data: weather, isLoading, getWeatherDescription } = useWeather();
+  const { data: weather, isLoading, getWeatherDescription, isDefaultLocation } = useWeather();
 
   const current = weather?.current;
   const temp = current ? Math.round(current.temperature) : null;
@@ -175,6 +175,11 @@ function WeatherWidget() {
         <div className="flex items-center justify-between mb-3 sm:mb-4">
           <div>
             <p className="text-white/80 text-xs sm:text-sm">Current Weather</p>
+            {isDefaultLocation && (
+              <p className="text-white/70 text-[10px] sm:text-xs mt-0.5">
+                Default region — set your location on the Weather page
+              </p>
+            )}
             {isLoading ? (
               <Skeleton className="h-8 w-20 bg-white/20" />
             ) : (
