@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useQuery, useAction } from "convex/react";
+import { useMemo, useState } from "react";
+import { motion } from "framer-motion";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -11,8 +11,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/use-auth";
 import {
   CreditCard,
-  Download,
-  Filter,
   Search,
   CheckCircle2,
   XCircle,
@@ -21,23 +19,16 @@ import {
   FileText,
   Receipt,
   ArrowUpRight,
-  ArrowDownRight,
-  Calendar,
-  ExternalLink,
   RefreshCw,
   ChevronDown,
   ChevronUp,
-  DollarSign,
-  TrendingUp,
-  TrendingDown,
-  Eye,
-  Copy,
-  Mail,
   Shield,
-  Edit,
+  Smartphone,
+  CalendarClock,
+  Wallet,
+  type LucideIcon,
 } from "lucide-react";
-import { generateInvoicePDF, generateAllInvoicesPDF, generateReceiptPDF } from "@/lib/pdf-invoice";
-import { toast } from "sonner";
+import { useNavigate } from "react-router";
 
 // ============================================================
 // Animation Variants
@@ -54,36 +45,75 @@ const itemVariants = {
 };
 
 // ============================================================
-// Invoice Card Component
+// Helpers — real data formatting only (no fabricated values)
 // ============================================================
 
-function InvoiceCard({ invoice, onDownload, onReceipt, onEmail, isEmailing }: { invoice: any; onDownload: (id: string) => void; onReceipt: (id: string) => void; onEmail: (id: string) => void; isEmailing: boolean }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  
-  const statusConfig: Record<string, { color: string; icon: any; label: string }> = {
-    paid: { color: "bg-green-500/10 text-green-600 border-green-500/20", icon: CheckCircle2, label: "Paid" },
-    open: { color: "bg-amber-500/10 text-amber-600 border-amber-500/20", icon: Clock, label: "Pending" },
-    void: { color: "bg-gray-500/10 text-gray-600 border-gray-500/20", icon: XCircle, label: "Void" },
-    draft: { color: "bg-blue-500/10 text-blue-600 border-blue-500/20", icon: FileText, label: "Draft" },
-  };
+const formatDate = (timestamp?: number | null) => {
+  if (!timestamp) return "—";
+  return new Date(timestamp).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+};
 
-  const status = statusConfig[invoice.status] || statusConfig.paid;
-  const StatusIcon = status.icon;
-
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
-
-  const formatCurrency = (amount: number) => {
+const formatCurrency = (amount: number, currency: string) => {
+  try {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency: "USD",
-    }).format(amount / 100);
+      currency: currency || "USD",
+    }).format(amount);
+  } catch {
+    return `${amount} ${currency || ""}`.trim();
+  }
+};
+
+const providerLabel = (provider: string) => {
+  if (provider === "mtn_momo") return "MTN Mobile Money";
+  if (provider === "airtel_money") return "Airtel Money";
+  return provider;
+};
+
+const purposeLabel = (purpose?: string) => {
+  if (purpose === "consultation") return "Agronomist consultation";
+  if (purpose === "subscription") return "Pro subscription";
+  return "Payment";
+};
+
+const paymentStatusConfig: Record<string, { color: string; icon: LucideIcon; label: string }> = {
+  completed: { color: "bg-green-500/10 text-green-600 border-green-500/20", icon: CheckCircle2, label: "Completed" },
+  pending: { color: "bg-amber-500/10 text-amber-600 border-amber-500/20", icon: Clock, label: "Pending" },
+  failed: { color: "bg-red-500/10 text-red-600 border-red-500/20", icon: XCircle, label: "Failed" },
+  expired: { color: "bg-gray-500/10 text-gray-600 border-gray-500/20", icon: Clock, label: "Expired" },
+};
+
+// ============================================================
+// Payment Record Card (real mobile-money payment records)
+// ============================================================
+
+interface PaymentRecord {
+  _id: string;
+  provider: string;
+  referenceId?: string | null;
+  purpose?: string;
+  description?: string;
+  amount: number;
+  currency: string;
+  phoneNumber: string;
+  status: string;
+  completedAt?: number;
+  createdAt: number;
+}
+
+function PaymentRecordCard({ payment }: { payment: PaymentRecord }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const config = paymentStatusConfig[payment.status] || {
+    color: "bg-gray-500/10 text-gray-600 border-gray-500/20",
+    icon: Clock,
+    label: payment.status || "Unknown",
   };
+  const StatusIcon = config.icon;
 
   return (
     <motion.div
@@ -94,30 +124,30 @@ function InvoiceCard({ invoice, onDownload, onReceipt, onEmail, isEmailing }: { 
         className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 cursor-pointer"
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        {/* Invoice Icon */}
+        {/* Icon */}
         <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-muted/50 shrink-0">
-          <Receipt className="w-5 h-5 text-muted-foreground" />
+          <Smartphone className="w-5 h-5 text-muted-foreground" />
         </div>
 
-        {/* Invoice Details */}
+        {/* Details */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-medium truncate">Invoice #{invoice.number || invoice.id?.slice(-8) || "—"}</p>
-            <Badge className={`${status.color} border text-[10px]`}>
+            <p className="text-sm font-medium truncate">{purposeLabel(payment.purpose)}</p>
+            <Badge className={`${config.color} border text-[10px]`}>
               <StatusIcon className="w-3 h-3 mr-1" />
-              {status.label}
+              {config.label}
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            {formatDate(invoice.created)} • FarmBond Pro Subscription
+            {providerLabel(payment.provider)} • {formatDate(payment.completedAt || payment.createdAt)}
           </p>
         </div>
 
         {/* Amount */}
         <div className="flex items-center gap-3 shrink-0">
           <div className="text-right">
-            <p className="text-lg font-bold">{formatCurrency(invoice.amountPaid || invoice.amountDue || 0)}</p>
-            <p className="text-xs text-muted-foreground">{invoice.currency?.toUpperCase() || "USD"}</p>
+            <p className="text-lg font-bold">{formatCurrency(payment.amount, payment.currency)}</p>
+            <p className="text-xs text-muted-foreground">{payment.currency}</p>
           </div>
           <button
             className="p-2 hover:bg-muted rounded-lg transition-colors"
@@ -125,6 +155,7 @@ function InvoiceCard({ invoice, onDownload, onReceipt, onEmail, isEmailing }: { 
               e.stopPropagation();
               setIsExpanded(!isExpanded);
             }}
+            aria-label={isExpanded ? "Collapse payment details" : "Expand payment details"}
           >
             {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
@@ -132,190 +163,76 @@ function InvoiceCard({ invoice, onDownload, onReceipt, onEmail, isEmailing }: { 
       </div>
 
       {/* Expanded Details */}
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="px-4 pb-4 pt-2 border-t border-border/50 bg-muted/20">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Invoice Details</p>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Invoice ID</span>
-                      <span className="font-mono text-xs">{invoice.id || "—"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Period</span>
-                      <span>{formatDate(invoice.periodStart)} – {formatDate(invoice.periodEnd)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Amount</span>
-                      <span>{formatCurrency(invoice.amountDue || 0)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Tax</span>
-                      <span>{formatCurrency(invoice.tax || 0)}</span>
-                    </div>
-                    <div className="flex justify-between font-medium border-t border-border/50 pt-1">
-                      <span>Total Paid</span>
-                      <span className="text-green-600">{formatCurrency(invoice.amountPaid || 0)}</span>
-                    </div>
-                  </div>
+      {isExpanded && (
+        <div className="px-4 pb-4 pt-2 border-t border-border/50 bg-muted/20">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Payment Details</p>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Provider</span>
+                  <span>{providerLabel(payment.provider)}</span>
                 </div>
-
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Payment Info</p>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Payment Method</span>
-                      <span>•••• {invoice.paymentMethodLast4 || "4242"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Payment Date</span>
-                      <span>{invoice.status === "paid" ? formatDate(invoice.statusTransitions?.paid_at || invoice.created) : "—"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Next Invoice</span>
-                      <span>{invoice.nextPaymentAttempt ? formatDate(invoice.nextPaymentAttempt) : "—"}</span>
-                    </div>
-                  </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Reference</span>
+                  <span className="font-mono text-xs">{payment.referenceId || "—"}</span>
                 </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex flex-wrap gap-2 mt-4">
-                {invoice.hostedInvoiceUrl && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      window.open(invoice.hostedInvoiceUrl, "_blank");
-                    }}
-                  >
-                    <ExternalLink className="w-4 h-4 mr-1" />
-                    View Online
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDownload(invoice.id);
-                  }}
-                >
-                  <Download className="w-4 h-4 mr-1" />
-                  Download PDF
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEmail(invoice.id);
-                  }}
-                  disabled={isEmailing}
-                >
-                  <Mail className="w-4 h-4 mr-1" />
-                  {isEmailing ? "Sending..." : "Email Invoice"}
-                </Button>
-                {invoice.receiptUrl && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onReceipt(invoice.id);
-                    }}
-                  >
-                    <Receipt className="w-4 h-4 mr-1" />
-                    Receipt
-                  </Button>
-                )}
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Phone</span>
+                  <span>{payment.phoneNumber || "—"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Status</span>
+                  <span>{config.label}</span>
+                </div>
               </div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Purpose</p>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Description</span>
+                  <span>{payment.description || purposeLabel(payment.purpose)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Started</span>
+                  <span>{formatDate(payment.createdAt)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Completed</span>
+                  <span>{payment.completedAt ? formatDate(payment.completedAt) : "—"}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }
 
 // ============================================================
-// Payment Method Card Component
+// Subscription Event Card (derived from real user fields)
 // ============================================================
 
-function PaymentMethodCard({ method }: { method: any }) {
-  const brandColors: Record<string, string> = {
-    visa: "bg-blue-600",
-    mastercard: "bg-orange-500",
-    amex: "bg-green-600",
-    discover: "bg-purple-600",
-  };
+const SUBSCRIPTION_EVENT_ICONS: Record<string, LucideIcon> = {
+  started: CheckCircle2,
+  renewed: RefreshCw,
+  payment_failed: AlertTriangle,
+  active: ArrowUpRight,
+};
 
-  return (
-    <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-muted/20">
-      <div className="flex items-center gap-3">
-        <div className={`flex items-center justify-center w-12 h-8 rounded-lg ${brandColors[method.brand] || "bg-gray-600"} text-white text-xs font-bold`}>
-          {method.brand?.toUpperCase() || "CARD"}
-        </div>
-        <div>
-          <p className="text-sm font-medium">•••• •••• •••• {method.last4}</p>
-          <p className="text-xs text-muted-foreground">Expires {method.expMonth}/{method.expYear}</p>
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        {method.isDefault && (
-          <Badge className="bg-primary/10 text-primary text-[10px]">Default</Badge>
-        )}
-        <Button variant="ghost" size="sm">
-          <Edit className="w-4 h-4" />
-        </Button>
-      </div>
-    </div>
-  );
-}
+const SUBSCRIPTION_EVENT_COLORS: Record<string, string> = {
+  started: "bg-green-500/10 text-green-600",
+  renewed: "bg-blue-500/10 text-blue-600",
+  payment_failed: "bg-red-500/10 text-red-600",
+  active: "bg-green-500/10 text-green-600",
+};
 
-// ============================================================
-// Subscription Change Card Component
-// ============================================================
-
-function SubscriptionChangeCard({ change }: { change: any }) {
-  const changeIcons: Record<string, any> = {
-    upgraded: ArrowUpRight,
-    downgraded: ArrowDownRight,
-    cancelled: XCircle,
-    renewed: RefreshCw,
-    started: CheckCircle2,
-  };
-
-  const changeColors: Record<string, string> = {
-    upgraded: "bg-green-500/10 text-green-600",
-    downgraded: "bg-amber-500/10 text-amber-600",
-    cancelled: "bg-red-500/10 text-red-600",
-    renewed: "bg-blue-500/10 text-blue-600",
-    started: "bg-green-500/10 text-green-600",
-  };
-
-  const Icon = changeIcons[change.type] || CheckCircle2;
-  const color = changeColors[change.type] || "bg-gray-500/10 text-gray-600";
-
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
+function SubscriptionEventCard({ event }: { event: { type: string; description: string; date?: number; details?: string } }) {
+  const Icon = SUBSCRIPTION_EVENT_ICONS[event.type] || CheckCircle2;
+  const color = SUBSCRIPTION_EVENT_COLORS[event.type] || "bg-gray-500/10 text-gray-600";
 
   return (
     <div className="flex items-start gap-3 p-4 rounded-xl border border-border/50">
@@ -323,17 +240,10 @@ function SubscriptionChangeCard({ change }: { change: any }) {
         <Icon className="w-5 h-5" />
       </div>
       <div className="flex-1">
-        <p className="text-sm font-medium">{change.description}</p>
-        <p className="text-xs text-muted-foreground mt-1">{formatDate(change.date)}</p>
-        {change.details && (
-          <p className="text-xs text-muted-foreground mt-1">{change.details}</p>
-        )}
+        <p className="text-sm font-medium">{event.description}</p>
+        {event.date && <p className="text-xs text-muted-foreground mt-1">{formatDate(event.date)}</p>}
+        {event.details && <p className="text-xs text-muted-foreground mt-1">{event.details}</p>}
       </div>
-      {change.amount && (
-        <Badge className="bg-muted text-foreground text-[10px]">
-          ${change.amount}/mo
-        </Badge>
-      )}
     </div>
   );
 }
@@ -344,160 +254,110 @@ function SubscriptionChangeCard({ change }: { change: any }) {
 
 export default function PaymentHistory() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState("invoices");
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState("payments");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
-  const [isDownloading, setIsDownloading] = useState<string | null>(null);
-  const [isEmailingInvoice, setIsEmailingInvoice] = useState<string | null>(null);
 
-  // Query invoices from Stripe
+  // Real billing data — every value below comes from the backend:
+  // - stripe.getStripeStatus     → Stripe subscription state
+  // - users.currentUser          → plan, trial, payment method, failures
+  // - mobileMoney.getUserTransactions → real completed/pending/failed payments
   const stripeStatus = useQuery(api.stripe.getStripeStatus);
-  
-  // Mock data for demonstration (in production, these would come from Stripe API)
-  const invoices = [
-    {
-      id: "inv_1234567890",
-      number: "INV-001",
-      status: "paid",
-      created: Date.now() - 30 * 24 * 60 * 60 * 1000,
-      amountPaid: 500,
-      amountDue: 500,
-      currency: "usd",
-      periodStart: Date.now() - 30 * 24 * 60 * 60 * 1000,
-      periodEnd: Date.now(),
-      paymentMethodLast4: "4242",
-      hostedInvoiceUrl: "#",
-      receiptUrl: "#",
-      tax: 0,
-      nextPaymentAttempt: Date.now() + 30 * 24 * 60 * 60 * 1000,
-    },
-    {
-      id: "inv_0987654321",
-      number: "INV-002",
-      status: "paid",
-      created: Date.now() - 60 * 24 * 60 * 60 * 1000,
-      amountPaid: 500,
-      amountDue: 500,
-      currency: "usd",
-      periodStart: Date.now() - 60 * 24 * 60 * 60 * 1000,
-      periodEnd: Date.now() - 30 * 24 * 60 * 60 * 1000,
-      paymentMethodLast4: "4242",
-      hostedInvoiceUrl: "#",
-      receiptUrl: "#",
-      tax: 0,
-    },
-  ];
+  const payments = useQuery(api.mobileMoney.getUserTransactions);
+  // Trial/subscription activity is computed server-side — the client never
+  // derives "now" or payment states itself.
+  const subStatus = useQuery(api.subscriptions.getSubscriptionStatus);
+  const trialStatus = useQuery(api.trials.getTrialStatus);
 
-  const paymentMethods = [
-    {
-      id: "pm_123",
-      brand: "visa",
-      last4: "4242",
-      expMonth: 12,
-      expYear: 2027,
-      isDefault: true,
-    },
-  ];
+  const isLoading =
+    stripeStatus === undefined ||
+    payments === undefined ||
+    subStatus === undefined ||
+    trialStatus === undefined;
 
-  const subscriptionChanges = [
-    {
-      type: "started",
-      description: "Started Pro subscription",
-      date: Date.now() - 60 * 24 * 60 * 60 * 1000,
-      details: "Upgraded from Free to Pro plan",
-      amount: 5,
-    },
-    {
-      type: "renewed",
-      description: "Subscription renewed",
-      date: Date.now() - 30 * 24 * 60 * 60 * 1000,
-      details: "Monthly payment processed successfully",
-      amount: 5,
-    },
-    {
-      type: "renewed",
-      description: "Subscription renewed",
-      date: Date.now(),
-      details: "Monthly payment processed successfully",
-      amount: 5,
-    },
-  ];
+  // Real subscription plan (trial activity comes from the server)
+  const tier = user?.subscriptionTier || "free";
+  const isOnTrial = !!trialStatus?.isTrialActive;
+  const planLabel = tier === "pro" ? "Pro" : isOnTrial ? "Free Trial" : "Free";
 
-  // Filter invoices
-  const filteredInvoices = invoices.filter((inv) => {
-    const matchesSearch = 
-      inv.number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      inv.id.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = filterStatus === "all" || inv.status === filterStatus;
-    return matchesSearch && matchesStatus;
-  });
+  // Real renewal/period dates
+  const nextBillingDate =
+    stripeStatus?.stripeCurrentPeriodEnd ||
+    subStatus?.subscriptionEndDate ||
+    trialStatus?.trialEndDate ||
+    null;
 
-  // Calculate stats
-  const totalPaid = invoices.filter(i => i.status === "paid").reduce((sum, i) => sum + (i.amountPaid || 0), 0);
-  const totalPending = invoices.filter(i => i.status === "open").reduce((sum, i) => sum + (i.amountDue || 0), 0);
-  const invoiceCount = invoices.length;
+  // Real payment-method state (we never store card numbers — just whether one is verified)
+  const hasPaymentMethod = !!stripeStatus?.hasPaymentMethod || !!user?.paymentMethodVerified;
 
-  const handleDownloadPdf = async (invoiceId: string) => {
-    setIsDownloading(invoiceId);
-    try {
-      const invoice = invoices.find(inv => inv.id === invoiceId);
-      if (invoice) {
-        generateInvoicePDF(invoice);
-      }
-    } catch (error) {
-      console.error("Failed to generate PDF:", error);
-    } finally {
-      setIsDownloading(null);
-    }
-  };
+  // Real payment-failure state
+  const failureCount = stripeStatus?.paymentFailureCount ?? user?.paymentFailureCount ?? 0;
+  const lastFailureAt = stripeStatus?.paymentFailedAt ?? user?.paymentFailedAt ?? null;
 
-  const sendInvoiceEmail = useAction(api.emails.sendInvoiceEmail);
+  // Filter real payment records
+  const filteredPayments = useMemo(() => {
+    if (!payments) return [];
+    const q = searchQuery.trim().toLowerCase();
+    return payments.filter((p) => {
+      const matchesStatus = filterStatus === "all" || p.status === filterStatus;
+      if (!matchesStatus) return false;
+      if (!q) return true;
+      return (
+        (p.referenceId || "").toLowerCase().includes(q) ||
+        (p.description || "").toLowerCase().includes(q) ||
+        providerLabel(p.provider).toLowerCase().includes(q) ||
+        purposeLabel(p.purpose).toLowerCase().includes(q)
+      );
+    });
+  }, [payments, searchQuery, filterStatus]);
 
-  const handleEmailInvoice = async (invoiceId: string) => {
-    setIsEmailingInvoice(invoiceId);
-    try {
-      const invoice = invoices.find(inv => inv.id === invoiceId);
-      if (invoice && user?.email) {
-        await sendInvoiceEmail({
-          userId: user._id,
-          email: user.email,
-          name: user.name || "",
-          invoiceId: invoice.id,
-          invoiceNumber: invoice.number || invoice.id.slice(-8),
-          amount: invoice.amountPaid || invoice.amountDue,
-          currency: invoice.currency || "usd",
-          periodStart: invoice.periodStart,
-          periodEnd: invoice.periodEnd,
-          paymentMethodLast4: invoice.paymentMethodLast4 || "4242",
-        });
-        toast.success("Invoice emailed successfully!", {
-          description: `Invoice sent to ${user.email}`,
-        });
-      }
-    } catch (error) {
-      console.error("Failed to email invoice:", error);
-      toast.error("Failed to email invoice", {
-        description: "Please try again later",
+  // Subscription timeline — every entry is derived from real stored fields.
+  // No invoice numbers, amounts, card numbers, or invented dates.
+  const subscriptionEvents = useMemo(() => {
+    const events: { type: string; description: string; date?: number; details?: string }[] = [];
+
+    if (trialStatus?.trialEndDate) {
+      events.push({
+        type: "started",
+        description: "Free trial started",
+        date: trialStatus.trialEndDate,
+        details: isOnTrial ? "Free trial active" : "Free trial ended",
       });
-    } finally {
-      setIsEmailingInvoice(null);
     }
-  };
 
-  const handleDownloadReceipt = async (invoiceId: string) => {
-    try {
-      const invoice = invoices.find(inv => inv.id === invoiceId);
-      if (invoice) {
-        generateReceiptPDF(invoice);
+    if (user?.subscriptionTier === "pro") {
+      if (subStatus?.subscriptionStartDate) {
+        events.push({
+          type: "started",
+          description: "Pro subscription started",
+          date: subStatus.subscriptionStartDate,
+        });
+      } else {
+        events.push({ type: "active", description: "Pro subscription active" });
       }
-    } catch (error) {
-      console.error("Failed to generate receipt:", error);
+      const periodEnd = subStatus?.subscriptionEndDate || stripeStatus?.stripeCurrentPeriodEnd;
+      if (periodEnd) {
+        events.push({
+          type: "renewed",
+          description: "Current billing period",
+          date: periodEnd,
+          details: "Pro access continues until this date",
+        });
+      }
     }
-  };
 
-  const handleExportAll = () => {
-    generateAllInvoicesPDF(invoices);
-  };
+    if (lastFailureAt) {
+      events.push({
+        type: "payment_failed",
+        description: "Payment attempt failed",
+        date: lastFailureAt,
+        details: `${failureCount} consecutive failed ${failureCount === 1 ? "attempt" : "attempts"}`,
+      });
+    }
+
+    return events;
+  }, [user, lastFailureAt, failureCount, stripeStatus, subStatus, trialStatus, isOnTrial]);
 
   return (
     <AppLayout>
@@ -512,16 +372,14 @@ export default function PaymentHistory() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold tracking-tight">Payment History</h1>
-              <p className="text-muted-foreground mt-1">View your invoices, payment methods, and subscription changes</p>
+              <p className="text-muted-foreground mt-1">
+                Your plan, payment method, and billing records
+              </p>
             </div>
-            <Button variant="outline" className="w-fit" onClick={handleExportAll}>
-              <Download className="w-4 h-4 mr-2" />
-              Export All
-            </Button>
           </div>
         </motion.div>
 
-        {/* Stats Cards */}
+        {/* Stats Cards — derived from real backend state only */}
         <motion.div
           variants={containerVariants}
           initial="hidden"
@@ -529,10 +387,40 @@ export default function PaymentHistory() {
           className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8"
         >
           {[
-            { label: "Total Paid", value: `$${(totalPaid / 100).toFixed(2)}`, icon: DollarSign, color: "bg-green-500", trend: "+$5 this month" },
-            { label: "Pending", value: `$${(totalPending / 100).toFixed(2)}`, icon: Clock, color: "bg-amber-500", trend: "Due soon" },
-            { label: "Invoices", value: invoiceCount.toString(), icon: FileText, color: "bg-blue-500", trend: "All time" },
-            { label: "Next Payment", value: "$5.00", icon: CreditCard, color: "bg-purple-500", trend: "In 15 days" },
+            {
+              label: "Plan",
+              value: planLabel,
+              icon: Wallet,
+              color: "bg-green-500",
+              trend: tier === "pro" ? "Active" : isOnTrial ? "Trial active" : "Free plan",
+            },
+            {
+              label: nextBillingDate ? "Period ends" : "Period",
+              value: nextBillingDate ? formatDate(nextBillingDate) : "—",
+              icon: CalendarClock,
+              color: "bg-blue-500",
+              trend: subStatus?.isActive
+                ? "Pro access active"
+                : isOnTrial
+                  ? "Trial active"
+                  : nextBillingDate
+                    ? "Period recorded"
+                    : "No active billing period",
+            },
+            {
+              label: "Payment method",
+              value: hasPaymentMethod ? "On file" : "None",
+              icon: CreditCard,
+              color: "bg-purple-500",
+              trend: hasPaymentMethod ? "Verified with provider" : "No card or wallet on file",
+            },
+            {
+              label: "Payment failures",
+              value: failureCount > 0 ? failureCount.toString() : "None",
+              icon: AlertTriangle,
+              color: failureCount > 0 ? "bg-red-500" : "bg-amber-500",
+              trend: lastFailureAt ? `Last failed ${formatDate(lastFailureAt)}` : "No failures recorded",
+            },
           ].map((stat, i) => {
             const Icon = stat.icon;
             return (
@@ -543,7 +431,7 @@ export default function PaymentHistory() {
                       <div>
                         <p className="text-xs text-muted-foreground">{stat.label}</p>
                         <p className="text-2xl font-bold mt-1">{stat.value}</p>
-                        <p className="text-xs text-green-500 mt-1">{stat.trend}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{stat.trend}</p>
                       </div>
                       <div className={`flex items-center justify-center w-10 h-10 rounded-xl ${stat.color}`}>
                         <Icon className="w-5 h-5 text-white" />
@@ -560,34 +448,34 @@ export default function PaymentHistory() {
         <motion.div variants={containerVariants} initial="hidden" animate="visible">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
             <TabsList className="h-auto p-1 bg-muted/50 flex flex-wrap">
-              <TabsTrigger value="invoices" className="gap-2">
+              <TabsTrigger value="payments" className="gap-2">
                 <Receipt className="w-4 h-4" />
-                <span className="hidden sm:inline">Invoices</span>
+                <span className="hidden sm:inline">Payments</span>
               </TabsTrigger>
               <TabsTrigger value="payment-methods" className="gap-2">
                 <CreditCard className="w-4 h-4" />
                 <span className="hidden sm:inline">Payment Methods</span>
               </TabsTrigger>
-              <TabsTrigger value="subscription-changes" className="gap-2">
+              <TabsTrigger value="subscription" className="gap-2">
                 <RefreshCw className="w-4 h-4" />
-                <span className="hidden sm:inline">Subscription History</span>
+                <span className="hidden sm:inline">Subscription</span>
               </TabsTrigger>
             </TabsList>
 
-            {/* Invoices Tab */}
-            <TabsContent value="invoices">
+            {/* Payments Tab — real payment records only */}
+            <TabsContent value="payments">
               <Card className="border-border/50">
                 <CardHeader className="pb-3">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
-                      <CardTitle className="text-base">Invoices</CardTitle>
-                      <CardDescription>Your billing history and invoices</CardDescription>
+                      <CardTitle className="text-base">Payments</CardTitle>
+                      <CardDescription>Your payment records from mobile money (MTN / Airtel)</CardDescription>
                     </div>
                     <div className="flex gap-2">
                       <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                         <Input
-                          placeholder="Search invoices..."
+                          placeholder="Search payments..."
                           className="pl-9 h-9 w-48"
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
@@ -597,99 +485,127 @@ export default function PaymentHistory() {
                         value={filterStatus}
                         onChange={(e) => setFilterStatus(e.target.value)}
                         className="h-9 px-3 text-sm bg-muted/50 rounded-lg border-0 focus:ring-2 focus:ring-primary/20"
+                        aria-label="Filter by status"
                       >
                         <option value="all">All Status</option>
-                        <option value="paid">Paid</option>
-                        <option value="open">Pending</option>
-                        <option value="void">Void</option>
+                        <option value="completed">Completed</option>
+                        <option value="pending">Pending</option>
+                        <option value="failed">Failed</option>
+                        <option value="expired">Expired</option>
                       </select>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-3">
-                    {filteredInvoices.length === 0 ? (
-                      <div className="text-center py-12 text-muted-foreground">
-                        <Receipt className="w-12 h-12 mx-auto mb-3 opacity-40" />
-                        <p className="text-sm font-medium">No invoices found</p>
-                        <p className="text-xs mt-1">Your invoices will appear here once you start your subscription</p>
-                      </div>
-                    ) : (
-                      filteredInvoices.map((invoice) => (
-                      <InvoiceCard
-                        key={invoice.id}
-                        invoice={invoice}
-                        onDownload={handleDownloadPdf}
-                        onReceipt={handleDownloadReceipt}
-                        onEmail={handleEmailInvoice}
-                        isEmailing={isEmailingInvoice === invoice.id}
-                      />
-                      ))
-                    )}
-                  </div>
+                  {isLoading ? (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <p className="text-sm">Loading payment records...</p>
+                    </div>
+                  ) : filteredPayments.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <Receipt className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                      <p className="text-sm font-medium">No payment history yet.</p>
+                      <p className="text-xs mt-1 max-w-sm mx-auto">
+                        Payments will appear here after you complete a payment — for example a Pro
+                        subscription or an agronomist consultation.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {filteredPayments.map((payment) => (
+                        <PaymentRecordCard key={payment._id} payment={payment} />
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
 
-            {/* Payment Methods Tab */}
+            {/* Payment Methods Tab — honest state, no stored card numbers */}
             <TabsContent value="payment-methods">
               <Card className="border-border/50">
                 <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-base">Payment Methods</CardTitle>
-                      <CardDescription>Manage your payment cards and methods</CardDescription>
-                    </div>
-                    <Button variant="outline" size="sm">
-                      <CreditCard className="w-4 h-4 mr-1" />
-                      Add Method
-                    </Button>
-                  </div>
+                  <CardTitle className="text-base">Payment Methods</CardTitle>
+                  <CardDescription>Your payment method on file</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-3">
-                    {paymentMethods.length === 0 ? (
-                      <div className="text-center py-12 text-muted-foreground">
-                        <CreditCard className="w-12 h-12 mx-auto mb-3 opacity-40" />
-                        <p className="text-sm font-medium">No payment methods</p>
-                        <p className="text-xs mt-1">Add a payment method to subscribe to Pro</p>
-                      </div>
-                    ) : (
-                      paymentMethods.map((method) => (
-                        <PaymentMethodCard key={method.id} method={method} />
-                      ))
-                    )}
-
-                    <div className="flex items-center gap-2 mt-4 p-3 rounded-lg bg-muted/30 text-xs text-muted-foreground">
-                      <Shield className="w-4 h-4" />
-                      <span>Your payment information is encrypted and secure. We never store your full card details.</span>
+                  {isLoading ? (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <p className="text-sm">Loading payment method...</p>
                     </div>
+                  ) : hasPaymentMethod ? (
+                    <div className="flex items-center gap-3 p-4 rounded-xl border border-border/50 bg-muted/20">
+                      <div className="flex items-center justify-center w-12 h-8 rounded-lg bg-green-600 text-white text-xs font-bold">
+                        <CheckCircle2 className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">Payment method on file</p>
+                        <p className="text-xs text-muted-foreground">
+                          Verified with your payment provider. Card details are never stored by FarmBond.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <CreditCard className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                      <p className="text-sm font-medium">No payment method on file</p>
+                      <p className="text-xs mt-1">
+                        A payment method is added when you subscribe to Pro. FarmBond never stores your
+                        full card details.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2 mt-4 p-3 rounded-lg bg-muted/30 text-xs text-muted-foreground">
+                    <Shield className="w-4 h-4" />
+                    <span>
+                      Your payment information is handled securely by your payment provider. We never
+                      store full card numbers.
+                    </span>
                   </div>
                 </CardContent>
               </Card>
             </TabsContent>
 
-            {/* Subscription Changes Tab */}
-            <TabsContent value="subscription-changes">
+            {/* Subscription Tab — real plan state and real events */}
+            <TabsContent value="subscription">
               <Card className="border-border/50">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Subscription History</CardTitle>
-                  <CardDescription>Track all changes to your subscription</CardDescription>
+                  <CardTitle className="text-base">Subscription</CardTitle>
+                  <CardDescription>Your current plan and subscription activity</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-3">
-                    {subscriptionChanges.length === 0 ? (
-                      <div className="text-center py-12 text-muted-foreground">
-                        <RefreshCw className="w-12 h-12 mx-auto mb-3 opacity-40" />
-                        <p className="text-sm font-medium">No subscription changes</p>
-                        <p className="text-xs mt-1">Your subscription history will appear here</p>
-                      </div>
-                    ) : (
-                      subscriptionChanges.map((change, i) => (
-                        <SubscriptionChangeCard key={i} change={change} />
-                      ))
-                    )}
+                  <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-muted/20 mb-4">
+                    <div>
+                      <p className="text-sm font-medium">{planLabel} plan</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {nextBillingDate
+                          ? `Current period ends ${formatDate(nextBillingDate)}`
+                          : "No active billing period"}
+                      </p>
+                    </div>
+                    <Badge className={tier === "pro" ? "bg-green-500/10 text-green-600" : "bg-muted text-muted-foreground"}>
+                      {tier === "pro" ? "Active" : isOnTrial ? "Trial" : "Free"}
+                    </Badge>
                   </div>
+
+                  {isLoading ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <p className="text-sm">Loading subscription...</p>
+                    </div>
+                  ) : subscriptionEvents.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <RefreshCw className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                      <p className="text-sm font-medium">No subscription activity yet</p>
+                      <p className="text-xs mt-1">Your subscription changes will appear here</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {subscriptionEvents.map((event, i) => (
+                        <SubscriptionEventCard key={i} event={event} />
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -715,7 +631,7 @@ export default function PaymentHistory() {
                     Contact our support team for billing inquiries, refund requests, or payment issues.
                   </p>
                 </div>
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" onClick={() => navigate("/support")}>
                   Contact Support
                 </Button>
               </div>
