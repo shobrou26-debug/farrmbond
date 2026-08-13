@@ -17,7 +17,6 @@ import {
   ChevronRight,
   ArrowRight,
   Check,
-  Star,
   Globe,
   Smartphone,
   Menu,
@@ -75,8 +74,8 @@ function Navbar() {
             <a href="#pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
               Pricing
             </a>
-            <a href="#testimonials" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Testimonials
+            <a href="#built-for-farmers" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              Built for Farmers
             </a>
           </div>
 
@@ -120,8 +119,8 @@ function Navbar() {
               <a href="#pricing" className="text-sm text-muted-foreground hover:text-foreground py-2" onClick={() => setMobileMenuOpen(false)}>
                 Pricing
               </a>
-              <a href="#testimonials" className="text-sm text-muted-foreground hover:text-foreground py-2" onClick={() => setMobileMenuOpen(false)}>
-                Testimonials
+              <a href="#built-for-farmers" className="text-sm text-muted-foreground hover:text-foreground py-2" onClick={() => setMobileMenuOpen(false)}>
+                Built for Farmers
               </a>
             </div>
           </motion.div>
@@ -357,10 +356,11 @@ const plans = [
     description: "Perfect for small farms getting started",
     features: [
       "1 farm",
-      "5 crop tracking",
+      "5 crops",
+      "5 livestock entries",
       "Basic weather",
       "Community access",
-      "Limited AI (10/day)",
+      "Limited AI (5/day)",
     ],
     cta: "Get Started Free",
     popular: false,
@@ -447,67 +447,88 @@ function PricingSection() {
 }
 
 // ============================================================
-// Testimonials Section
+// Built for Farmers Section
 // ============================================================
 
-const testimonials = [
+// Data honesty: capability cards describing what FarmBond is designed
+// to help farmers accomplish. No customer testimonials, names, or
+// invented results — real user stories will be added only when they
+// exist and can be verified.
+const farmerOutcomes = [
   {
-    name: "Grace Wanjiku",
-    role: "Tomato Farmer, Nairobi",
-    content: "FarmBond's AI assistant helped me identify early blight before it spread. Saved my entire crop! The weather alerts are incredibly accurate.",
-    rating: 5,
+    icon: Leaf,
+    title: "Spot Crop Problems Early",
+    description: "Use AI-assisted diagnosis and satellite vegetation analysis to identify crop stress, disease, and pest issues before they spread.",
+    color: "bg-green-500",
   },
   {
-    name: "Peter Mwangi",
-    role: "Mixed Farmer, Nakuru",
-    content: "Managing 120 acres was a nightmare. Now I can track everything from my phone. The analytics helped me cut costs by 23%.",
-    rating: 5,
+    icon: Cloud,
+    title: "Plan Around the Weather",
+    description: "Access real-time forecasts and agricultural alerts for planting, irrigation, and harvesting — tuned to your farm's location.",
+    color: "bg-blue-500",
   },
   {
-    name: "Dr. James Ochieng",
-    role: "Agronomist, Kisumu",
-    content: "As a consultant, FarmBond helps me manage my clients better. The remote monitoring and AI diagnostics save me hours of travel.",
-    rating: 5,
+    icon: BarChart3,
+    title: "Track Costs & Income",
+    description: "Record expenses, sales, and yields so you can see what's working financially and plan the next season with real numbers.",
+    color: "bg-amber-500",
+  },
+  {
+    icon: Bot,
+    title: "Get Answers Anytime",
+    description: "Ask the AI farming assistant questions about crops, livestock, and best practices — day or night.",
+    color: "bg-purple-500",
+  },
+  {
+    icon: Users,
+    title: "Connect with Agronomists",
+    description: "Find reviewed agronomists, book consultations, and get expert advice tailored to your farm.",
+    color: "bg-rose-500",
+  },
+  {
+    icon: Map,
+    title: "Keep Every Farm Organized",
+    description: "Manage crops, livestock, irrigation, and calendar events for all your farms in one place.",
+    color: "bg-emerald-500",
   },
 ];
 
-function TestimonialsSection() {
+function BuiltForFarmersSection() {
   return (
-    <section id="testimonials" className="py-24">
+    <section id="built-for-farmers" className="py-24">
       <div className="max-w-7xl mx-auto px-4 md:px-6">
         <div className="text-center mb-16">
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-            <Badge variant="secondary" className="mb-4">Testimonials</Badge>
+            <Badge variant="secondary" className="mb-4">Built for Farmers</Badge>
             <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
-              Trusted by <span className="text-gradient-primary">Farmers Worldwide</span>
+              What FarmBond <span className="text-gradient-primary">Helps You Do</span>
             </h2>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+              FarmBond is designed to help farmers make better decisions with better information.
+            </p>
           </motion.div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-          {testimonials.map((testimonial, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: i * 0.1 }}
-              className="p-6 rounded-2xl bg-card border border-border/50"
-            >
-              <div className="flex gap-1 mb-4">
-                {Array.from({ length: testimonial.rating }).map((_, j) => (
-                  <Star key={j} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                ))}
-              </div>
-              <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-                "{testimonial.content}"
-              </p>
-              <div>
-                <p className="font-semibold text-sm">{testimonial.name}</p>
-                <p className="text-xs text-muted-foreground">{testimonial.role}</p>
-              </div>
-            </motion.div>
-          ))}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+          {farmerOutcomes.map((item, i) => {
+            const Icon = item.icon;
+            return (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.1 }}
+                className="p-6 rounded-2xl bg-card border border-border/50 hover:border-primary/20 hover:shadow-lg transition-all"
+              >
+                <div className={`flex items-center justify-center w-12 h-12 rounded-xl ${item.color} mb-4`}>
+                  <Icon className="w-6 h-6 text-white" />
+                </div>
+                <h3 className="text-lg font-semibold mb-2">{item.title}</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">{item.description}</p>
+              </motion.div>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -535,7 +556,8 @@ function CTASection() {
               Ready to Transform Your Farm?
             </h2>
             <p className="text-white/80 max-w-xl mx-auto mb-8">
-              Join thousands of farmers who are using FarmBond to increase yields, reduce costs, and build sustainable farming operations.
+              Start farming smarter. Track your crops, plan around the weather, and get expert
+              help when you need it — all in one place.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link to="/auth">
@@ -623,7 +645,7 @@ export default function Landing() {
       <HeroSection />
       <FeaturesSection />
       <PricingSection />
-      <TestimonialsSection />
+      <BuiltForFarmersSection />
       <CTASection />
       <Footer />
     </div>

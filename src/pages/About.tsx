@@ -33,51 +33,48 @@ const itemVariants = {
 };
 
 // ============================================================
-// Team Members
+// Our Approach
 // ============================================================
 
-const teamMembers = [
+// Data honesty: descriptions of how FarmBond works, not fictional
+// employee biographies. Real team members will be listed here once
+// they are publicly confirmed.
+const approach = [
   {
-    name: "Dr. Sarah Kimani",
-    role: "CEO & Co-Founder",
-    bio: "Former agricultural scientist at KALRO with 15 years of experience in crop science. Passionate about leveraging technology to empower smallholder farmers across Africa.",
-    avatar: "SK",
+    icon: Target,
+    title: "Farmer-First Design",
+    description: "Every feature starts with a real farming problem — tracking crops, reading the weather, or getting expert advice. We build tools that are simple enough for a first-time user and powerful enough for a commercial operation.",
     color: "bg-green-500",
   },
   {
-    name: "James Ochieng",
-    role: "CTO & Co-Founder",
-    bio: "Ex-Google engineer with expertise in AI/ML and distributed systems. Built real-time data pipelines serving millions of users before founding FarmBond.",
-    avatar: "JO",
+    icon: Shield,
+    title: "Data You Can Trust",
+    description: "We are committed to transparent data: clearly labeled market benchmarks, honest AI limitations, and impact we can actually measure and verify.",
     color: "bg-blue-500",
   },
   {
-    name: "Maria Wanjiku",
-    role: "Head of Product",
-    bio: "Product leader with experience at Stripe and Shopify. Specializes in building intuitive tools that make complex technology accessible to everyone.",
-    avatar: "MW",
-    color: "bg-purple-500",
-  },
-  {
-    name: "Dr. Peter Odhiambo",
-    role: "Chief Agronomist",
-    bio: "PhD in Plant Pathology from University of Nairobi. Leads our AI-powered crop health recommendations and disease detection systems.",
-    avatar: "PO",
+    icon: Zap,
+    title: "Science, Not Guesswork",
+    description: "Our AI, satellite, and agronomic features are grounded in agricultural science — and tested with farmers before they reach the product.",
     color: "bg-amber-500",
   },
   {
-    name: "Grace Nyambura",
-    role: "Head of Engineering",
-    bio: "Full-stack engineer with a passion for scalable systems. Previously led engineering teams at Safaricom's innovation lab.",
-    avatar: "GN",
-    color: "bg-rose-500",
+    icon: Globe,
+    title: "Built for African Farms",
+    description: "From smallholder plots to commercial operations, we design for the connectivity, scale, and farming practices found across the continent.",
+    color: "bg-purple-500",
   },
   {
-    name: "David Mwangi",
-    role: "Head of Design",
-    bio: "Award-winning designer focused on creating beautiful, accessible experiences. Believes great design should feel invisible and intuitive.",
-    avatar: "DM",
+    icon: BookOpen,
+    title: "Knowledge for Everyone",
+    description: "We pair AI guidance with a knowledge base and community so farmers can learn from science — and from each other.",
     color: "bg-emerald-500",
+  },
+  {
+    icon: Users,
+    title: "Experts on Demand",
+    description: "Agronomists join the platform to share expertise, and every consultant is reviewed before they can offer services to farmers.",
+    color: "bg-rose-500",
   },
 ];
 
@@ -296,40 +293,38 @@ export default function About() {
             </div>
           </motion.div>
 
-          {/* Team Section */}
+          {/* Our Approach Section */}
           <motion.div variants={itemVariants}>
             <div className="text-center mb-12">
               <Badge variant="secondary" className="mb-4">
-                <Users className="w-3.5 h-3.5 mr-1.5" />
-                Our Team
+                <Target className="w-3.5 h-3.5 mr-1.5" />
+                Our Approach
               </Badge>
               <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">
-                Meet the People Behind FarmBond
+                How We Build FarmBond
               </h2>
               <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                A diverse team of agricultural scientists, engineers, designers, and
-                operators united by a shared mission.
+                FarmBond is built by a team of engineers, scientists, and designers — and we
+                believe honesty about what our product can and cannot do is part of good farming.
               </p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {teamMembers.map((member, i) => (
-                <motion.div
-                  key={i}
-                  variants={itemVariants}
-                  className="p-6 rounded-2xl bg-card border border-border/50 hover:border-primary/20 hover:shadow-lg transition-all"
-                >
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className={`flex items-center justify-center w-14 h-14 rounded-xl ${member.color} text-white text-lg font-bold`}>
-                      {member.avatar}
+              {approach.map((item, i) => {
+                const Icon = item.icon;
+                return (
+                  <motion.div
+                    key={i}
+                    variants={itemVariants}
+                    className="p-6 rounded-2xl bg-card border border-border/50 hover:border-primary/20 hover:shadow-lg transition-all"
+                  >
+                    <div className={`flex items-center justify-center w-12 h-12 rounded-xl ${item.color} mb-4`}>
+                      <Icon className="w-6 h-6 text-white" />
                     </div>
-                    <div>
-                      <h3 className="font-semibold">{member.name}</h3>
-                      <p className="text-sm text-primary">{member.role}</p>
-                    </div>
-                  </div>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{member.bio}</p>
-                </motion.div>
-              ))}
+                    <h3 className="text-lg font-semibold mb-2">{item.title}</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{item.description}</p>
+                  </motion.div>
+                );
+              })}
             </div>
           </motion.div>
 
