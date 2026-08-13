@@ -2,7 +2,6 @@ import { motion } from "framer-motion";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Sprout,
   ArrowLeft,
@@ -17,9 +16,6 @@ import {
   BookOpen,
   Award,
   TrendingUp,
-  Mail,
-  MapPin,
-  ExternalLink,
 } from "lucide-react";
 
 // ============================================================
@@ -132,11 +128,14 @@ const values = [
 // Stats
 // ============================================================
 
+// Data honesty: capability descriptors, not fabricated adoption/impact
+// metrics. Real usage numbers will be shown here once they exist and
+// can be verified.
 const stats = [
-  { value: "50,000+", label: "Farmers Served", icon: Users },
-  { value: "12", label: "Countries", icon: Globe },
-  { value: "2.5M", label: "AI Recommendations", icon: Zap },
-  { value: "150K", label: "Hectares Monitored", icon: TrendingUp },
+  { value: "24/7", label: "AI Farming Assistant", icon: Zap },
+  { value: "Live", label: "Weather & Alerts", icon: Globe },
+  { value: "Field-level", label: "Satellite Monitoring", icon: TrendingUp },
+  { value: "On-demand", label: "Agronomist Access", icon: Users },
 ];
 
 // ============================================================
@@ -225,14 +224,15 @@ export default function About() {
                     information that large-scale operations take for granted.
                   </p>
                   <p>
-                    FarmBridge was founded in 2024 with a simple but powerful idea: what if
+                    FarmBond was founded in 2024 with a simple but powerful idea: what if
                     every farmer had access to AI-powered insights, real-time weather data,
                     satellite monitoring, and expert agronomic advice—all from their phone?
                   </p>
                   <p>
-                    Today, we serve over 50,000 farmers across 12 countries, helping them make
-                    data-driven decisions that increase yields by an average of 23% while
-                    reducing input costs by 18%.
+                    FarmBond is built to give every farmer—from smallholder plots to
+                    commercial operations—the same precision-agriculture tools that large
+                    agribusinesses rely on. We are committed to measuring our impact
+                    transparently as our community grows.
                   </p>
                 </div>
               </div>
@@ -240,10 +240,10 @@ export default function About() {
                 <div className="aspect-square rounded-3xl bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 p-8 flex items-center justify-center">
                   <div className="grid grid-cols-2 gap-4 w-full max-w-xs">
                     {[
-                      { icon: Leaf, label: "Crops", value: "2.5M", color: "bg-green-500" },
-                      { icon: Globe, label: "Countries", value: "12", color: "bg-blue-500" },
-                      { icon: Zap, label: "AI Daily", value: "50K+", color: "bg-purple-500" },
-                      { icon: TrendingUp, label: "Yield Gain", value: "23%", color: "bg-amber-500" },
+                      { icon: Leaf, label: "Crop Health", value: "AI Scans", color: "bg-green-500" },
+                      { icon: Globe, label: "Weather", value: "Live", color: "bg-blue-500" },
+                      { icon: Zap, label: "AI Assistant", value: "24/7", color: "bg-purple-500" },
+                      { icon: TrendingUp, label: "Yield Insights", value: "Data-driven", color: "bg-amber-500" },
                     ].map((item, i) => {
                       const Icon = item.icon;
                       return (
@@ -349,28 +349,25 @@ export default function About() {
                     still making decisions based on guesswork and outdated information.
                   </p>
                   <p>
-                    Our founders, Dr. Sarah Kimani and James Ochieng, met at a agricultural
-                    technology conference in Nairobi in 2023. Sarah had spent 15 years as a crop
-                    scientist at KALRO, witnessing firsthand how lack of timely information
-                    devastated harvests. James had built real-time data systems at Google and
-                    saw an opportunity to apply those same technologies to farming.
+                    FarmBond was built by a team of agricultural scientists, software
+                    engineers, and designers who saw firsthand how a lack of timely information
+                    can devastate a harvest—and who believe technology can give every farmer a
+                    fair chance.
                   </p>
                   <p>
-                    Together, they assembled a team of agricultural scientists, AI engineers,
-                    and designers who shared their vision. In January 2024, FarmBond launched
-                    its first pilot with 500 farmers in Nakuru County, Kenya. Within six months,
-                    those farmers reported an average yield increase of 23%.
+                    Since 2024, we've been building and testing the platform alongside
+                    agronomists and farmers, refining the science, the data, and the experience
+                    before we scale.
                   </p>
                   <p>
-                    Today, FarmBond serves over 50,000 farmers across 12 countries, from
-                    smallholder plots in East Africa to commercial farms in West Africa. We've
-                    helped farmers save an estimated $12 million in input costs and increase
-                    their revenues by over $45 million.
+                    FarmBond is now open to farmers everywhere. We are committed to transparent,
+                    verifiable impact: as our community grows, we will publish real, measured
+                    results—not estimates.
                   </p>
                   <p>
-                    But we're just getting started. Our goal is to reach 1 million farmers by
-                    2028, making precision agriculture accessible to every farmer who wants it,
-                    regardless of their scale, location, or technical expertise.
+                    But we're just getting started. Our goal is to make precision agriculture
+                    accessible to every farmer who wants it—regardless of their scale, location,
+                    or technical expertise.
                   </p>
                 </div>
               </div>
