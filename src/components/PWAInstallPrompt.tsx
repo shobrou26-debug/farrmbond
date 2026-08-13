@@ -95,7 +95,9 @@ export function PWAInstallPrompt() {
               <div className="flex-1 min-w-0">
                 <h3 className="text-sm font-semibold">Install FarmBond</h3>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Add to your home screen for quick access and offline support.
+                  Add to your home screen for quick access. (Offline is
+                  limited to previously viewed content — data entry still
+                  needs a connection.)
                 </p>
                 <div className="flex items-center gap-2 mt-3">
                   <Button size="sm" onClick={handleInstall} className="gradient-primary">

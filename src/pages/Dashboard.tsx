@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router";
 import { FarmHealthScoreWidget, IntelligenceInsightsWidget } from "@/components/FarmHealthScoreWidget";
+import { AdminBootstrapCard } from "@/components/AdminBootstrapCard";
 import { useQuery } from "convex/react";
 
 // ============================================================
@@ -487,6 +488,9 @@ export default function Dashboard() {
             Here's what's happening on your farm today.
           </p>
         </motion.div>
+
+        {/* Initial admin bootstrap (renders nothing unless needed) */}
+        <AdminBootstrapCard />
 
         <motion.div
           variants={containerVariants}

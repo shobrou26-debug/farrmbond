@@ -66,12 +66,15 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     if (!isAuthenticated || !user || trialStatus === undefined) return;
     // Admins don't need a trial; everyone else gets the 7-day Pro trial.
     if (user.role === "admin" || user.role === "super_admin") return;
-    if (trialStatus.trialEndDate === undefined && trialStatus.subscriptionTier === "free") {
-      startTrial().catch((err) => {
-        // Ignore — the trial is single-use; a second attempt is expected.
-        console.warn("[Trial] Could not auto-start trial:", err instanceof Error ? err.message : err);
-      });
-    }
+    // Only attempt when the server says a trial is available. This
+    // excludes guest/anonymous accounts, users who already used a trial,
+    // and users who have ever paid (paid-then-cancelled users must
+    // re-subscribe, not re-trial). The mutation re-checks server-side.
+    if (!trialStatus.canStartTrial) return;
+    startTrial().catch((err) => {
+      // Ignore — the trial is single-use; a second attempt is expected.
+      console.warn("[Trial] Could not auto-start trial:", err instanceof Error ? err.message : err);
+    });
   }, [isAuthenticated, user, trialStatus, startTrial]);
   const handleEmailSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

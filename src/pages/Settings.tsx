@@ -468,6 +468,13 @@ function SubscriptionTab() {
   const trialDaysRemaining = trialStatus?.trialDaysRemaining ?? 0;
   const trialEndDate = trialStatus?.trialEndDate;
   const hasUsedTrial = trialStatus?.hasUsedTrial ?? false;
+  const hasEverPaid = trialStatus?.hasEverPaid ?? false;
+  const isAnonymous = trialStatus?.isAnonymous ?? false;
+
+  // Mirrors the server rule (api.trials.getTrialStatus.canStartTrial):
+  // a trial is only offered to never-paid, never-trialed, non-anonymous
+  // accounts on the free tier. Paid-then-cancelled users must re-subscribe.
+  const canUseTrial = tier === "free" && !hasUsedTrial && !hasEverPaid && !isAnonymous;
 
   // Subscription status for paid users
   const isPaid = tier === "pro" && !isTrialActive;
@@ -516,7 +523,7 @@ function SubscriptionTab() {
               </div>
               <p className="text-sm text-muted-foreground">
                 {tier === "free"
-                  ? hasUsedTrial
+                  ? !canUseTrial
                     ? "Limited features • 1 farm"
                     : "Limited features • Start your free trial!"
                   : isTrialActive
@@ -786,8 +793,8 @@ function SubscriptionTab() {
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">FarmBond Pro</CardTitle>
-            {tier === "free" && !hasUsedTrial && <Badge className="gradient-primary text-[10px]">Free Trial Available</Badge>}
-            {tier === "free" && hasUsedTrial && <Badge className="bg-gray-500/10 text-gray-600 text-[10px]">Upgrade Required</Badge>}
+            {canUseTrial && <Badge className="gradient-primary text-[10px]">Free Trial Available</Badge>}
+            {tier === "free" && !canUseTrial && <Badge className="bg-gray-500/10 text-gray-600 text-[10px]">Upgrade Required</Badge>}
             {(tier === "pro" && !isTrialActive) && <Badge className="bg-green-500/10 text-green-600 text-[10px]">Current Plan</Badge>}
             {(tier === "pro" && isTrialActive) && <Badge className="bg-amber-500/10 text-amber-600 text-[10px]">Trial Active</Badge>}
           </div>
@@ -816,7 +823,7 @@ function SubscriptionTab() {
             ))}
           </ul>
           <div className="mt-4 space-y-3">
-            {tier === "free" && !hasUsedTrial && (
+            {canUseTrial && (
               <Button
                 className="w-full bg-amber-500 hover:bg-amber-600 text-white"
                 onClick={handleStartTrial}
@@ -829,7 +836,7 @@ function SubscriptionTab() {
                 )}
               </Button>
             )}
-            {tier === "free" && hasUsedTrial && (
+            {tier === "free" && !canUseTrial && (
               <>
                 {/* Card Payment Button */}
                 <Button

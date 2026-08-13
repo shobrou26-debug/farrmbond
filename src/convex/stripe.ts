@@ -9,8 +9,30 @@ import { internal } from "./_generated/api";
 // ============================================================
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID || "price_farmbond_pro_monthly";
+// No placeholder fallback: a missing STRIPE_PRICE_ID must fail loudly at
+// checkout time rather than silently sending a fake price ID to Stripe
+// (which would either error or, worse, charge the wrong product).
+const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID;
 const APP_URL = process.env.APP_URL || "https://farmbond.com";
+
+/**
+ * Pure: return a human-readable error when Stripe is not fully configured,
+ * or null when it is. Checkout refuses to start until both the secret key
+ * and the real Pro price ID are set — the fake/default price id fallback
+ * has been removed so it can never be used in production by accident.
+ */
+export function stripeConfigError(
+  secretKey?: string,
+  priceId?: string
+): string | null {
+  if (!secretKey) {
+    return "Stripe is not configured: STRIPE_SECRET_KEY is missing. Add it via the Keys/API keys tab.";
+  }
+  if (!priceId) {
+    return "Stripe is not fully configured: STRIPE_PRICE_ID is missing. Set it to your Pro monthly price ID (created in the Stripe dashboard) before enabling checkout.";
+  }
+  return null;
+}
 
 /**
  * Pure: does this Stripe subscription ID belong to this user?
@@ -74,9 +96,15 @@ export const createCheckoutSession = action({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Authentication required");
 
-    if (!STRIPE_SECRET_KEY) {
-      throw new Error("Stripe is not configured. Please contact support.");
+    // Fail loudly (never silently use a placeholder price) when Stripe is
+    // not fully configured with a real secret key AND real price ID.
+    const configError = stripeConfigError(STRIPE_SECRET_KEY, STRIPE_PRICE_ID);
+    if (configError) {
+      throw new Error(configError);
     }
+    // Both env values are guaranteed present past this point (the guard
+    // above throws otherwise) — bind the price ID for the request below.
+    const priceId = STRIPE_PRICE_ID as string;
 
     // Check if user already has a Stripe subscription
     if (args.stripeSubscriptionId) {
@@ -134,7 +162,7 @@ export const createCheckoutSession = action({
       },
       body: new URLSearchParams({
         customer: customerId || "",
-        "line_items[0][price]": STRIPE_PRICE_ID,
+        "line_items[0][price]": priceId,
         "line_items[0][quantity]": "1",
         mode: "subscription",
         success_url: `${APP_URL}/settings?tab=subscription&payment=success`,
@@ -393,6 +421,9 @@ export const activateSubscription = internalMutation({
       paymentFailedAt: undefined,
       paymentFailureCount: 0,
       trialEndDate: undefined,
+      // A real (webhook-verified) paid subscription — marks the account as
+      // paid so it can never claim a free trial after cancelling.
+      hasEverPaid: true,
       updatedAt: now,
     });
 

@@ -270,3 +270,53 @@ When using convex, make sure:
 - This includes importing generated files like `@/convex/_generated/server`, `@/convex/_generated/api`
 - Remember to import functions like useQuery, useMutation, useAction, etc. from `convex/react`
 - NEVER have return type validators.
+
+
+## First Admin Setup (Initial Production Bootstrap)
+
+FarmBond has no "make me admin" button, and no code path lets a normal user
+escalate. The very first admin is created through a controlled,
+server-gated bootstrap:
+
+1. Set the environment variable `BOOTSTRAP_ADMIN_EMAIL` to the project
+   owner's email in the Convex environment (Keys/API keys tab). Do not
+   commit it to code, and remove it after bootstrap.
+2. Sign in to the app with exactly that email.
+3. Open the Dashboard. An "Initial admin setup" card appears **only**
+   while no administrator exists. Click "Claim initial admin access".
+4. Verify the role in Admin Dashboard, then delete `BOOTSTRAP_ADMIN_EMAIL`.
+
+Security properties (server-enforced, `src/convex/adminBootstrap.ts`):
+- Requires an authenticated session (never unauthenticated).
+- Caller email must exactly match `BOOTSTRAP_ADMIN_EMAIL`.
+- Permanently inert once any admin/super_admin exists.
+- The promotion is audit-logged (`admin_bootstrapped`).
+
+## Environment Variables (Release)
+
+Server-side (Convex env / Keys tab):
+- `BOOTSTRAP_ADMIN_EMAIL` — first-admin bootstrap (remove after setup)
+- `FREEBUFF_EMAIL_API_KEY` — OTP delivery (login requires it)
+- `GROQ_API_KEY` — AI chat
+- `GOOGLE_GEMINI_API_KEY` — AI image analysis + chat fallback
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID` — billing
+  (checkout refuses to run without a real price ID — no placeholder)
+- `MTN_MOMO_API_KEY`, `MTN_MOMO_API_USER`, `MTN_MOMO_SUBSCRIPTION_KEY`,
+  `MTN_MOMO_ENVIRONMENT`, `AIRTEL_MONEY_CLIENT_ID`,
+  `AIRTEL_MONEY_CLIENT_SECRET`, `MOBILE_MONEY_WEBHOOK_SECRET` — mobile money
+- `COPERNICUS_CLIENT_ID`, `COPERNICUS_CLIENT_SECRET` — Sentinel-2 satellite
+- `BREVO_API_KEY` — transactional email (degrades gracefully)
+- `APP_URL` — your production origin (webhook/checkout URLs are built from it)
+
+Client-side (Vite): `VITE_CONVEX_URL` (already configured by the platform).
+
+## Honest Release Notes
+
+- **Language:** English-only. en/sw/fr dictionaries exist but are not
+  wired into the UI; the language switcher is intentionally disabled.
+- **Market data:** "Reference prices" are static regional benchmarks
+  (labeled `not live market data`), not a live feed.
+- **Offline:** PWA shell + cached reads only. Data entry requires a
+  connection; there is no offline create/edit queue.
+- **Trial:** one 7-day trial per account, ever. Guest/anonymous accounts
+  cannot trial; users who have ever paid must re-subscribe.

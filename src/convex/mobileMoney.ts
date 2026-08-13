@@ -593,6 +593,9 @@ export const updateTransactionStatus = internalMutation({
         paymentFailedAt: undefined,
         paymentFailureCount: 0,
         trialEndDate: undefined,
+        // Real (provider-confirmed, full-priced) payment — marks the account
+        // as paid so it can never claim a free trial after cancelling.
+        hasEverPaid: true,
         updatedAt: now,
       });
 

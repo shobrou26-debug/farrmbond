@@ -24,13 +24,65 @@ const WARNING_DAYS = 2; // Send warning 2 days before expiry
 // scheduled email per user and stays at the default 200.
 const EXPIRE_TRIALS_BATCH = 500;
 
+export type TrialDecision =
+  | { allowed: true }
+  | { allowed: false; reason: string };
+
+/**
+ * Pure: may this user start the 7-day Pro trial?
+ *
+ * Rules (all enforced server-side):
+ * - One trial per account, ever (hasUsedTrial or any trialEndDate history).
+ * - A user who has ever paid (hasEverPaid) can never trial again after
+ *   cancellation — paid customers must re-subscribe.
+ * - Anonymous/guest accounts cannot trial — otherwise a script could create
+ *   unlimited guest accounts to farm unlimited free Pro weeks + AI quota.
+ * - Existing Pro accounts cannot trial.
+ * - First-time users are unaffected.
+ */
+export function canStartTrial(
+  user: {
+    trialEndDate?: number;
+    subscriptionStartDate?: number;
+    subscriptionEndDate?: number;
+    subscriptionTier?: string;
+    hasUsedTrial?: boolean;
+    hasEverPaid?: boolean;
+    isAnonymous?: boolean;
+  },
+  now: number = Date.now()
+): TrialDecision {
+  if (user.isAnonymous === true) {
+    return {
+      allowed: false,
+      reason: "Guest accounts cannot start a free trial. Create an account with your email first.",
+    };
+  }
+  if (user.hasEverPaid === true) {
+    return {
+      allowed: false,
+      reason: "You have already subscribed to FarmBond. The free trial is for first-time users only.",
+    };
+  }
+  if (user.hasUsedTrial === true || user.trialEndDate !== undefined) {
+    if (user.trialEndDate !== undefined && user.trialEndDate > now) {
+      return { allowed: false, reason: "You already have an active trial. No need to start another one." };
+    }
+    return { allowed: false, reason: "You have already used your free trial. Please upgrade to Pro to continue." };
+  }
+  if (user.subscriptionTier === "pro") {
+    return { allowed: false, reason: "You're already on the Pro plan!" };
+  }
+  return { allowed: true };
+}
+
 /**
  * Get the current user's trial status
  */
 export const getTrialStatus = query({
   args: {},
   handler: async (ctx) => {
-    const { userId, user } = await requireAuth(ctx);
+    const { user } = await requireAuth(ctx);
 
     const now = Date.now();
     const trialEnd = user.trialEndDate;
@@ -38,15 +90,22 @@ export const getTrialStatus = query({
     const trialDaysRemaining = trialEnd
       ? Math.max(0, Math.ceil((trialEnd - now) / (24 * 60 * 60 * 1000)))
       : 0;
-    const hasUsedTrial = user.subscriptionStartDate !== undefined && 
-      user.subscriptionTier === "free" && 
-      trialEnd !== undefined;
+    // hasUsedTrial: explicit flag (new) OR the legacy derivation (trial
+    // started + since downgraded) so pre-migration users stay blocked.
+    const hasUsedTrial =
+      user.hasUsedTrial === true ||
+      (trialEnd !== undefined && user.subscriptionStartDate !== undefined);
 
     return {
       isTrialActive,
       trialEndDate: trialEnd,
       trialDaysRemaining,
       hasUsedTrial,
+      hasEverPaid: user.hasEverPaid === true,
+      isAnonymous: user.isAnonymous === true,
+      // Server-computed — the client uses this to decide whether to even
+      // attempt startTrial; the mutation re-checks the same rule.
+      canStartTrial: canStartTrial(user, now).allowed,
       subscriptionTier: user.subscriptionTier || "free",
     };
   },
@@ -63,21 +122,13 @@ export const startTrial = mutation({
 
     const now = Date.now();
 
-    // Check if user already used or is in a trial
-    if (user.trialEndDate !== undefined) {
-      // If trial is still active, don't allow restart
-      if (user.trialEndDate > now) {
-        throw new Error("You already have an active trial. No need to start another one.");
-      }
-      // If trial expired, check if they've ever been on a paid plan
-      if (user.subscriptionStartDate !== undefined) {
-        throw new Error("You have already used your free trial. Please upgrade to Pro to continue.");
-      }
-    }
-
-    // Check if they're already on Pro
-    if (user.subscriptionTier === "pro") {
-      throw new Error("You're already on the Pro plan!");
+    // Single server-side rule decides whether a trial may be granted.
+    // Covers: used trial, active trial, paid-before (even after cancel),
+    // anonymous accounts, and existing Pro. Re-checked here — the client
+    // effect only mirrors this decision.
+    const decision = canStartTrial(user, now);
+    if (!decision.allowed) {
+      throw new Error(decision.reason);
     }
 
     const trialEnd = now + TRIAL_DURATION_MS;
@@ -88,6 +139,7 @@ export const startTrial = mutation({
       subscriptionStartDate: now,
       subscriptionEndDate: trialEnd,
       trialEndDate: trialEnd,
+      hasUsedTrial: true,
       updatedAt: now,
     });
 

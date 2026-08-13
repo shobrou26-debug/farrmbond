@@ -26,7 +26,6 @@ import {
   HelpCircle,
   Sun,
   Moon,
-  Globe,
   Zap,
   MoreHorizontal,
   Mail,
@@ -51,7 +50,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { NotificationCenter } from "@/components/NotificationCenter";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { CookieConsentBanner, CookiePreferencesModal } from "@/components/CookiePreferences";
 import { AdPopup, SidebarAdBanner } from "@/components/AdPopup";
 
@@ -325,8 +323,10 @@ function Header({ onMenuClick }: { onMenuClick: () => void }) {
           )}
         </Button>
 
-        {/* Language */}
-        <LanguageSwitcher />
+        {/* Language switcher intentionally disabled: the en/sw/fr
+            dictionaries are not wired into the UI yet. Showing a switcher
+            that does nothing would mislead users into thinking the app is
+            translated. FarmBond is currently English-only. */}
 
         {/* Notifications */}
         <NotificationCenter />

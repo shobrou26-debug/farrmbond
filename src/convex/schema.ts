@@ -147,6 +147,13 @@ const schema = defineSchema(
       subscriptionStartDate: v.optional(v.number()),
       subscriptionEndDate: v.optional(v.number()),
       trialEndDate: v.optional(v.number()), // 7-day free trial expiry
+      // One trial per account, ever. Set when the trial is granted; blocks
+      // re-trials even after the trial end date is long past.
+      hasUsedTrial: v.optional(v.boolean()),
+      // Set on the FIRST successful paid subscription (Stripe or mobile
+      // money). A user who has ever paid can never receive a trial after
+      // cancelling.
+      hasEverPaid: v.optional(v.boolean()),
       paymentMethodVerified: v.optional(v.boolean()), // Payment method on file
       lastPaymentMethodReminder: v.optional(v.number()), // Last time we sent payment reminder
       

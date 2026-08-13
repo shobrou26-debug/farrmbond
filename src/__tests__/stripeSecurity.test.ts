@@ -4,6 +4,7 @@ import {
   buildSubscriptionStatusUpdates,
   ownsStripeSubscription,
   ownsStripeCustomer,
+  stripeConfigError,
 } from "../convex/stripe";
 
 // ============================================================
@@ -248,6 +249,46 @@ describe("P0 — Stripe webhook verifies the event signature before mutating", (
     // And never through the public api.stripe surface (the URL
     // api.stripe.com must not trip this guard — only Convex fn refs).
     expect(count(webhookSrc, /runMutation\(api\.stripe\./g)).toBe(0);
+  });
+});
+
+// ============================================================
+// P0 — STRIPE_PRICE_ID must be a real configured price; the fake
+// `price_farmbond_pro_monthly` fallback is forbidden, and checkout
+// refuses to run when the price is missing.
+// ============================================================
+
+describe("stripeConfigError — checkout fails closed on missing config", () => {
+  test("missing secret key fails closed", () => {
+    expect(stripeConfigError(undefined, "price_123")).toContain("STRIPE_SECRET_KEY");
+  });
+
+  test("missing price id fails closed with a clear message (no silent fallback)", () => {
+    const err = stripeConfigError("sk_test_123", undefined);
+    expect(err).toContain("STRIPE_PRICE_ID");
+    expect(err).not.toBeNull();
+  });
+
+  test("fully configured → no error", () => {
+    expect(stripeConfigError("sk_test_123", "price_123")).toBeNull();
+  });
+});
+
+describe("P0 — no placeholder price id may ship in stripe.ts", () => {
+  const stripeSrc = readConvex("stripe.ts");
+
+  test("the fake/default 'price_farmbond_pro_monthly' fallback has been removed", () => {
+    expect(stripeSrc).not.toContain("price_farmbond_pro_monthly");
+  });
+
+  test("checkout validates both the secret key and the price id before building the session", () => {
+    expect(stripeSrc).toContain("stripeConfigError(STRIPE_SECRET_KEY, STRIPE_PRICE_ID)");
+  });
+
+  test("a real webhook-verified payment marks the account as having paid (hasEverPaid)", () => {
+    // The trial anti-abuse contract depends on this: activateSubscription
+    // must stamp hasEverPaid so a cancelled payer can never re-trial.
+    expect(stripeSrc).toContain("hasEverPaid: true");
   });
 });
 
