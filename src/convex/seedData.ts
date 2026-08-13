@@ -175,7 +175,12 @@ export const seedMarketplace = mutation({
       for (const profile of agronomistData) {
         // Seed profiles are DEVELOPMENT/DEMO data — explicitly marked approved.
         // Real agronomists go through the pending → admin-review journey.
-        await ctx.db.insert("agronomistProfiles", { ...profile, status: "approved" });
+        await ctx.db.insert("agronomistProfiles", {
+          ...profile,
+          status: "approved",
+          // Demo/seed content — excluded from public listings and bookings.
+          isSeeded: true,
+        });
         results.agronomists++;
       }
     }
@@ -307,7 +312,7 @@ export const seedMarketplace = mutation({
       ];
 
       for (const company of companyData) {
-        await ctx.db.insert("agriculturalCompanies", company);
+        await ctx.db.insert("agriculturalCompanies", { ...company, isSeeded: true });
         results.companies++;
       }
     }
@@ -504,7 +509,7 @@ export const seedMarketplace = mutation({
       ];
 
       for (const seed of seedData) {
-        await ctx.db.insert("seeds", seed);
+        await ctx.db.insert("seeds", { ...seed, isSeeded: true });
         results.seeds++;
       }
     }
@@ -591,6 +596,7 @@ export const seedKnowledgeArticles = mutation({
         bookmarks: article.bookmarks,
         isPublished: article.isPublished,
         isFeatured: article.isFeatured,
+        isSeeded: true,
         createdAt: now,
         updatedAt: now,
         publishedAt: now,
@@ -742,6 +748,7 @@ export const seedFarmingEvents = mutation({
         tags: event.tags,
         imageUrl: undefined,
         isActive: true,
+        isSeeded: true,
         createdBy: anyUser._id,
         createdAt: now,
         updatedAt: now,

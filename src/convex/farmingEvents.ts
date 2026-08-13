@@ -32,6 +32,8 @@ export const listEvents = query({
       .collect();
 
     events = events.filter((e) => e.isActive);
+    // Demo/seed events (admin seed tool) never appear in the public calendar.
+    events = events.filter((e) => e.isSeeded !== true);
     if (!args.includePast) {
       // Keep events that haven't ended yet, plus a small grace window
       const grace = 7 * 24 * 60 * 60 * 1000;
@@ -71,7 +73,7 @@ export const registerForEvent = mutation({
     const { userId } = await requireAuth(ctx);
 
     const event = await ctx.db.get(args.eventId);
-    if (!event || !event.isActive) throw new Error("Event not found");
+    if (!event || !event.isActive || event.isSeeded === true) throw new Error("Event not found");
 
     const existing = await ctx.db
       .query("eventRegistrations")

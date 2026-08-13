@@ -82,9 +82,11 @@ export default function AdminDashboard() {
   const subStats = useQuery(api.subscriptions.getSubscriptionStats);
   const users = usePaginatedQuery(api.admin.listAllUsersPaginated, {}, { numItems: 50 });
   const auditLogs = useQuery(api.admin.listAuditLogs);
-  const agronomists = useQuery(api.marketplace.listAgronomists, {});
-  const companies = useQuery(api.marketplace.listCompanies, {});
-  const seeds = useQuery(api.marketplace.listSeeds, {});
+  // Admin views include demo/seed content so admins can manage it;
+  // public pages never see it (server-enforced via includeSeeded).
+  const agronomists = useQuery(api.marketplace.listAgronomists, { includeSeeded: true });
+  const companies = useQuery(api.marketplace.listCompanies, { includeSeeded: true });
+  const seeds = useQuery(api.marketplace.listSeeds, { includeSeeded: true });
   const articles = useQuery(api.knowledgeArticles.listAll);
   const ads = useQuery(api.ads.listAllAds);
   const adStats = useQuery(api.ads.getAdStats);

@@ -26,11 +26,21 @@ export function isApprovedAgronomist(profile: { status?: string } | null | undef
   return (profile.status ?? "approved") === "approved";
 }
 
+/**
+ * Demo/seed profiles (created by the admin seed tool) must never be
+ * listed as verified professionals or receive bookings. Server-enforced
+ * at every public read and at booking time.
+ */
+export function isSeededAgronomist(profile: { isSeeded?: boolean } | null | undefined): boolean {
+  return profile?.isSeeded === true;
+}
+
 /** List all agronomist profiles with optional filtering */
 export const listAgronomists = query({
   args: {
     specialization: v.optional(v.string()),
     available: v.optional(v.boolean()),
+    includeSeeded: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     let profiles;
@@ -51,8 +61,10 @@ export const listAgronomists = query({
         .collect();
     }
 
-    // Only approved agronomists are ever listed publicly.
-    profiles = profiles.filter(isApprovedAgronomist);
+    // Only approved, non-seeded agronomists are ever listed publicly.
+    profiles = profiles.filter(
+      (p) => isApprovedAgronomist(p) && (args.includeSeeded || !isSeededAgronomist(p))
+    );
 
     // Join with user data for name/avatar
     const results = await Promise.all(
@@ -89,8 +101,8 @@ export const getAgronomist = query({
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
       .first();
 
-    // Pending/rejected applications are never public.
-    if (!profile || !isApprovedAgronomist(profile)) return null;
+    // Pending/rejected applications and demo/seed profiles are never public.
+    if (!profile || !isApprovedAgronomist(profile) || isSeededAgronomist(profile)) return null;
 
     const user = await ctx.db.get(profile.userId);
     return {
@@ -356,6 +368,7 @@ export const listCompanies = query({
   args: {
     category: v.optional(v.string()),
     country: v.optional(v.string()),
+    includeSeeded: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     let companies;
@@ -376,6 +389,9 @@ export const listCompanies = query({
         .collect();
     }
 
+    // Demo/seed listings never appear in public catalogues.
+    companies = companies.filter((c) => args.includeSeeded || c.isSeeded !== true);
+
     if (args.country && args.country !== "all") {
       return companies.filter((c) => c.country === args.country);
     }
@@ -388,7 +404,9 @@ export const listCompanies = query({
 export const getCompany = query({
   args: { companyId: v.id("agriculturalCompanies") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.companyId);
+    const company = await ctx.db.get(args.companyId);
+    if (!company || company.isSeeded === true) return null;
+    return company;
   },
 });
 
@@ -435,6 +453,7 @@ export const listSeeds = query({
     cropType: v.optional(v.string()),
     inStock: v.optional(v.boolean()),
     featured: v.optional(v.boolean()),
+    includeSeeded: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     let seeds;
@@ -455,7 +474,8 @@ export const listSeeds = query({
         .collect();
     }
 
-    let filtered = seeds;
+    // Demo/seed listings never appear in public catalogues.
+    let filtered = seeds.filter((s) => args.includeSeeded || s.isSeeded !== true);
     if (args.inStock !== undefined) {
       filtered = filtered.filter((s) => s.inStock === args.inStock);
     }
@@ -471,7 +491,9 @@ export const listSeeds = query({
 export const getSeed = query({
   args: { seedId: v.id("seeds") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.seedId);
+    const seed = await ctx.db.get(args.seedId);
+    if (!seed || seed.isSeeded === true) return null;
+    return seed;
   },
 });
 
@@ -681,7 +703,13 @@ export const bookConsultation = mutation({
       .query("agronomistProfiles")
       .withIndex("by_user", (q) => q.eq("userId", args.agronomistId))
       .first();
-    if (!agronomistProfile || !isApprovedAgronomist(agronomistProfile)) {
+    // Demo/seed profiles can never receive a booking — a farmer cannot
+    // bypass this through a direct backend call.
+    if (
+      !agronomistProfile ||
+      !isApprovedAgronomist(agronomistProfile) ||
+      isSeededAgronomist(agronomistProfile)
+    ) {
       throw new Error("This agronomist is not available for bookings");
     }
 

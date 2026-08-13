@@ -31,7 +31,8 @@ export const listPublished = query({
         .withIndex("by_published", (q) => q.eq("isPublished", true))
         .collect();
     }
-    return articles;
+    // Demo/seed articles (admin seed tool) never appear in the public library.
+    return articles.filter((a) => a.isSeeded !== true);
   },
 });
 
@@ -64,6 +65,8 @@ export const getArticle = query({
     if (!article) return null;
     const viewer = await optionalAuth(ctx);
     const isAdmin = viewer ? hasRole(viewer.user.role, ROLES.ADMIN) : false;
+    // Demo/seed articles are only readable by admins.
+    if (article.isSeeded === true && !isAdmin) return null;
     return isArticleReadable(article, isAdmin) ? article : null;
   },
 });

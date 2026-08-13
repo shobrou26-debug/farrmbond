@@ -37,7 +37,8 @@ function SeedsTab() {
     climate: "" as string, season: "" as string, tags: "" as string,
   });
 
-  const seeds = useQuery(api.marketplace.listSeeds, {});
+  // Admin view: include demo/seed content so it can be managed/cleared.
+  const seeds = useQuery(api.marketplace.listSeeds, { includeSeeded: true });
   const createSeed = useMutation(api.marketplace.createSeed);
   const updateSeed = useMutation(api.marketplace.updateSeed);
   const deleteSeed = useMutation(api.marketplace.deleteSeed);
@@ -177,7 +178,7 @@ function CompaniesTab() {
     phone: "", email: "", website: "", products: "" as string,
   });
 
-  const companies = useQuery(api.marketplace.listCompanies, {});
+  const companies = useQuery(api.marketplace.listCompanies, { includeSeeded: true });
   const createCompany = useMutation(api.marketplace.createCompany);
   const updateCompany = useMutation(api.marketplace.updateCompany);
   const deleteCompany = useMutation(api.marketplace.deleteCompany);

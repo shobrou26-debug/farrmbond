@@ -532,6 +532,9 @@ const schema = defineSchema(
       // "pending" | "approved" | "rejected" — agronomists are NEVER
       // implicitly active; only an admin review makes a profile visible.
       status: v.string(),
+      // Demo/seed profiles (created by the admin seed tool) are never
+      // listed as verified professionals and never receive bookings.
+      isSeeded: v.optional(v.boolean()),
       appliedAt: v.optional(v.number()),
       rejectionReason: v.optional(v.string()),
       reviewedAt: v.optional(v.number()),
@@ -842,6 +845,7 @@ const schema = defineSchema(
       // Status
       isPublished: v.boolean(),
       isFeatured: v.boolean(),
+      isSeeded: v.optional(v.boolean()),
       
       // Metadata
       createdAt: v.number(),
@@ -1195,6 +1199,7 @@ const schema = defineSchema(
       reviewCount: v.number(),
       verified: v.boolean(),
       featured: v.boolean(),
+      isSeeded: v.optional(v.boolean()),
       createdAt: v.number(),
       updatedAt: v.number(),
     })
@@ -1227,6 +1232,7 @@ const schema = defineSchema(
       season: v.array(v.string()),
       inStock: v.boolean(),
       featured: v.boolean(),
+      isSeeded: v.optional(v.boolean()),
       tags: v.array(v.string()),
       createdAt: v.number(),
       updatedAt: v.number(),
@@ -1289,6 +1295,7 @@ const schema = defineSchema(
       tags: v.array(v.string()),
       imageUrl: v.optional(v.string()),
       isActive: v.boolean(),
+      isSeeded: v.optional(v.boolean()),
       createdBy: v.id("users"),
       createdAt: v.number(),
       updatedAt: v.number(),
