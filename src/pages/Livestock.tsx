@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { usePaginatedQuery } from "@/hooks/use-paginated-query";
@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { ResponsiveImage } from "@/components/ui/responsive-image";
 import {
   Beef,
   Plus,
@@ -25,19 +26,16 @@ import {
   CheckCircle2,
   Calendar,
   Clock,
-  Thermometer,
   Activity,
   FileText,
   X,
   ChevronRight,
   Bell,
-  Pill,
   Shield,
   AlertCircle,
   Info,
-  PillBottle,
-  Weight,
-  Inbox,
+  MapPin,
+  Package,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -120,11 +118,27 @@ const modalVariants = {
 // ============================================================
 // Status Config
 // ============================================================
-const statusConfig: Record<string, { label: string; color: string; icon: React.ComponentType<{className?: string}> }> = {
-  healthy: { label: "Healthy", color: "bg-green-500/10 text-green-600 border-green-500/20", icon: Heart },
-  sick: { label: "Sick", color: "bg-red-500/10 text-red-600 border-red-500/20", icon: Stethoscope },
-  pregnant: { label: "Pregnant", color: "bg-pink-500/10 text-pink-600 border-pink-500/20", icon: Heart },
-  quarantine: { label: "Quarantine", color: "bg-amber-500/10 text-amber-600 border-amber-500/20", icon: AlertTriangle },
+const statusConfig: Record<string, { label: string; color: string; icon: React.ComponentType<{ className?: string }> }> = {
+  healthy: {
+    label: "Healthy",
+    color: "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    icon: Heart,
+  },
+  sick: {
+    label: "Sick",
+    color: "border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300",
+    icon: Stethoscope,
+  },
+  pregnant: {
+    label: "Pregnant",
+    color: "border-pink-500/25 bg-pink-500/10 text-pink-700 dark:text-pink-300",
+    icon: Heart,
+  },
+  quarantine: {
+    label: "Quarantine",
+    color: "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    icon: AlertTriangle,
+  },
 };
 
 const severityConfig: Record<string, { color: string; icon: React.ComponentType<{className?: string}> }> = {
@@ -132,15 +146,6 @@ const severityConfig: Record<string, { color: string; icon: React.ComponentType<
   high: { color: "bg-orange-500 text-white", icon: AlertCircle },
   medium: { color: "bg-amber-500 text-white", icon: Info },
   low: { color: "bg-blue-500 text-white", icon: Info },
-};
-
-const recordTypeConfig: Record<string, { label: string; color: string; icon: React.ComponentType<{className?: string}> }> = {
-  checkup: { label: "Checkup", color: "bg-blue-100 text-blue-700", icon: Stethoscope },
-  vaccination: { label: "Vaccination", color: "bg-green-100 text-green-700", icon: Shield },
-  treatment: { label: "Treatment", color: "bg-purple-100 text-purple-700", icon: Pill },
-  surgery: { label: "Surgery", color: "bg-red-100 text-red-700", icon: Activity },
-  deworming: { label: "Deworming", color: "bg-cyan-100 text-cyan-700", icon: PillBottle },
-  injury: { label: "Injury", color: "bg-orange-100 text-orange-700", icon: AlertTriangle },
 };
 
 // ============================================================
@@ -151,17 +156,6 @@ const formatDate = (timestamp?: number) => {
   return new Date(timestamp).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 };
 
-const formatDateForInput = (timestamp?: number) => {
-  if (!timestamp) return "";
-  return new Date(timestamp).toISOString().split("T")[0];
-};
-
-const parseDateInput = (dateStr: string): number | undefined => {
-  if (!dateStr) return undefined;
-  const date = new Date(dateStr);
-  return isNaN(date.getTime()) ? undefined : date.getTime();
-};
-
 const getDaysUntilDate = (timestamp?: number) => {
   if (!timestamp) return null;
   const today = new Date();
@@ -170,6 +164,103 @@ const getDaysUntilDate = (timestamp?: number) => {
   target.setHours(0, 0, 0, 0);
   return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 };
+
+// ============================================================
+// Real livestock photography — verified Unsplash CDN images.
+// The animal's name/type maps to a real photo of that animal;
+// unmapped types get a subject-neutral farm-animal photo
+// (never a crop/field image). ResponsiveImage handles failures
+// with a clean error state.
+// ============================================================
+
+const LIVESTOCK_IMAGE_FALLBACKS = [
+  "https://images.unsplash.com/photo-1516356565541-c3d3c55c97d6?q=80&w=900&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1442340743774-556731ec65b2?q=80&w=900&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1453368432345-73725718b7ae?q=80&w=900&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1462027076063-1ceabb252dbd?q=80&w=900&auto=format&fit=crop",
+];
+
+const livestockImageMap: Record<string, string> = {
+  cattle:
+    "https://images.unsplash.com/photo-1516356565541-c3d3c55c97d6?q=80&w=900&auto=format&fit=crop",
+  cow:
+    "https://images.unsplash.com/photo-1516356565541-c3d3c55c97d6?q=80&w=900&auto=format&fit=crop",
+  cows:
+    "https://images.unsplash.com/photo-1502734559478-912ab58bda39?q=80&w=900&auto=format&fit=crop",
+  bull:
+    "https://images.unsplash.com/photo-1584038180163-707e1eeeab6f?q=80&w=900&auto=format&fit=crop",
+  goat:
+    "https://images.unsplash.com/photo-1573578160998-4f4c7b023aec?q=80&w=900&auto=format&fit=crop",
+  sheep:
+    "https://images.unsplash.com/photo-1453368432345-73725718b7ae?q=80&w=900&auto=format&fit=crop",
+  chicken:
+    "https://images.unsplash.com/photo-1476916713558-2842194a8e49?q=80&w=900&auto=format&fit=crop",
+  poultry:
+    "https://images.unsplash.com/photo-1476916713558-2842194a8e49?q=80&w=900&auto=format&fit=crop",
+  hen:
+    "https://images.unsplash.com/photo-1472430023262-9a743f7570cb?q=80&w=900&auto=format&fit=crop",
+  rooster:
+    "https://images.unsplash.com/photo-1462027076063-1ceabb252dbd?q=80&w=900&auto=format&fit=crop",
+  // Turkey: no verified dedicated photo; poultry-category image is the relevant fallback.
+  turkey:
+    "https://images.unsplash.com/photo-1476916713558-2842194a8e49?q=80&w=900&auto=format&fit=crop",
+  pig:
+    "https://images.unsplash.com/photo-1589922585994-e9ac4fe0f71d?q=80&w=900&auto=format&fit=crop",
+  piglet:
+    "https://images.unsplash.com/photo-1589922585994-e9ac4fe0f71d?q=80&w=900&auto=format&fit=crop",
+  duck:
+    "https://images.unsplash.com/photo-1428572509712-cb9a529e81d7?q=80&w=900&auto=format&fit=crop",
+  rabbit:
+    "https://images.unsplash.com/photo-1433769747000-441481877caf?q=80&w=900&auto=format&fit=crop",
+  fish:
+    "https://images.unsplash.com/photo-1592339269936-fe8eafdc7fd5?q=80&w=900&auto=format&fit=crop",
+};
+
+function getLivestockImage(name: string, type: string): string {
+  const haystack = `${name} ${type}`.toLowerCase();
+  const key = Object.keys(livestockImageMap).find((k) => haystack.includes(k));
+  if (key) return livestockImageMap[key];
+  // Deterministic pick so the same type always maps to the same photo.
+  let hash = 0;
+  for (let i = 0; i < haystack.length; i++) {
+    hash = (hash * 31 + haystack.charCodeAt(i)) >>> 0;
+  }
+  return LIVESTOCK_IMAGE_FALLBACKS[hash % LIVESTOCK_IMAGE_FALLBACKS.length];
+}
+
+function typeLabel(type: string): string {
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+function healthColor(score: number): string {
+  if (score >= 80) return "linear-gradient(90deg, #4ade80, #16a34a)";
+  if (score >= 60) return "linear-gradient(90deg, #fbbf24, #d97706)";
+  return "linear-gradient(90deg, #f87171, #dc2626)";
+}
+
+function InfoTile({
+  icon,
+  label,
+  value,
+  valueClassName,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        {icon}
+        {label}
+      </div>
+      <p className={`mt-1 truncate text-sm font-semibold text-foreground ${valueClassName ?? ""}`} title={value}>
+        {value}
+      </p>
+    </div>
+  );
+}
 
 // ============================================================
 // ============================================================
@@ -216,10 +307,10 @@ function AddHealthRecordModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="rounded-2xl sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <FileText className="w-5 h-5 text-emerald-600" />
+            <FileText className="h-5 w-5 text-brand-foreground dark:text-brand" />
             Add Health Record — {animal.name}
           </DialogTitle>
           <DialogDescription>
@@ -272,16 +363,16 @@ function AddHealthRecordModal({
             <Button
               type="submit"
               disabled={isSubmitting || !description.trim() || !treatment.trim()}
-              className="bg-emerald-600 hover:bg-emerald-700"
+              className="rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
             >
               {isSubmitting ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                   Saving...
                 </>
               ) : (
                 <>
-                  <FileText className="w-4 h-4 mr-2" />
+                  <FileText className="h-4 w-4" />
                   Add Record
                 </>
               )}
@@ -465,6 +556,7 @@ function AnimalDetailModal({
 // Main Component
 // ============================================================
 export default function Livestock() {
+  const shouldReduceMotion = useReducedMotion();
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
@@ -591,62 +683,69 @@ export default function Livestock() {
     }
   };
 
+  const tabs = [
+    { id: "overview" as const, label: "Overview", icon: Beef },
+    { id: "health" as const, label: "Health Records", icon: Heart },
+    { id: "vaccinations" as const, label: "Vaccinations", icon: Syringe },
+    { id: "coverage" as const, label: "Coverage", icon: TrendingUp },
+    { id: "alerts" as const, label: "Disease Alerts", icon: AlertTriangle },
+  ];
+
   return (
     <AppLayout>
       <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
-        {/* Header */}
+        {/* ============ Page header ============ */}
         <motion.div
-          initial={{ opacity: 0, y: -10 }}
+          initial={shouldReduceMotion ? false : { opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
+          transition={{ duration: shouldReduceMotion ? 0 : 0.5 }}
           className="mb-8"
         >
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">Livestock Health</h1>
-              <p className="text-muted-foreground mt-1">
-                Comprehensive health tracking, vaccination schedules, and disease alerts
+              <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">My Livestock</h1>
+              <p className="mt-1 text-sm text-muted-foreground sm:text-base">
+                Monitor and manage the animals across your farms.
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
                 onClick={() => setShowAlerts(true)}
-                className="relative"
+                className="relative h-12 touch-target rounded-full px-5"
               >
-                <Bell className="w-4 h-4 mr-2" />
+                <Bell className="h-4 w-4" />
                 Disease Alerts
                 {criticalAlertCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
+                  <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-semibold text-white">
                     {criticalAlertCount}
                   </span>
                 )}
               </Button>
               <Button
-                className="gradient-primary"
                 onClick={() => setShowAddModal(true)}
                 disabled={!firstFarmId}
+                className="h-12 w-full touch-target rounded-full bg-brand px-6 text-brand-foreground hover:bg-brand/90 hover:shadow-lg hover:shadow-brand/25 sm:w-auto"
               >
-                <Plus className="w-4 h-4 mr-2" />
+                <Plus className="h-4 w-4" />
                 Add Livestock
               </Button>
             </div>
           </div>
         </motion.div>
 
-        {/* Loading State */}
+        {/* ============ Loading State ============ */}
         {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            {[1, 2, 3, 4].map((i) => (
-              <Card key={i} className="border-border/50">
-                <CardContent className="p-4">
-                  <div className="animate-pulse space-y-3">
-                    <div className="h-12 w-12 rounded-xl bg-muted" />
-                    <div className="h-4 w-24 bg-muted rounded" />
-                    <div className="h-6 w-16 bg-muted rounded" />
-                  </div>
-                </CardContent>
-              </Card>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="overflow-hidden rounded-2xl border border-border/60 bg-card">
+                <div className="aspect-[16/10] animate-pulse bg-muted/50" />
+                <div className="space-y-3 p-5">
+                  <div className="h-4 w-2/3 animate-pulse rounded-full bg-muted/60" />
+                  <div className="h-3 w-1/3 animate-pulse rounded-full bg-muted/40" />
+                  <div className="h-8 animate-pulse rounded-xl bg-muted/40" />
+                </div>
+              </div>
             ))}
           </div>
         ) : (
@@ -656,62 +755,62 @@ export default function Livestock() {
               variants={containerVariants}
               initial="hidden"
               animate="visible"
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6"
+              className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4"
             >
               <motion.div variants={itemVariants}>
-                <Card className="border-border/50 hover:shadow-md transition-shadow">
-                  <CardContent className="p-4 flex items-center gap-4">
-                    <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white">
-                      <Beef className="w-6 h-6" />
+                <Card className="border-border/60">
+                  <CardContent className="flex items-center gap-3 p-4">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand-foreground dark:text-brand">
+                      <Beef className="h-5 w-5" />
                     </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Total Livestock</p>
-                      <p className="text-2xl font-bold">{stats.totalHead}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-
-              <motion.div variants={itemVariants}>
-                <Card className="border-border/50 hover:shadow-md transition-shadow">
-                  <CardContent className="p-4 flex items-center gap-4">
-                    <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 text-white">
-                      <CheckCircle2 className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Healthy Groups</p>
-                      <p className="text-2xl font-bold">{stats.healthyCount}</p>
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium text-muted-foreground sm:text-sm">Total Livestock</p>
+                      <p className="text-xl font-bold sm:text-2xl">{stats.totalHead}</p>
                     </div>
                   </CardContent>
                 </Card>
               </motion.div>
 
               <motion.div variants={itemVariants}>
-                <Card className="border-border/50 hover:shadow-md transition-shadow">
-                  <CardContent className="p-4 flex items-center gap-4">
-                    <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 text-white">
-                      <Stethoscope className="w-6 h-6" />
+                <Card className="border-border/60">
+                  <CardContent className="flex items-center gap-3 p-4">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="h-5 w-5" />
                     </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Need Attention</p>
-                      <p className="text-2xl font-bold">{stats.sickCount}</p>
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium text-muted-foreground sm:text-sm">Healthy Groups</p>
+                      <p className="text-xl font-bold sm:text-2xl">{stats.healthyCount}</p>
                     </div>
                   </CardContent>
                 </Card>
               </motion.div>
 
               <motion.div variants={itemVariants}>
-                <Card className="border-border/50 hover:shadow-md transition-shadow">
-                  <CardContent className="p-4 flex items-center gap-4">
-                    <div className={`flex items-center justify-center w-12 h-12 rounded-xl ${stats.overdueVaccinations > 0 ? "bg-gradient-to-br from-red-500 to-rose-600" : "bg-gradient-to-br from-blue-500 to-indigo-600"} text-white`}>
-                      <Syringe className="w-6 h-6" />
+                <Card className="border-border/60">
+                  <CardContent className="flex items-center gap-3 p-4">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-600 dark:text-red-400">
+                      <Stethoscope className="h-5 w-5" />
                     </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Vaccinations Due</p>
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium text-muted-foreground sm:text-sm">Need Attention</p>
+                      <p className="text-xl font-bold sm:text-2xl">{stats.sickCount}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+
+              <motion.div variants={itemVariants}>
+                <Card className="border-border/60">
+                  <CardContent className="flex items-center gap-3 p-4">
+                    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${stats.overdueVaccinations > 0 ? "bg-red-500/10 text-red-600 dark:text-red-400" : "bg-amber-500/10 text-amber-600 dark:text-amber-400"}`}>
+                      <Syringe className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium text-muted-foreground sm:text-sm">Vaccinations Due</p>
                       <div className="flex items-baseline gap-1">
-                        <p className="text-2xl font-bold">{stats.vaccinationsDue}</p>
+                        <p className="text-xl font-bold sm:text-2xl">{stats.vaccinationsDue}</p>
                         {stats.overdueVaccinations > 0 && (
-                          <span className="text-sm text-red-500 font-medium">({stats.overdueVaccinations} overdue)</span>
+                          <span className="text-xs font-medium text-red-500 sm:text-sm">({stats.overdueVaccinations} overdue)</span>
                         )}
                       </div>
                     </div>
@@ -727,11 +826,11 @@ export default function Livestock() {
                 animate={{ opacity: 1, y: 0 }}
                 className="mb-6"
               >
-                <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/20 flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-red-500 mt-0.5" />
-                  <div className="flex-1">
-                    <h4 className="font-medium text-red-600">Overdue Vaccinations</h4>
-                    <p className="text-sm text-muted-foreground mt-1">
+                <div className="flex items-start gap-3 rounded-2xl border border-red-500/25 bg-red-500/5 p-4">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+                  <div className="min-w-0 flex-1">
+                    <h4 className="font-medium text-red-700 dark:text-red-400">Overdue Vaccinations</h4>
+                    <p className="mt-1 text-sm text-muted-foreground">
                       You have {stats.overdueVaccinations} overdue vaccination(s) that require immediate attention.
                     </p>
                   </div>
@@ -746,24 +845,24 @@ export default function Livestock() {
               transition={{ delay: 0.2 }}
               className="mb-6"
             >
-              <div className="flex gap-1 p-1 bg-muted rounded-xl w-fit">
-                {[
-                  { id: "overview" as const, label: "Overview", icon: Beef },
-                  { id: "health" as const, label: "Health Records", icon: Heart },
-                  { id: "vaccinations" as const, label: "Vaccinations", icon: Syringe },
-                  { id: "coverage" as const, label: "Coverage", icon: TrendingUp },
-                  { id: "alerts" as const, label: "Disease Alerts", icon: AlertTriangle },
-                ].map((tab) => (
+              <div
+                className="flex w-fit max-w-full gap-1 overflow-x-auto rounded-2xl border border-border/60 bg-muted/40 p-1"
+                role="tablist"
+                aria-label="Livestock sections"
+              >
+                {tabs.map((tab) => (
                   <button
                     key={tab.id}
+                    role="tab"
+                    aria-selected={activeTab === tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    className={`flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all ${
                       activeTab === tab.id
-                        ? "bg-background shadow-sm text-foreground"
+                        ? "bg-card text-foreground shadow-sm"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    <tab.icon className="w-4 h-4" />
+                    <tab.icon className={`h-4 w-4 ${activeTab === tab.id ? "text-brand-foreground dark:text-brand" : ""}`} />
                     {tab.label}
                   </button>
                 ))}
@@ -780,32 +879,31 @@ export default function Livestock() {
                   transition={{ delay: 0.25 }}
                   className="mb-6"
                 >
-                  <div className="flex flex-col sm:flex-row gap-4">
-                    <div className="relative flex-1 max-w-md">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <div className="flex flex-col gap-4 sm:flex-row">
+                    <div className="relative w-full max-w-md">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         placeholder="Search livestock by name, type, breed, or farm..."
-                        className="pl-10"
+                        className="h-11 rounded-xl pl-10"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
+                        aria-label="Search livestock"
                       />
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2 mt-4">
+                  <div className="mt-4 flex flex-wrap gap-2">
                     {statusFilters.map((filter) => (
                       <button
                         key={filter.id}
                         onClick={() => setSelectedStatus(filter.id)}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                        className={`flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium transition-all ${
                           selectedStatus === filter.id
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                            ? "bg-brand text-brand-foreground"
+                            : "border border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
                         }`}
                       >
                         {filter.label}
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                          selectedStatus === filter.id ? "bg-white/20" : "bg-background"
-                        }`}>
+                        <span className={`rounded-full px-1.5 py-0.5 text-xs ${selectedStatus === filter.id ? "bg-white/20" : "bg-background"}`}>
                           {filter.count}
                         </span>
                       </button>
@@ -821,54 +919,180 @@ export default function Livestock() {
                   className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
                 >
                   {filtered.map((animal: LivestockDoc) => {
-                    const status = statusConfig[animal.status] || { label: animal.status, color: "bg-gray-100 text-gray-600", icon: Beef };
+                    const status = statusConfig[animal.status] || { label: animal.status, color: "border-slate-500/25 bg-slate-500/10 text-slate-600 dark:text-slate-300", icon: Beef };
                     const StatusIcon = status.icon;
                     const daysUntilVaccination = getDaysUntilDate(animal.nextVaccination);
                     const health = animal.healthScore;
                     const farmName = farmMap[animal.farmId] || "Unknown Farm";
+                    const overdue = daysUntilVaccination !== null && daysUntilVaccination < 0;
 
                     return (
                       <motion.div key={animal._id} variants={itemVariants}>
-                        <Card className={`border-border/50 hover:shadow-lg transition-all cursor-pointer ${daysUntilVaccination !== null && daysUntilVaccination < 0 ? "border-red-500/30" : ""}`}>
-                          <CardContent className="p-5" onClick={() => setSelectedAnimal(animal)}>
-                            <div className="flex items-start justify-between mb-3">
-                              <div className="flex items-center gap-3">
-                                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-amber-500/10">
-                                  <Beef className="w-6 h-6 text-amber-600" />
-                                </div>
-                                <div>
-                                  <h3 className="font-semibold">{animal.name}</h3>
-                                  <p className="text-xs text-muted-foreground">
-                                    {animal.breed || animal.type} • {farmName}
-                                  </p>
-                                </div>
+                        <Card className={`group h-full overflow-hidden border-border/60 transition-all duration-300 hover:-translate-y-0.5 hover:border-brand/30 hover:shadow-lg hover:shadow-brand/5 ${overdue ? "border-red-500/40" : ""}`}>
+                          {/* Photo */}
+                          <div
+                            className="relative cursor-pointer"
+                            onClick={() => setSelectedAnimal(animal)}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`View details for ${animal.name}`}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                setSelectedAnimal(animal);
+                              }
+                            }}
+                          >
+                            <ResponsiveImage
+                              src={getLivestockImage(animal.name, animal.type)}
+                              alt={`${animal.type} — ${animal.name}`}
+                              aspectRatio="aspect-[16/10]"
+                              className="transition-transform duration-500 group-hover:scale-[1.03]"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-black/10" />
+                            <div className="absolute left-3 top-3">
+                              <Badge className={`border backdrop-blur-sm ${status.color}`}>
+                                <StatusIcon className="mr-1 h-3 w-3" />
+                                {status.label}
+                              </Badge>
+                            </div>
+                            <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2">
+                              <div className="min-w-0">
+                                <h3 className="truncate text-lg font-bold tracking-tight text-white drop-shadow-sm">
+                                  {animal.name}
+                                </h3>
+                                <p className="truncate text-xs text-white/85">
+                                  {animal.breed || typeLabel(animal.type)}
+                                </p>
                               </div>
+                              <span className="shrink-0 rounded-full bg-black/30 px-2.5 py-1 text-[11px] font-medium text-white capitalize backdrop-blur-sm">
+                                {animal.type}
+                              </span>
+                            </div>
+                          </div>
+
+                          <CardContent className="p-5">
+                            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                              <MapPin className="h-3.5 w-3.5 shrink-0 text-brand-foreground dark:text-brand" />
+                              <span className="truncate">{farmName}</span>
+                            </div>
+
+                            <div className="mt-4 grid grid-cols-2 gap-2">
+                              <InfoTile
+                                icon={<Package className="h-3.5 w-3.5" />}
+                                label="Quantity"
+                                value={`${animal.quantity} ${animal.unit}`}
+                              />
+                              <InfoTile
+                                icon={<Activity className="h-3.5 w-3.5" />}
+                                label="Production"
+                                value={animal.productionType ? typeLabel(animal.productionType) : "—"}
+                              />
+                              <InfoTile
+                                icon={<Syringe className="h-3.5 w-3.5" />}
+                                label="Next Vacc."
+                                value={
+                                  daysUntilVaccination === null
+                                    ? "Not scheduled"
+                                    : daysUntilVaccination < 0
+                                    ? `${Math.abs(daysUntilVaccination)} days overdue`
+                                    : daysUntilVaccination === 0
+                                    ? "Today"
+                                    : `In ${daysUntilVaccination} days`
+                                }
+                                valueClassName={
+                                  daysUntilVaccination === null
+                                    ? ""
+                                    : daysUntilVaccination < 0
+                                    ? "text-red-500"
+                                    : daysUntilVaccination < 7
+                                    ? "text-amber-500"
+                                    : ""
+                                }
+                              />
+                              <InfoTile
+                                icon={<Calendar className="h-3.5 w-3.5" />}
+                                label="Checkup"
+                                value={formatDate(animal.lastCheckup)}
+                              />
+                            </div>
+
+                            {/* Health Score Bar — only rendered when a real score exists */}
+                            <div className="mt-4">
+                              <div className="mb-1 flex items-center justify-between text-sm">
+                                <span className="text-muted-foreground">Health Score</span>
+                                {health != null ? (
+                                  <span className="font-medium" style={{ color: health >= 80 ? "#22c55e" : health >= 60 ? "#f59e0b" : "#ef4444" }}>
+                                    {health}%
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">No score yet</span>
+                                )}
+                              </div>
+                              {health != null ? (
+                                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                                  <motion.div
+                                    initial={shouldReduceMotion ? { width: `${health}%` } : { width: 0 }}
+                                    animate={{ width: `${health}%` }}
+                                    transition={shouldReduceMotion ? { duration: 0 } : { duration: 1, ease: "easeOut" }}
+                                    className="h-full rounded-full"
+                                    style={{ background: healthColor(health) }}
+                                  />
+                                </div>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">No health data yet</p>
+                              )}
+                            </div>
+
+                            {/* Quick Actions */}
+                            <div className="mt-4 flex items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-10 flex-1 touch-target rounded-xl"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleUpdateStatus(animal._id, animal.status === "healthy" ? "sick" : "healthy");
+                                }}
+                              >
+                                <Stethoscope className="h-4 w-4" />
+                                {animal.status === "healthy" ? "Mark Sick" : "Mark Healthy"}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-10 touch-target rounded-xl px-3"
+                                onClick={() => setSelectedAnimal(animal)}
+                              >
+                                <Eye className="h-4 w-4" />
+                                Details
+                              </Button>
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-8 w-8"
-                                    onClick={(e) => e.stopPropagation()}
+                                    className="h-10 w-10 touch-target rounded-xl"
+                                    aria-label={`Actions for ${animal.name}`}
                                   >
-                                    <MoreVertical className="w-4 h-4" />
+                                    <MoreVertical className="h-4 w-4" />
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuItem onClick={() => setSelectedAnimal(animal)}>
-                                    <Eye className="w-4 h-4 mr-2" />
+                                    <Eye className="mr-2 h-4 w-4" />
                                     View Details
                                   </DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => handleUpdateStatus(animal._id, "healthy")}>
-                                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                                    <CheckCircle2 className="mr-2 h-4 w-4" />
                                     Mark Healthy
                                   </DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => handleUpdateStatus(animal._id, "sick")}>
-                                    <Stethoscope className="w-4 h-4 mr-2" />
+                                    <Stethoscope className="mr-2 h-4 w-4" />
                                     Mark Sick
                                   </DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => setAnimalForHealthRecord(animal)}>
-                                    <FileText className="w-4 h-4 mr-2" />
+                                    <FileText className="mr-2 h-4 w-4" />
                                     Add Health Record
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
@@ -879,96 +1103,11 @@ export default function Livestock() {
                                       }
                                     }}
                                   >
-                                    <Trash2 className="w-4 h-4 mr-2" />
+                                    <Trash2 className="mr-2 h-4 w-4" />
                                     Delete
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
-                            </div>
-
-                            <div className="flex items-center gap-2 mb-3">
-                              <Badge className={status.color}>
-                                <StatusIcon className="w-3 h-3 mr-1" />
-                                {status.label}
-                              </Badge>
-                              <Badge variant="secondary">
-                                {animal.quantity} {animal.unit}
-                              </Badge>
-                            </div>
-
-                            <div className="space-y-2 text-sm mb-4">
-                              <div className="flex justify-between">
-                                <span className="text-muted-foreground">Type</span>
-                                <span>{animal.type}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-muted-foreground">Production</span>
-                                <span className="font-medium text-primary capitalize">{animal.productionType || "N/A"}</span>
-                              </div>
-                              <div className="flex justify-between items-center">
-                                <span className="text-muted-foreground">Next Vaccination</span>
-                                <span className={
-                                  daysUntilVaccination === null ? "" :
-                                  daysUntilVaccination < 0 ? "text-red-500 font-medium" :
-                                  daysUntilVaccination < 7 ? "text-amber-500 font-medium" : ""
-                                }>
-                                  {daysUntilVaccination === null
-                                    ? "Not scheduled"
-                                    : daysUntilVaccination < 0
-                                    ? `${Math.abs(daysUntilVaccination)} days overdue`
-                                    : daysUntilVaccination === 0
-                                    ? "Today"
-                                    : `In ${daysUntilVaccination} days`}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Health Score Bar — only rendered when a real score exists */}
-                            <div>
-                              <div className="flex items-center justify-between text-sm mb-1">
-                                <span className="text-muted-foreground">Health Score</span>
-                                {health != null ? (
-                                  <span className="font-medium" style={{ color: health >= 80 ? "#22c55e" : health >= 60 ? "#f59e0b" : "#ef4444" }}>
-                                    {health}%
-                                  </span>
-                                ) : (
-                                  <span className="text-xs text-muted-foreground">No score yet</span>
-                                )}
-                              </div>
-                              {health != null && (
-                                <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                  <motion.div
-                                    initial={{ width: 0 }}
-                                    animate={{ width: `${health}%` }}
-                                    transition={{ duration: 1, ease: "easeOut" }}
-                                    className="h-full rounded-full"
-                                    style={{
-                                      background:
-                                        health >= 80
-                                          ? "linear-gradient(90deg, #22c55e, #16a34a)"
-                                          : health >= 60
-                                          ? "linear-gradient(90deg, #f59e0b, #d97706)"
-                                          : "linear-gradient(90deg, #ef4444, #dc2626)",
-                                    }}
-                                  />
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Quick Actions */}
-                            <div className="flex gap-2 mt-4">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="flex-1"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleUpdateStatus(animal._id, animal.status === "healthy" ? "sick" : "healthy");
-                                }}
-                              >
-                                <Stethoscope className="w-4 h-4 mr-1" />
-                                {animal.status === "healthy" ? "Mark Sick" : "Mark Healthy"}
-                              </Button>
                             </div>
                           </CardContent>
                         </Card>
@@ -980,26 +1119,51 @@ export default function Livestock() {
                 {/* Load More */}
                 {canLoadMore && (
                   <div ref={sentinelRef} className="flex justify-center py-6">
-                    <Button variant="outline" onClick={loadMore}>
-                      Load More
+                    <Button variant="outline" className="rounded-full px-6" onClick={loadMore}>
+                      Load More Livestock
                     </Button>
                   </div>
                 )}
 
                 {filtered.length === 0 && !isLoading && (
-                  <div className="text-center py-12">
-                    <Beef className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
-                    <h3 className="text-lg font-medium">No livestock found</h3>
-                    <p className="text-muted-foreground mt-1">
-                      {livestock.length === 0
-                        ? "Add your first livestock to get started"
-                        : "Try adjusting your search or filters"}
-                    </p>
-                    {livestock.length === 0 && firstFarmId && (
-                      <Button className="gradient-primary mt-4" onClick={() => setShowAddModal(true)}>
-                        <Plus className="w-4 h-4 mr-2" />
-                        Add Livestock
-                      </Button>
+                  <div className="overflow-hidden rounded-3xl border border-border/60 bg-card">
+                    {livestock.length === 0 ? (
+                      <div className="relative">
+                        <ResponsiveImage
+                          src="https://images.unsplash.com/photo-1442340743774-556731ec65b2?q=80&w=1400&auto=format&fit=crop"
+                          alt="Cattle grazing in a pasture"
+                          aspectRatio="aspect-[21/7]"
+                          containerClassName="max-h-56"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-black/20" />
+                        <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
+                          <h2 className="text-xl font-bold tracking-tight text-white sm:text-2xl">
+                            Start managing your livestock
+                          </h2>
+                          <p className="mt-2 max-w-md text-sm text-white/85">
+                            Track animal health, vaccinations, production and more — all from FarmBond.
+                          </p>
+                          {firstFarmId && (
+                            <Button
+                              onClick={() => setShowAddModal(true)}
+                              className="mt-5 h-12 touch-target rounded-full bg-brand px-7 text-brand-foreground hover:bg-brand/90 hover:shadow-lg hover:shadow-brand/25"
+                            >
+                              <Plus className="h-4 w-4" />
+                              Add Livestock
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center px-6 py-14 text-center">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted/60 text-muted-foreground">
+                          <Search className="h-7 w-7" />
+                        </div>
+                        <h2 className="mt-5 text-xl font-bold tracking-tight">No livestock match your search</h2>
+                        <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                          Try adjusting your search or status filters.
+                        </p>
+                      </div>
                     )}
                   </div>
                 )}
@@ -1017,10 +1181,14 @@ export default function Livestock() {
                   <h2 className="text-lg font-semibold">All Health Records</h2>
                 </div>
                 {livestock.filter((a: LivestockDoc) => a.medicalHistory && a.medicalHistory.length > 0).length === 0 ? (
-                  <div className="text-center py-12">
-                    <FileText className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
-                    <h3 className="text-lg font-medium">No health records yet</h3>
-                    <p className="text-muted-foreground mt-1">Health records will appear here once you add medical history to your livestock</p>
+                  <div className="flex flex-col items-center rounded-3xl border border-dashed border-border/80 bg-card/50 px-6 py-14 text-center">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand/10 text-brand-foreground dark:text-brand">
+                      <FileText className="h-7 w-7" />
+                    </div>
+                    <h3 className="mt-5 text-xl font-bold tracking-tight">No health records yet</h3>
+                    <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                      Health records will appear here once you add medical history to your livestock.
+                    </p>
                   </div>
                 ) : (
                   <>
@@ -1028,25 +1196,25 @@ export default function Livestock() {
                     .filter((a: LivestockDoc) => a.medicalHistory && a.medicalHistory.length > 0)
                     .flatMap((animal: LivestockDoc) =>
                       (animal.medicalHistory || []).map((record, idx) => (
-                        <Card key={`${animal._id}-${idx}`} className="border-border/50">
-                          <CardContent className="p-4 flex items-start gap-4">
-                            <div className="p-2 rounded-lg bg-blue-100 text-blue-700">
-                              <FileText className="w-5 h-5" />
+                        <Card key={`${animal._id}-${idx}`} className="border-border/60">
+                          <CardContent className="flex items-start gap-4 p-4">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand-foreground dark:text-brand">
+                              <FileText className="h-5 w-5" />
                             </div>
-                            <div className="flex-1">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <h4 className="font-medium">{record.description}</h4>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <h4 className="truncate font-medium">{record.description}</h4>
                                   <p className="text-sm text-muted-foreground">
                                     {animal.name} • {farmMap[animal.farmId] || "Unknown Farm"}
                                   </p>
                                 </div>
-                                <span className="text-sm text-muted-foreground">{formatDate(record.date)}</span>
+                                <span className="shrink-0 text-sm text-muted-foreground">{formatDate(record.date)}</span>
                               </div>
-                              <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
                                 <span>{record.treatment}</span>
                                 {record.cost && (
-                                  <span>KES {record.cost.toLocaleString()}</span>
+                                  <span className="font-medium text-foreground">KES {record.cost.toLocaleString()}</span>
                                 )}
                               </div>
                             </div>
