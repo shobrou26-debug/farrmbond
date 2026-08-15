@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion, type Variants } from "framer-motion";
 import { useQuery, useMutation } from "convex/react";
 import { toast } from "sonner";
 import { usePaginatedQuery } from "@/hooks/use-paginated-query";
@@ -10,8 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAuth } from "@/hooks/use-auth";
-import { useIsMobile, useHaptic, useSwipeGesture } from "@/hooks/use-mobile";
+import { useHaptic, useSwipeGesture, useIsMobile } from "@/hooks/use-mobile";
 import {
   Map,
   Plus,
@@ -24,6 +23,8 @@ import {
   Trash2,
   Navigation,
   Activity,
+  LandPlot,
+  Sprout,
 } from "lucide-react";
 import { Link } from "react-router";
 import { SatelliteViewer } from "@/components/SatelliteViewer";
@@ -37,38 +38,75 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 // ============================================================
-// Animation Variants
+// Realistic agricultural imagery (same strategy as Landing/Auth/Dashboard)
 // ============================================================
 
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.08 },
-  },
+const DEFAULT_FARM_IMAGE =
+  "https://images.unsplash.com/photo-1464226184884-fa280b87c399?q=80&w=1200&auto=format&fit=crop";
+
+const cropImageMap: Record<string, string> = {
+  tomato:
+    "https://images.unsplash.com/photo-1592841200221-a6898f307baa?q=80&w=1200&auto=format&fit=crop",
+  maize:
+    "https://images.unsplash.com/photo-1551754655-cd27e38d2076?q=80&w=1200&auto=format&fit=crop",
+  corn:
+    "https://images.unsplash.com/photo-1551754655-cd27e38d2076?q=80&w=1200&auto=format&fit=crop",
+  wheat:
+    "https://images.unsplash.com/photo-1500937386664-56d1dfef3854?q=80&w=1200&auto=format&fit=crop",
+  rice:
+    "https://images.unsplash.com/photo-1550317138-10000687a72b?q=80&w=1200&auto=format&fit=crop",
+  potato:
+    "https://images.unsplash.com/photo-1518977676601-b53f82aba655?q=80&w=1200&auto=format&fit=crop",
+  sunflower:
+    "https://images.unsplash.com/photo-1470509037663-253afd7f0f51?q=80&w=1200&auto=format&fit=crop",
 };
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 16 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
-};
-
-// ============================================================
-// Default farm images
-// ============================================================
 
 const defaultImages = [
-  "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600",
-  "https://images.unsplash.com/photo-1500076656116-558758c991c1?w=600",
-  "https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=600",
-  "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=600",
+  "https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=1200&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1500076656116-558758c991c1?q=80&w=1200&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1464226184884-fa280b87c399?q=80&w=1200&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?q=80&w=1200&auto=format&fit=crop",
 ];
+
+// A real photo of a crop the farm actually grows (when determinable).
+function getCropImage(name: string): string {
+  const key = Object.keys(cropImageMap).find((k) => name.toLowerCase().includes(k));
+  return key ? cropImageMap[key] : DEFAULT_FARM_IMAGE;
+}
+
+// ============================================================
+// Animation (respects prefers-reduced-motion)
+// ============================================================
+
+function useEntranceVariants() {
+  const shouldReduceMotion = useReducedMotion();
+  const duration = shouldReduceMotion ? 0 : 0.4;
+  const stagger = shouldReduceMotion ? 0 : 0.08;
+  return {
+    container: {
+      hidden: { opacity: 0 },
+      visible: { opacity: 1, transition: { staggerChildren: stagger } },
+    },
+    item: {
+      hidden: { opacity: 0, y: shouldReduceMotion ? 0 : 16 },
+      visible: { opacity: 1, y: 0, transition: { duration } },
+    },
+  };
+}
 
 // ============================================================
 // Farm Card Component
 // ============================================================
 
-function FarmCard({ farm, index }: { farm: any; index: number }) {
+function FarmCard({
+  farm,
+  index,
+  variants,
+}: {
+  farm: any;
+  index: number;
+  variants: Variants;
+}) {
   const isMobile = useIsMobile();
   const haptic = useHaptic();
   const [satelliteOpen, setSatelliteOpen] = useState(false);
@@ -92,9 +130,9 @@ function FarmCard({ farm, index }: { farm: any; index: number }) {
       ? Math.max(0, Math.min(100, farm.ndviScore))
       : null;
   const getHealthColor = (s: number) => {
-    if (s >= 90) return "text-green-600 bg-green-500/10 border-green-500/20";
-    if (s >= 70) return "text-amber-600 bg-amber-500/10 border-amber-500/20";
-    return "text-red-600 bg-red-500/10 border-red-500/20";
+    if (s >= 90) return "text-green-700 bg-green-500/10 border-green-500/20 dark:text-green-400";
+    if (s >= 70) return "text-amber-700 bg-amber-500/10 border-amber-500/20 dark:text-amber-400";
+    return "text-red-700 bg-red-500/10 border-red-500/20 dark:text-red-400";
   };
 
   const handleDelete = async () => {
@@ -114,119 +152,157 @@ function FarmCard({ farm, index }: { farm: any; index: number }) {
   const totalLivestock = livestock.reduce((sum: number, l: { quantity: number }) => sum + l.quantity, 0);
   const locationStr = [farm.location.city, farm.location.state, farm.location.country].filter(Boolean).join(", ") || `${farm.location.latitude.toFixed(2)}°, ${farm.location.longitude.toFixed(2)}°`;
 
+  // Cover: explicit cover image > real photo of a crop this farm grows > default.
+  const firstActiveCrop = crops.find(
+    (c: { status: string }) => c.status !== "harvested" && c.status !== "failed",
+  ) as { name?: string } | undefined;
+  const coverSrc = farm.coverImage
+    ? farm.coverImage
+    : firstActiveCrop?.name
+    ? getCropImage(firstActiveCrop.name)
+    : defaultImages[index % defaultImages.length];
+
+  // Real crop names this farm is actively growing (up to 3).
+  const cropChips = crops
+    .filter((c: { status: string }) => c.status !== "harvested" && c.status !== "failed")
+    .map((c: { name: string }) => c.name)
+    .slice(0, 3);
+
   return (
     <>
       <motion.div
         ref={cardRef}
-        variants={itemVariants}
+        variants={variants}
         whileTap={{ scale: 0.98 }}
         className="touch-feedback tap-highlight-none"
       >
-        <Card className="overflow-hidden border-border/50 card-hover">
+        <Card className="group overflow-hidden border-border/60 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-brand/5">
           {/* Cover Image */}
-          <div className="relative h-36 sm:h-44 overflow-hidden">
+          <div className="relative h-44 overflow-hidden sm:h-48">
             <ResponsiveImage
-              src={farm.coverImage || defaultImages[index % defaultImages.length]}
-              alt={farm.name}
+              src={coverSrc}
+              alt={`${farm.name} farm`}
               aspectRatio=""
-              className="absolute inset-0"
+              className="absolute inset-0 transition-transform duration-500 group-hover:scale-105"
               sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-            
-            <div className="absolute top-3 left-3 flex gap-2">
-              <Badge variant="secondary" className="bg-background/80 backdrop-blur-sm text-xs">
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+
+            <div className="absolute left-3 top-3 flex gap-2">
+              <Badge className="bg-black/40 text-[11px] text-white backdrop-blur-sm">
                 {farm.size} {farm.sizeUnit === "hectares" ? "ha" : "ac"}
               </Badge>
             </div>
 
-            <div className="absolute top-3 right-3">
+            <div className="absolute right-3 top-3">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="secondary"
                     size="icon"
-                    className="w-8 h-8 bg-background/80 backdrop-blur-sm touch-target"
+                    className="h-8 w-8 bg-black/40 text-white backdrop-blur-sm hover:bg-black/60 touch-target"
                     onClick={(e) => e.stopPropagation()}
+                    aria-label={`Actions for ${farm.name}`}
                   >
-                    <MoreVertical className="w-4 h-4" />
+                    <MoreVertical className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuItem onClick={() => { setSatelliteOpen(true); haptic.selection(); }}>
-                    <Satellite className="w-4 h-4 mr-2" />
+                    <Satellite className="mr-2 h-4 w-4" />
                     Satellite View
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => { haptic.selection(); window.location.href = `/farms/new?farmId=${farm._id}`; }}>
-                    <Edit className="w-4 h-4 mr-2" />
+                    <Edit className="mr-2 h-4 w-4" />
                     Edit Farm
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem className="text-red-600" disabled={deleting} onClick={() => { haptic.error(); handleDelete(); }}>
-                    <Trash2 className="w-4 h-4 mr-2" />
+                    <Trash2 className="mr-2 h-4 w-4" />
                     {deleting ? "Deleting..." : "Delete Farm"}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
 
-            <div className="absolute bottom-3 left-3 right-3">
-              <h3 className="text-white font-semibold text-base sm:text-lg truncate">{farm.name}</h3>
-              <div className="flex items-center gap-1 text-white/80 text-xs mt-1">
-                <Map className="w-3 h-3" />
+            <div className="absolute inset-x-0 bottom-0 p-3 sm:p-4">
+              <h3 className="truncate text-base font-semibold text-white sm:text-lg">{farm.name}</h3>
+              <div className="mt-1 flex items-center gap-1 text-xs text-white/80">
+                <Map className="h-3 w-3 shrink-0" />
                 <span className="truncate">{locationStr}</span>
               </div>
             </div>
           </div>
 
           <CardContent className="p-3 sm:p-4">
-            <div className="flex items-center justify-between mb-3">
+            <div className="mb-3 flex items-center justify-between gap-2">
               {score !== null ? (
                 <Badge variant="outline" className={getHealthColor(score)}>
-                  <Activity className="w-3 h-3 mr-1" />
+                  <Activity className="mr-1 h-3 w-3" />
                   {score}% Health
                 </Badge>
               ) : (
                 <Badge variant="secondary">No health data yet</Badge>
               )}
-              <span className="text-[10px] sm:text-xs text-muted-foreground capitalize">{farm.status}</span>
+              <span className="text-[10px] capitalize text-muted-foreground sm:text-xs">{farm.status}</span>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3">
-              <div className="text-center p-2 rounded-lg bg-muted/30">
-                <Leaf className="w-4 h-4 mx-auto text-green-500 mb-1" />
+            {/* Crop chips — real active crops this farm grows */}
+            {cropChips.length > 0 && (
+              <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                {cropChips.map((name: string) => (
+                  <span
+                    key={name}
+                    className="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/10 px-2.5 py-0.5 text-[10px] font-medium text-brand-foreground dark:text-brand sm:text-xs"
+                  >
+                    <Sprout className="h-3 w-3" />
+                    {name}
+                  </span>
+                ))}
+                {activeCrops > cropChips.length && (
+                  <span className="text-[10px] text-muted-foreground">
+                    +{activeCrops - cropChips.length} more
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div className="mb-3 grid grid-cols-3 gap-2 sm:gap-3">
+              <div className="rounded-xl bg-muted/30 p-2 text-center">
+                <Leaf className="mx-auto mb-1 h-4 w-4 text-brand-foreground dark:text-brand" />
                 <p className="text-xs font-semibold">{activeCrops}</p>
                 <p className="text-[10px] text-muted-foreground">Crops</p>
               </div>
-              <div className="text-center p-2 rounded-lg bg-muted/30">
-                <Navigation className="w-4 h-4 mx-auto text-blue-500 mb-1" />
+              <div className="rounded-xl bg-muted/30 p-2 text-center">
+                <Navigation className="mx-auto mb-1 h-4 w-4 text-blue-500" />
                 <p className="text-xs font-semibold">{farm.size}</p>
                 <p className="text-[10px] text-muted-foreground">{farm.sizeUnit === "hectares" ? "Ha" : "Ac"}</p>
               </div>
-              <div className="text-center p-2 rounded-lg bg-muted/30">
-                <Droplets className="w-4 h-4 mx-auto text-cyan-500 mb-1" />
+              <div className="rounded-xl bg-muted/30 p-2 text-center">
+                <Droplets className="mx-auto mb-1 h-4 w-4 text-cyan-500" />
                 <p className="text-xs font-semibold">{totalLivestock}</p>
                 <p className="text-[10px] text-muted-foreground">Livestock</p>
               </div>
             </div>
 
-            <div className="space-y-1.5 mb-3">
+            <div className="mb-3 space-y-1.5">
               <div className="flex items-center justify-between text-[10px] sm:text-xs">
                 <span className="text-muted-foreground">Farm Health</span>
                 <span className="font-medium">{score !== null ? `${score}%` : "—"}</span>
               </div>
-              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full transition-all duration-500"
+                  className="h-full rounded-full transition-all duration-700"
                   style={{
                     width: `${score ?? 0}%`,
-                    background: score !== null
-                      ? score >= 90
-                        ? "linear-gradient(90deg, #22c55e, #16a34a)"
-                        : score >= 70
-                        ? "linear-gradient(90deg, #f59e0b, #d97706)"
-                        : "linear-gradient(90deg, #ef4444, #dc2626)"
-                      : "var(--muted)",
+                    background:
+                      score !== null
+                        ? score >= 90
+                          ? "linear-gradient(90deg, #4ade80, #16a34a)"
+                          : score >= 70
+                          ? "linear-gradient(90deg, #fbbf24, #d97706)"
+                          : "linear-gradient(90deg, #f87171, #dc2626)"
+                        : "var(--muted)",
                   }}
                 />
               </div>
@@ -235,17 +311,17 @@ function FarmCard({ farm, index }: { farm: any; index: number }) {
             <div className="flex gap-2">
               <Link to="/farms" className="flex-1" onClick={() => haptic.selection()}>
                 <Button variant="outline" size="sm" className="w-full touch-target">
-                  <Eye className="w-4 h-4 mr-1" />
+                  <Eye className="mr-1 h-4 w-4" />
                   <span className="text-xs">View</span>
                 </Button>
               </Link>
               <Button
                 variant="default"
                 size="sm"
-                className="flex-1 touch-target"
+                className="flex-1 touch-target bg-brand text-brand-foreground hover:bg-brand/90"
                 onClick={() => { setSatelliteOpen(true); haptic.selection(); }}
               >
-                <Satellite className="w-4 h-4 mr-1" />
+                <Satellite className="mr-1 h-4 w-4" />
                 <span className="text-xs">Satellite</span>
               </Button>
             </div>
@@ -270,11 +346,13 @@ function FarmCard({ farm, index }: { farm: any; index: number }) {
 // ============================================================
 
 export default function Farms() {
-  const { user } = useAuth();
   const haptic = useHaptic();
+  const variants = useEntranceVariants();
   const { results: farms, isLoading, sentinelRef, canLoadMore, isLoadingMore } = usePaginatedQuery<{ _id: string; name: string; description?: string; location: { latitude: number; longitude: number; address?: string; city?: string; state?: string; country?: string }; size: number; sizeUnit: string; status: string; soilType?: string; soilPh?: number; ndviScore?: number; coverImage?: string; createdAt: number; updatedAt: number }>(api.farms.listUserFarms);
 
   const totalSize = farms?.reduce((sum: number, f: { size: number }) => sum + f.size, 0) ?? 0;
+  const allAcres = farms && farms.length > 0 && farms.every((f) => f.sizeUnit === "acres");
+  const areaUnit = allAcres ? "ac" : "ha";
   // Average health derived ONLY from farms that have a real satellite score.
   const avgHealth = farms && farms.length > 0
     ? (() => {
@@ -288,23 +366,23 @@ export default function Farms() {
 
   return (
     <AppLayout>
-      <div className="p-3 sm:p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
+      <div className="mx-auto max-w-[1400px] p-3 sm:p-4 md:p-6 lg:p-8">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 sm:mb-6"
+          className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-center sm:mb-8"
         >
           <div>
-            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight">My Farms</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-              Manage and monitor your agricultural properties
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">My Farms</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Manage your farms, fields, crops and agricultural operations from one place.
             </p>
           </div>
           <Link to="/farms/new" onClick={() => haptic.medium()}>
-            <Button className="gradient-primary touch-target w-full sm:w-auto">
-              <Plus className="w-4 h-4 mr-2" />
-              Add New Farm
+            <Button className="h-12 w-full rounded-full bg-brand px-6 text-brand-foreground hover:bg-brand/90 hover:shadow-lg hover:shadow-brand/25 sm:w-auto touch-target">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Farm
             </Button>
           </Link>
         </motion.div>
@@ -314,60 +392,64 @@ export default function Farms() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-5 sm:mb-6"
+          className="mb-6 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4"
         >
           {isLoading ? (
             Array.from({ length: 4 }).map((_, i) => (
-              <Card key={i} className="border-border/50">
-                <CardContent className="p-3 sm:p-4">
-                  <Skeleton className="h-4 w-20 mb-2" />
+              <Card key={i} className="border-border/60">
+                <CardContent className="p-4 sm:p-5">
+                  <Skeleton className="mb-2 h-4 w-20" />
                   <Skeleton className="h-6 w-12" />
                 </CardContent>
               </Card>
             ))
           ) : (
             <>
-              <Card className="border-border/50">
-                <CardContent className="p-3 sm:p-4">
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <Map className="w-5 h-5 text-emerald-500 shrink-0" />
-                    <div>
-                      <p className="text-lg sm:text-xl font-bold">{farms?.length ?? 0}</p>
-                      <p className="text-[10px] sm:text-xs text-muted-foreground">Total Farms</p>
-                    </div>
+              <Card className="border-border/60">
+                <CardContent className="flex items-center gap-3 p-4 sm:p-5">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand-foreground dark:text-brand">
+                    <Map className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xl font-bold sm:text-2xl">{farms?.length ?? 0}</p>
+                    <p className="text-[10px] text-muted-foreground sm:text-xs">Total Farms</p>
                   </div>
                 </CardContent>
               </Card>
-              <Card className="border-border/50">
-                <CardContent className="p-3 sm:p-4">
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <Navigation className="w-5 h-5 text-blue-500 shrink-0" />
-                    <div>
-                      <p className="text-lg sm:text-xl font-bold">{totalSize}</p>
-                      <p className="text-[10px] sm:text-xs text-muted-foreground">Total Size</p>
-                    </div>
+              <Card className="border-border/60">
+                <CardContent className="flex items-center gap-3 p-4 sm:p-5">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand-foreground dark:text-brand">
+                    <LandPlot className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-xl font-bold sm:text-2xl">
+                      {totalSize} {areaUnit}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground sm:text-xs">Total Area</p>
                   </div>
                 </CardContent>
               </Card>
-              <Card className="border-border/50">
-                <CardContent className="p-3 sm:p-4">
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <Activity className="w-5 h-5 text-green-500 shrink-0" />
-                    <div>
-                      <p className="text-lg sm:text-xl font-bold">{avgHealth !== null ? `${avgHealth}%` : "—"}</p>
-                      <p className="text-[10px] sm:text-xs text-muted-foreground">Avg Health</p>
-                    </div>
+              <Card className="border-border/60">
+                <CardContent className="flex items-center gap-3 p-4 sm:p-5">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand-foreground dark:text-brand">
+                    <Activity className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xl font-bold sm:text-2xl">{avgHealth !== null ? `${avgHealth}%` : "—"}</p>
+                    <p className="text-[10px] text-muted-foreground sm:text-xs">Avg Health</p>
                   </div>
                 </CardContent>
               </Card>
-              <Card className="border-border/50">
-                <CardContent className="p-3 sm:p-4">
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <Leaf className="w-5 h-5 text-amber-500 shrink-0" />
-                    <div>
-                      <p className="text-lg sm:text-xl font-bold">{farms?.filter((f: { status: string }) => f.status === "active").length ?? 0}</p>
-                      <p className="text-[10px] sm:text-xs text-muted-foreground">Active Farms</p>
-                    </div>
+              <Card className="border-border/60">
+                <CardContent className="flex items-center gap-3 p-4 sm:p-5">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand-foreground dark:text-brand">
+                    <Leaf className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xl font-bold sm:text-2xl">
+                      {farms?.filter((f: { status: string }) => f.status === "active").length ?? 0}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground sm:text-xs">Active Farms</p>
                   </div>
                 </CardContent>
               </Card>
@@ -377,40 +459,50 @@ export default function Farms() {
 
         {/* Farms Grid */}
         {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
             {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-96 rounded-lg" />
+              <Skeleton key={i} className="h-[26rem] rounded-2xl" />
             ))}
           </div>
         ) : farms && farms.length > 0 ? (
           <motion.div
-            variants={containerVariants}
+            variants={variants.container}
             initial="hidden"
             animate="visible"
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6"
+            className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3"
           >
             {farms.map((farm: any, index: number) => (
-              <FarmCard key={farm._id} farm={farm} index={index} />
+              <FarmCard key={farm._id} farm={farm} index={index} variants={variants.item} />
             ))}
           </motion.div>
         ) : (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-center py-16"
+            className="flex flex-col items-center rounded-3xl border border-dashed border-border bg-muted/20 px-6 py-20 text-center"
           >
-            <Map className="w-16 h-16 mx-auto mb-4 text-muted-foreground/50" />
-            <h3 className="text-lg font-semibold mb-2">No farms yet</h3>
-            <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
-              Get started by adding your first farm. You can track crops, livestock, weather, and more.
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand/10 text-brand-foreground dark:text-brand">
+              <LandPlot className="h-8 w-8" />
+            </div>
+            <h2 className="mt-5 text-xl font-bold tracking-tight">Your farm journey starts here.</h2>
+            <p className="mt-2 max-w-md text-sm text-muted-foreground">
+              Add your first farm to start tracking crops, livestock, weather and farm performance.
             </p>
             <Link to="/farms/new" onClick={() => haptic.medium()}>
-              <Button className="gradient-primary">
-                <Plus className="w-4 h-4 mr-2" />
+              <Button className="mt-6 h-12 rounded-full bg-brand px-7 text-brand-foreground hover:bg-brand/90 hover:shadow-lg hover:shadow-brand/25">
+                <Plus className="mr-2 h-4 w-4" />
                 Add Your First Farm
               </Button>
             </Link>
           </motion.div>
+        )}
+
+        {/* Infinite-scroll sentinel (preserved pagination) */}
+        {canLoadMore && <div ref={sentinelRef} className="h-4" />}
+        {isLoadingMore && (
+          <div className="flex justify-center py-4">
+            <Activity className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
         )}
       </div>
     </AppLayout>
