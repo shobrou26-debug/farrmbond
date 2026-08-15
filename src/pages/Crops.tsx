@@ -61,8 +61,15 @@ import {
 // handles load failures with a clean error state.
 // ============================================================
 
-const CROP_IMAGE_FALLBACK =
-  "https://images.unsplash.com/photo-1464226184884-fa280b87c399?q=80&w=900&auto=format&fit=crop";
+// Verified agricultural photos already in production (Landing/Auth/Dashboard).
+// Unmapped crops get one of these subject-neutral farm photos, picked
+// deterministically by crop name so cards never all show the same image.
+const CROP_IMAGE_FALLBACKS = [
+  "https://images.unsplash.com/photo-1464226184884-fa280b87c399?q=80&w=900&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=900&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1466611653911-95081537e5b7?q=80&w=900&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1500937386664-56d1dfef3854?q=80&w=900&auto=format&fit=crop",
+];
 
 const cropImageMap: Record<string, string> = {
   tomato:
@@ -79,11 +86,20 @@ const cropImageMap: Record<string, string> = {
     "https://images.unsplash.com/photo-1518977676601-b53f82aba655?q=80&w=900&auto=format&fit=crop",
   sunflower:
     "https://images.unsplash.com/photo-1470509037663-253afd7f0f51?q=80&w=900&auto=format&fit=crop",
+  garlic:
+    "https://images.unsplash.com/photo-1495195129352-aeb325a55b65?q=80&w=900&auto=format&fit=crop",
 };
 
 function getCropImage(name: string): string {
   const key = Object.keys(cropImageMap).find((k) => name.toLowerCase().includes(k));
-  return key ? cropImageMap[key] : CROP_IMAGE_FALLBACK;
+  if (key) return cropImageMap[key];
+  // Deterministic hash so the same crop name always maps to the same photo.
+  let hash = 0;
+  const lower = name.toLowerCase();
+  for (let i = 0; i < lower.length; i++) {
+    hash = (hash * 31 + lower.charCodeAt(i)) >>> 0;
+  }
+  return CROP_IMAGE_FALLBACKS[hash % CROP_IMAGE_FALLBACKS.length];
 }
 
 function typeLabel(type: string): string {
@@ -354,7 +370,7 @@ export default function Crops() {
         >
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Your Crops</h1>
+              <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">My Crops</h1>
               <p className="mt-1 text-sm text-muted-foreground sm:text-base">
                 Monitor and manage every crop across your farms — growth, health and harvest in one place.
               </p>
