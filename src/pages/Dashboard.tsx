@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { useWeather } from "@/hooks/use-weather";
+import { useUnits } from "@/hooks/use-units";
+import { useCurrency } from "@/hooks/use-currency";
 import { useHaptic } from "@/hooks/use-mobile";
 import {
   Leaf,
@@ -79,26 +81,6 @@ function getCropImage(name: string): string {
 // ============================================================
 // Helpers
 // ============================================================
-
-function formatMoney(amount: number, currency: string): string {
-  const symbol =
-    currency === "USD"
-      ? "$"
-      : currency === "EUR"
-      ? "€"
-      : currency === "GBP"
-      ? "£"
-      : currency === "KES"
-      ? "KSh "
-      : currency === "NGN"
-      ? "₦"
-      : currency === "UGX"
-      ? "USh "
-      : currency === "TZS"
-      ? "TSh "
-      : `${currency} `;
-  return `${symbol}${Math.round(amount).toLocaleString()}`;
-}
 
 function weatherIcon(code: number, className = "h-5 w-5", tone: "dark" | "light" = "dark") {
   const onDark = {
@@ -223,13 +205,14 @@ function StatCard({
 function WeatherWidget() {
   const haptic = useHaptic();
   const { data: weather, isLoading, getWeatherDescription, isDefaultLocation } = useWeather();
+  const { tempValue, tempUnit, wind, precip } = useUnits();
 
   const current = weather?.current;
-  const temp = current ? Math.round(current.temperature) : null;
+  const tempRaw = current ? Math.round(current.temperature) : null;
   const humidity = current ? Math.round(current.humidity) : null;
-  const wind = current ? Math.round(current.windSpeed) : null;
+  const windRaw = current ? Math.round(current.windSpeed) : null;
   const uv = current ? Math.round(current.uvIndex) : null;
-  const precip = current ? Math.round(current.precipitation * 10) / 10 : null;
+  const precipRaw = current ? Math.round(current.precipitation * 10) / 10 : null;
   const description = current ? getWeatherDescription(current.weatherCode) : null;
   const locationName = weather?.location?.name;
   const daily = weather?.daily?.slice(0, 3) ?? [];
@@ -258,7 +241,16 @@ function WeatherWidget() {
               <Skeleton className="mt-2 h-9 w-20 bg-white/20" />
             ) : (
               <p className="mt-1 text-3xl font-bold tracking-tight sm:text-4xl">
-                {temp !== null ? `${temp}°` : "--"}
+                {tempRaw !== null ? (
+                  <>
+                    {tempValue(tempRaw)}
+                    <span className="ml-0.5 text-lg font-semibold text-brand sm:text-xl">
+                      {tempUnit}
+                    </span>
+                  </>
+                ) : (
+                  "--"
+                )}
               </p>
             )}
           </div>
@@ -291,7 +283,7 @@ function WeatherWidget() {
             {isLoading ? (
               <Skeleton className="mx-auto h-4 w-10" />
             ) : (
-              <p className="text-xs font-semibold sm:text-sm">{wind !== null ? `${wind} km/h` : "--"}</p>
+              <p className="text-xs font-semibold sm:text-sm">{windRaw !== null ? wind(windRaw) : "--"}</p>
             )}
           </div>
           <div className="space-y-1">
@@ -300,7 +292,7 @@ function WeatherWidget() {
             {isLoading ? (
               <Skeleton className="mx-auto h-4 w-10" />
             ) : (
-              <p className="text-xs font-semibold sm:text-sm">{precip !== null ? `${precip} mm` : "--"}</p>
+              <p className="text-xs font-semibold sm:text-sm">{precipRaw !== null ? precip(precipRaw) : "--"}</p>
             )}
           </div>
           <div className="space-y-1">
@@ -333,7 +325,7 @@ function WeatherWidget() {
                     <span className="text-[10px] font-medium text-muted-foreground">{label}</span>
                     {weatherIcon(day.weatherCode, "h-5 w-5", "light")}
                     <span className="text-xs font-semibold">
-                      {Math.round(day.tempMax)}°<span className="text-muted-foreground">/{Math.round(day.tempMin)}°</span>
+                      {Math.round(tempValue(day.tempMax))}°<span className="text-muted-foreground">/{Math.round(tempValue(day.tempMin))}°</span>
                     </span>
                     <span className="flex items-center gap-0.5 text-[9px] text-muted-foreground">
                       <Droplets className="h-2.5 w-2.5 text-sky-500" />
@@ -815,8 +807,10 @@ function LivestockOverview({
 
 function FinancialSnapshot() {
   const summary = useQuery(api.transactions.getFinancialSummary, {});
-  const preferences = useQuery(api.users.getPreferences, {});
-  const currency = preferences?.currency ?? "USD";
+  // Backend financial totals are stored in KES; convert and format them into
+  // the user's configured currency (same pattern as Finances.tsx). KES users
+  // get an identity conversion, so the amount is unchanged.
+  const { format, convert } = useCurrency();
 
   if (summary === undefined) return <Skeleton className="h-28 rounded-2xl" />;
 
@@ -856,14 +850,14 @@ function FinancialSnapshot() {
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Income</p>
           <p className="mt-1 flex items-center justify-center gap-1 text-sm font-bold text-green-600">
             <TrendingUp className="h-3.5 w-3.5" />
-            {formatMoney(summary.totalIncome, currency)}
+            {format(convert(summary.totalIncome, "KES"))}
           </p>
         </div>
         <div>
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Expenses</p>
           <p className="mt-1 flex items-center justify-center gap-1 text-sm font-bold text-red-600">
             <TrendingDown className="h-3.5 w-3.5" />
-            {formatMoney(summary.totalExpenses, currency)}
+            {format(convert(summary.totalExpenses, "KES"))}
           </p>
         </div>
         <div>
@@ -872,7 +866,7 @@ function FinancialSnapshot() {
             className={`mt-1 text-sm font-bold ${profitPositive ? "text-green-600" : "text-red-600"}`}
           >
             {profitPositive ? "+" : "-"}
-            {formatMoney(Math.abs(profit), currency)}
+            {format(convert(Math.abs(profit), "KES"))}
           </p>
         </div>
       </div>
@@ -982,6 +976,7 @@ function WelcomeHero({
 }) {
   const { user } = useAuth();
   const { data: weather, getWeatherDescription } = useWeather();
+  const { tempValue, tempUnit } = useUnits();
   const firstName = user?.name?.split(" ")[0] || "Farmer";
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
@@ -1046,7 +1041,10 @@ function WelcomeHero({
             <div className="flex items-center gap-3 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-sm">
               {weather?.current && weatherIcon(weather.current.weatherCode, "h-8 w-8")}
               <div>
-                <p className="text-xl font-bold leading-none">{temp}°</p>
+                <p className="text-xl font-bold leading-none">
+                  {tempValue(temp)}
+                  <span className="ml-0.5 text-xs font-semibold text-brand">{tempUnit}</span>
+                </p>
                 <p className="mt-1 text-[11px] text-white/75">{desc}</p>
               </div>
             </div>

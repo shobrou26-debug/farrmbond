@@ -41,6 +41,7 @@ import {
   LayoutGrid,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useTheme } from "@/hooks/use-theme";
 import { useIsMobile, useHaptic, useScrollDirection } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -607,7 +608,8 @@ function Sidebar({
 function Header({ onMenuClick }: { onMenuClick: () => void }) {
   const { user } = useAuth();
   const location = useLocation();
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const { theme, setTheme } = useTheme();
+  const isDark = theme === "dark-farm";
   const { isHidden } = useScrollDirection();
   const isMobile = useIsMobile();
   const haptic = useHaptic();
@@ -615,15 +617,12 @@ function Header({ onMenuClick }: { onMenuClick: () => void }) {
   const title = getPageTitle(location.pathname);
   const groupLabel = getActiveGroup(location.pathname, getNavGroups(role));
 
-  useEffect(() => {
-    const isDark = document.documentElement.classList.contains("dark");
-    setTheme(isDark ? "dark" : "light");
-  }, []);
-
   const toggleTheme = () => {
     haptic.light();
-    document.documentElement.classList.toggle("dark");
-    setTheme((prev) => (prev === "light" ? "dark" : "light"));
+    // Use the existing six-theme preference system: dark-farm is the dark
+    // theme, green-fields the default light theme. Persists via useTheme
+    // (Convex preferences + localStorage) and stays in sync with Settings.
+    setTheme(isDark ? "green-fields" : "dark-farm");
   };
 
   return (
@@ -670,7 +669,7 @@ function Header({ onMenuClick }: { onMenuClick: () => void }) {
           className="hidden sm:flex touch-target"
           aria-label="Toggle theme"
         >
-          {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+          {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </Button>
 
         <NotificationCenter />
