@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { useAuth } from "@/hooks/use-auth";
+import { useCurrency } from "@/hooks/use-currency";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -397,6 +398,7 @@ function AnimalDetailModal({
 }) {
   const [detailTab, setDetailTab] = useState<"records" | "info">("records");
   const records = animal.medicalHistory || [];
+  const { format } = useCurrency();
 
   return (
     <motion.div
@@ -502,7 +504,7 @@ function AnimalDetailModal({
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">
                         {record.treatment}
-                        {record.cost && ` • Cost: KES ${record.cost.toLocaleString()}`}
+                        {record.cost ? ` • Cost: ${format(record.cost)}` : ""}
                       </p>
                     </div>
                   </div>
@@ -525,7 +527,7 @@ function AnimalDetailModal({
                 </div>
                 <div className="p-4 rounded-xl bg-muted/30">
                   <p className="text-sm text-muted-foreground">Acquisition Cost</p>
-                  <p className="font-medium">{animal.acquisitionCost ? `KES ${animal.acquisitionCost.toLocaleString()}` : "N/A"}</p>
+                  <p className="font-medium">{animal.acquisitionCost ? format(animal.acquisitionCost) : "N/A"}</p>
                 </div>
                 <div className="p-4 rounded-xl bg-muted/30">
                   <p className="text-sm text-muted-foreground">Feed Type</p>
@@ -533,7 +535,7 @@ function AnimalDetailModal({
                 </div>
                 <div className="p-4 rounded-xl bg-muted/30">
                   <p className="text-sm text-muted-foreground">Daily Feed Cost</p>
-                  <p className="font-medium">{animal.dailyFeedCost ? `KES ${animal.dailyFeedCost.toLocaleString()}` : "N/A"}</p>
+                  <p className="font-medium">{animal.dailyFeedCost ? format(animal.dailyFeedCost) : "N/A"}</p>
                 </div>
                 <div className="p-4 rounded-xl bg-muted/30">
                   <p className="text-sm text-muted-foreground">Last Vaccination</p>
@@ -558,6 +560,7 @@ function AnimalDetailModal({
 export default function Livestock() {
   const shouldReduceMotion = useReducedMotion();
   const { user } = useAuth();
+  const { format } = useCurrency();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [coverageFarmFilter, setCoverageFarmFilter] = useState<string>("all");
@@ -1214,7 +1217,7 @@ export default function Livestock() {
                               <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
                                 <span>{record.treatment}</span>
                                 {record.cost && (
-                                  <span className="font-medium text-foreground">KES {record.cost.toLocaleString()}</span>
+                                  <span className="font-medium text-foreground">{format(record.cost)}</span>
                                 )}
                               </div>
                             </div>

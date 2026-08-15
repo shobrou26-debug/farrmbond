@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Beef, DollarSign, Syringe, CheckCircle2, X, ArrowLeft, ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useCurrency } from "@/hooks/use-currency";
 
 // ============================================================
 // Shared helpers (kept local so the component is self-contained)
@@ -61,6 +62,7 @@ export function AddLivestockModal({
   }) => void;
   isCreating: boolean;
 }) {
+  const { format, currency } = useCurrency();
   const [step, setStep] = useState(0); // 0: basic, 1: cost, 2: health, 3: review
   const [name, setName] = useState("");
   const [type, setType] = useState("Cattle");
@@ -290,7 +292,7 @@ export function AddLivestockModal({
               >
                 <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Cost & Feed Tracking</h3>
                 <div>
-                  <label className="text-sm font-medium">Acquisition Cost (KES)</label>
+                  <label className="text-sm font-medium">Acquisition Cost ({currency})</label>
                   <Input type="number" min="0" placeholder="e.g., 50000" value={acquisitionCost} onChange={(e) => setAcquisitionCost(e.target.value)} />
                   <p className="text-xs text-muted-foreground mt-1">Total cost of purchasing/acquiring this livestock</p>
                 </div>
@@ -312,7 +314,7 @@ export function AddLivestockModal({
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Daily Feed Cost (KES)</label>
+                  <label className="text-sm font-medium">Daily Feed Cost ({currency})</label>
                   <Input type="number" min="0" step="0.01" placeholder="e.g., 500" value={dailyFeedCost} onChange={(e) => setDailyFeedCost(e.target.value)} />
                   <p className="text-xs text-muted-foreground mt-1">Estimated daily feed cost per unit</p>
                 </div>
@@ -369,7 +371,7 @@ export function AddLivestockModal({
                         <Input placeholder="e.g., All animals in good health, dewormed" value={recordTreatment} onChange={(e) => setRecordTreatment(e.target.value)} />
                       </div>
                       <div>
-                        <label className="text-sm font-medium">Cost (KES)</label>
+                        <label className="text-sm font-medium">Cost ({currency})</label>
                         <Input type="number" min="0" placeholder="e.g., 5000" value={recordCost} onChange={(e) => setRecordCost(e.target.value)} />
                       </div>
                     </motion.div>
@@ -408,9 +410,9 @@ export function AddLivestockModal({
                         Cost & Feed
                       </h4>
                       <div className="grid grid-cols-2 gap-2 text-sm">
-                        {acquisitionCost && <><span className="text-muted-foreground">Acquisition Cost:</span><span>KES {parseFloat(acquisitionCost).toLocaleString()}</span></>}
+                        {acquisitionCost && <><span className="text-muted-foreground">Acquisition Cost:</span><span>{format(parseFloat(acquisitionCost))}</span></>}
                         {feedType && <><span className="text-muted-foreground">Feed Type:</span><span className="capitalize">{feedType}</span></>}
-                        {dailyFeedCost && <><span className="text-muted-foreground">Daily Feed Cost:</span><span>KES {parseFloat(dailyFeedCost).toLocaleString()}</span></>}
+                        {dailyFeedCost && <><span className="text-muted-foreground">Daily Feed Cost:</span><span>{format(parseFloat(dailyFeedCost))}</span></>}
                       </div>
                     </div>
                   )}
