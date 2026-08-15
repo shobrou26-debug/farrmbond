@@ -53,6 +53,12 @@
   --color-warning-foreground: oklch(0.2 0 0);
   --color-info: oklch(0.65 0.15 240);
   --color-info-foreground: oklch(0.98 0 0);
+  
+  /* FarmBond brand lime (Harvestiq-style accent) */
+  --color-brand: oklch(0.73 0.19 124);
+  --color-brand-foreground: oklch(0.16 0.05 124);
+  --color-brand-soft: oklch(0.965 0.045 127);
+  --color-brand-deep: oklch(0.30 0.08 132);
 }
 
 /* ============================================================

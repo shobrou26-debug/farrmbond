@@ -1,8 +1,7 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { CookieSettingsButton } from "@/components/CookiePreferences";
 import {
   Sprout,
@@ -13,8 +12,6 @@ import {
   Map,
   Shield,
   Users,
-  Zap,
-  ChevronRight,
   ArrowRight,
   Check,
   Globe,
@@ -26,102 +23,189 @@ import {
 } from "lucide-react";
 
 // ============================================================
+// Hero carousel slides (decorative landscape photography)
+// ============================================================
+
+const heroSlides = [
+  {
+    image:
+      "https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=2400&auto=format&fit=crop",
+    caption: "Renewable-powered farmland",
+  },
+  {
+    image:
+      "https://images.unsplash.com/photo-1466611653911-95081537e5b7?q=80&w=2400&auto=format&fit=crop",
+    caption: "Wind turbines over green fields",
+  },
+  {
+    image:
+      "https://images.unsplash.com/photo-1500937386664-56d1dfef3854?q=80&w=2400&auto=format&fit=crop",
+    caption: "Golden harvest season",
+  },
+];
+
+// ============================================================
 // Navigation
 // ============================================================
 
 function Navbar() {
   const [scrolled, setScrolled] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [dark, setDark] = useState(
+    () => typeof document !== "undefined" && document.documentElement.classList.contains("dark"),
+  );
 
   useEffect(() => {
-    const handleScroll = () => setScrolled(window.scrollY > 20);
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    const onScroll = () => setScrolled(window.scrollY > 24);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   const toggleTheme = () => {
     document.documentElement.classList.toggle("dark");
-    setTheme((prev) => (prev === "light" ? "dark" : "light"));
+    setDark(document.documentElement.classList.contains("dark"));
   };
+
+  const overHero = !scrolled;
+
+  const navLinks = [
+    { label: "Features", to: "#features", internal: false },
+    { label: "Pricing", to: "#pricing", internal: false },
+    { label: "Built for Farmers", to: "#built-for-farmers", internal: false },
+    { label: "About", to: "/about", internal: true },
+  ];
 
   return (
     <nav
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled
-          ? "bg-background/95 backdrop-blur-xl border-b border-border shadow-sm"
-          : "bg-transparent"
+        overHero ? "bg-transparent" : "bg-background/90 backdrop-blur-xl border-b border-border shadow-sm"
       }`}
     >
-      <div className="max-w-7xl mx-auto px-4 md:px-6">
-        <div className="flex items-center justify-between h-16">
+      <div className="mx-auto max-w-7xl px-4 md:px-6">
+        <div className="flex h-16 md:h-20 items-center justify-between">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2.5 group">
-            <div className="relative flex items-center justify-center w-9 h-9 rounded-xl gradient-primary shadow-md group-hover:shadow-lg transition-shadow">
-              <Sprout className="w-5 h-5 text-white" />
-              <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-green-400 rounded-full animate-pulse" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand shadow-md transition-transform group-hover:scale-105">
+              <Sprout className="h-5 w-5 text-brand-foreground" />
             </div>
-            <span className="text-xl font-bold tracking-tight text-gradient-primary">
+            <span
+              className={`text-xl font-bold tracking-tight ${
+                overHero ? "text-white" : "text-foreground"
+              }`}
+            >
               FarmBond
             </span>
           </Link>
 
           {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-8">
-            <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Features
-            </a>
-            <a href="#pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Pricing
-            </a>
-            <a href="#built-for-farmers" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Built for Farmers
-            </a>
+            {navLinks.map((link) =>
+              link.internal ? (
+                <Link
+                  key={link.label}
+                  to={link.to}
+                  className={`text-sm transition-colors ${
+                    overHero
+                      ? "text-white/85 hover:text-white"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              ) : (
+                <a
+                  key={link.label}
+                  href={link.to}
+                  className={`text-sm transition-colors ${
+                    overHero
+                      ? "text-white/85 hover:text-white"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {link.label}
+                </a>
+              ),
+            )}
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={toggleTheme}>
-              {theme === "light" ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+          <div className="flex items-center gap-2.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              aria-label="Toggle dark mode"
+              className={overHero ? "text-white hover:bg-white/10 hover:text-white" : ""}
+            >
+              {dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </Button>
-            <Link to="/auth">
-              <Button variant="ghost" size="sm" className="hidden sm:flex">
+            <Link to="/auth" className="hidden sm:block">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={
+                  overHero
+                    ? "text-white hover:bg-white/10 hover:text-white"
+                    : "text-muted-foreground hover:text-foreground"
+                }
+              >
                 Sign In
               </Button>
             </Link>
             <Link to="/auth">
-              <Button size="sm" className="gradient-primary">
-                Get Started Free
-              </Button>
+              <span className="inline-flex h-10 items-center rounded-full bg-brand px-5 text-sm font-semibold text-brand-foreground transition-all hover:bg-brand/90 hover:shadow-lg hover:shadow-brand/30">
+                Get Started
+              </span>
             </Link>
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className={`md:hidden ${overHero ? "text-white hover:bg-white/10 hover:text-white" : ""}`}
+              onClick={() => setMobileOpen(!mobileOpen)}
+              aria-label="Toggle menu"
             >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </Button>
           </div>
         </div>
 
         {/* Mobile Menu */}
-        {mobileMenuOpen && (
+        {mobileOpen && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="md:hidden py-4 border-t border-border"
+            className="md:hidden rounded-2xl border border-border bg-background/95 backdrop-blur-xl px-4 py-4 mb-3 shadow-lg"
           >
-            <div className="flex flex-col gap-3">
-              <a href="#features" className="text-sm text-muted-foreground hover:text-foreground py-2" onClick={() => setMobileMenuOpen(false)}>
-                Features
-              </a>
-              <a href="#pricing" className="text-sm text-muted-foreground hover:text-foreground py-2" onClick={() => setMobileMenuOpen(false)}>
-                Pricing
-              </a>
-              <a href="#built-for-farmers" className="text-sm text-muted-foreground hover:text-foreground py-2" onClick={() => setMobileMenuOpen(false)}>
-                Built for Farmers
-              </a>
+            <div className="flex flex-col gap-1">
+              {navLinks.map((link) =>
+                link.internal ? (
+                  <Link
+                    key={link.label}
+                    to={link.to}
+                    className="rounded-lg px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    {link.label}
+                  </Link>
+                ) : (
+                  <a
+                    key={link.label}
+                    href={link.to}
+                    className="rounded-lg px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    {link.label}
+                  </a>
+                ),
+              )}
+              <Link
+                to="/auth"
+                className="mt-2 rounded-full bg-brand px-4 py-2.5 text-center text-sm font-semibold text-brand-foreground"
+                onClick={() => setMobileOpen(false)}
+              >
+                Get Started
+              </Link>
             </div>
           </motion.div>
         )}
@@ -135,125 +219,159 @@ function Navbar() {
 // ============================================================
 
 function HeroSection() {
-  return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-16">
-      {/* Background */}
-      <div className="absolute inset-0 bg-gradient-to-b from-background via-background/95 to-background" />
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] bg-primary/5 rounded-full blur-3xl" />
-      <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-green-500/5 rounded-full blur-3xl" />
+  const [active, setActive] = useState(0);
 
-      <div className="relative max-w-7xl mx-auto px-4 md:px-6 py-20">
-        <div className="text-center max-w-4xl mx-auto">
+  useEffect(() => {
+    const id = setInterval(() => setActive((a) => (a + 1) % heroSlides.length), 7000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <section className="relative min-h-screen overflow-hidden bg-black">
+      {/* Photo backgrounds with crossfade */}
+      {heroSlides.map((slide, i) => (
+        <img
+          key={slide.image}
+          src={slide.image}
+          alt=""
+          aria-hidden={i !== active}
+          className={`absolute inset-0 h-full w-full object-cover transition-all duration-[1400ms] ease-out ${
+            i === active ? "scale-105 opacity-100" : "scale-100 opacity-0"
+          }`}
+        />
+      ))}
+
+      {/* Readability overlays */}
+      <div className="absolute inset-0 bg-black/40" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-black/45" />
+
+      {/* Hero content */}
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 pt-28 pb-28">
+        <div className="flex flex-1 flex-col justify-center pb-8">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
+            className="mb-6 inline-flex w-fit items-center gap-2 rounded-full border border-brand/60 bg-black/30 px-4 py-1.5 text-sm font-medium text-brand backdrop-blur-sm"
           >
-            <Badge variant="secondary" className="mb-6 px-4 py-1.5">
-              <Zap className="w-3.5 h-3.5 mr-1.5 text-primary" />
-              AI-Powered Smart Farming Platform
-            </Badge>
+            <span aria-hidden>◆</span>
+            Future-Ready Farming
           </motion.div>
 
           <motion.h1
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-            className="text-5xl md:text-7xl font-bold tracking-tight leading-[1.1] mb-6"
+            transition={{ duration: 0.7, delay: 0.1 }}
+            className="text-5xl font-bold leading-[1.05] tracking-tight text-white md:text-6xl xl:text-7xl"
           >
-            Grow Smarter,{" "}
-            <span className="text-gradient-primary">Harvest More</span>
+            Smart. <span className="text-brand">Sustainable.</span>
+            <br />
+            <span className="text-brand">Future-Ready</span> Farming.
           </motion.h1>
 
           <motion.p
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed"
+            transition={{ duration: 0.7, delay: 0.2 }}
+            className="mt-6 max-w-xl text-lg leading-relaxed text-white/85 md:text-xl"
           >
-            FarmBond combines AI-powered insights, satellite monitoring, and real-time weather data
-            to help farmers increase productivity, reduce losses, and maximize profits.
+            Harnessing AI, satellite intelligence, and climate-smart agronomy with a rural
+            vision — unlocking productivity &amp; profitability while protecting the planet.
           </motion.p>
 
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.3 }}
-            className="flex flex-col sm:flex-row items-center justify-center gap-4"
+            transition={{ duration: 0.7, delay: 0.3 }}
+            className="mt-10 flex items-center gap-4"
           >
-            <Link to="/auth">
-              <Button size="lg" className="gradient-primary px-8 text-base">
-                Start Free Trial
-                <ArrowRight className="w-5 h-5 ml-2" />
-              </Button>
+            <Link
+              to="/auth"
+              className="inline-flex h-12 items-center rounded-full bg-white px-8 text-base font-semibold text-black transition-all hover:bg-white/90 hover:shadow-xl"
+            >
+              Get Started
             </Link>
-            <a href="#features">
-              <Button size="lg" variant="outline" className="px-8 text-base">
-                See Features
-                <ChevronRight className="w-5 h-5 ml-2" />
-              </Button>
-            </a>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.4 }}
-            className="flex items-center justify-center gap-6 mt-10 text-sm text-muted-foreground"
-          >
-            <span className="flex items-center gap-1.5">
-              <Check className="w-4 h-4 text-green-500" />
-              Free 7-day trial
-            </span>
-            <span className="flex items-center gap-1.5">
-              <Check className="w-4 h-4 text-green-500" />
-              No credit card required
-            </span>
-            <span className="flex items-center gap-1.5 hidden sm:flex">
-              <Check className="w-4 h-4 text-green-500" />
-              Cancel anytime
-            </span>
+            <Link
+              to="/auth"
+              aria-label="Get started with FarmBond"
+              className="flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white backdrop-blur-sm transition-all hover:bg-black/70 hover:shadow-xl"
+            >
+              <ArrowRight className="h-5 w-5" />
+            </Link>
           </motion.div>
         </div>
+      </div>
 
-        {/* Hero Image */}
-        <motion.div
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.5 }}
-          className="mt-16 relative max-w-5xl mx-auto"
-        >
-          <div className="relative rounded-2xl overflow-hidden border border-border/50 shadow-2xl">
-            <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 p-8 md:p-12">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[
-                  { icon: Map, label: "Farm Maps", value: "3 Active", color: "bg-emerald-500" },
-                  { icon: Leaf, label: "Crops", value: "12 Growing", color: "bg-green-500" },
-                  { icon: Cloud, label: "Weather", value: "24°C Sunny", color: "bg-blue-500" },
-                  { icon: Bot, label: "AI Insights", value: "5 New", color: "bg-purple-500" },
-                ].map((item, i) => {
-                  const Icon = item.icon;
-                  return (
-                    <motion.div
-                      key={i}
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: 0.7 + i * 0.1 }}
-                      className="p-4 rounded-xl bg-card border border-border/50 shadow-sm"
-                    >
-                      <div className={`flex items-center justify-center w-10 h-10 rounded-xl ${item.color} mb-3`}>
-                        <Icon className="w-5 h-5 text-white" />
-                      </div>
-                      <p className="text-xs text-muted-foreground">{item.label}</p>
-                      <p className="text-sm font-semibold mt-0.5">{item.value}</p>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            </div>
+      {/* Bottom controls: carousel dashes + thumbnails */}
+      <div className="absolute inset-x-0 bottom-0 z-10">
+        <div className="mx-auto flex w-full max-w-7xl items-end justify-between px-6 pb-7">
+          <div className="flex items-center gap-2.5" role="tablist" aria-label="Hero slides">
+            {heroSlides.map((slide, i) => (
+              <button
+                key={slide.image}
+                role="tab"
+                aria-selected={i === active}
+                aria-label={`Show slide: ${slide.caption}`}
+                onClick={() => setActive(i)}
+                className={`h-1.5 rounded-full transition-all duration-500 ${
+                  i === active ? "w-12 bg-white" : "w-7 bg-white/40 hover:bg-white/70"
+                }`}
+              />
+            ))}
           </div>
-          <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-3/4 h-8 bg-primary/10 blur-xl rounded-full" />
-        </motion.div>
+
+          <div className="hidden items-center gap-3 md:flex">
+            {heroSlides.map((slide, i) => (
+              <button
+                key={slide.image}
+                onClick={() => setActive(i)}
+                aria-label={`Show slide: ${slide.caption}`}
+                className={`h-14 w-20 overflow-hidden rounded-lg border-2 transition-all duration-300 ${
+                  i === active
+                    ? "border-brand opacity-100 shadow-lg"
+                    : "border-white/30 opacity-60 hover:opacity-100"
+                }`}
+              >
+                <img src={slide.image} alt="" className="h-full w-full object-cover" />
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ============================================================
+// Capability Strip (honest feature labels, no fake claims)
+// ============================================================
+
+const capabilities = [
+  "Satellite Monitoring",
+  "Weather Intelligence",
+  "AI Farming Assistant",
+  "Crop & Livestock Management",
+  "Market Prices",
+  "Farm Finances",
+  "Irrigation Planning",
+  "Community & Agronomists",
+];
+
+function CapabilityStrip() {
+  return (
+    <section className="border-b border-border/70 bg-background py-5">
+      <div className="mx-auto max-w-7xl px-6">
+        <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-2">
+          {capabilities.map((item) => (
+            <span
+              key={item}
+              className="flex items-center gap-2 text-sm font-medium text-muted-foreground"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-brand" aria-hidden />
+              {item}
+            </span>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -268,73 +386,69 @@ const features = [
     icon: Bot,
     title: "AI Farming Assistant",
     description: "Get personalized advice on crop health, pest control, and farming best practices powered by advanced AI.",
-    color: "bg-purple-500",
   },
   {
     icon: Cloud,
     title: "Weather Intelligence",
     description: "Real-time weather forecasts with agricultural-specific alerts for planting, irrigation, and harvesting.",
-    color: "bg-blue-500",
   },
   {
     icon: Map,
     title: "Satellite Monitoring",
     description: "NDVI vegetation analysis and satellite imagery to monitor crop health across your farms.",
-    color: "bg-emerald-500",
   },
   {
     icon: BarChart3,
     title: "Farm Analytics",
     description: "Comprehensive dashboards tracking revenue, expenses, yield predictions, and farm performance.",
-    color: "bg-amber-500",
   },
   {
     icon: Leaf,
     title: "Crop Management",
     description: "Track planting, growth stages, health scores, and harvest predictions for all your crops.",
-    color: "bg-green-500",
   },
   {
     icon: Shield,
     title: "Secure & Private",
     description: "Enterprise-grade security with encrypted data storage and role-based access control.",
-    color: "bg-rose-500",
   },
 ];
 
 function FeaturesSection() {
   return (
-    <section id="features" className="py-24 relative">
-      <div className="max-w-7xl mx-auto px-4 md:px-6">
-        <div className="text-center mb-16">
+    <section id="features" className="relative py-24 bg-brand-soft/40 dark:bg-brand-soft/10">
+      <div className="mx-auto max-w-7xl px-4 md:px-6">
+        <div className="mb-16 text-center">
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-            <Badge variant="secondary" className="mb-4">Features</Badge>
-            <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
-              Everything You Need to <span className="text-gradient-primary">Succeed</span>
+            <span className="mb-4 inline-flex items-center rounded-full border border-brand/40 bg-brand/10 px-4 py-1.5 text-sm font-medium text-brand-foreground dark:text-brand">
+              Features
+            </span>
+            <h2 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
+              Everything You Need to <span className="text-brand">Succeed</span>
             </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+            <p className="mx-auto max-w-2xl text-lg text-muted-foreground">
               A complete agricultural operating system designed to help you grow smarter and harvest more.
             </p>
           </motion.div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           {features.map((feature, i) => {
             const Icon = feature.icon;
             return (
               <motion.div
-                key={i}
+                key={feature.title}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ delay: i * 0.1 }}
-                className="group p-6 rounded-2xl bg-card border border-border/50 hover:border-primary/20 hover:shadow-lg transition-all"
+                transition={{ delay: i * 0.08 }}
+                className="group rounded-2xl border border-border/60 bg-card p-6 transition-all hover:-translate-y-1 hover:border-brand/40 hover:shadow-xl"
               >
-                <div className={`flex items-center justify-center w-12 h-12 rounded-xl ${feature.color} mb-4 group-hover:scale-110 transition-transform`}>
-                  <Icon className="w-6 h-6 text-white" />
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-brand/15 text-brand-foreground transition-transform group-hover:scale-110 dark:text-brand">
+                  <Icon className="h-6 w-6" />
                 </div>
-                <h3 className="text-lg font-semibold mb-2">{feature.title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{feature.description}</p>
+                <h3 className="mb-2 text-lg font-semibold">{feature.title}</h3>
+                <p className="text-sm leading-relaxed text-muted-foreground">{feature.description}</p>
               </motion.div>
             );
           })}
@@ -386,55 +500,64 @@ const plans = [
 
 function PricingSection() {
   return (
-    <section id="pricing" className="py-24 bg-muted/30">
-      <div className="max-w-7xl mx-auto px-4 md:px-6">
-        <div className="text-center mb-16">
+    <section id="pricing" className="py-24">
+      <div className="mx-auto max-w-7xl px-4 md:px-6">
+        <div className="mb-16 text-center">
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-            <Badge variant="secondary" className="mb-4">Pricing</Badge>
-            <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
-              Simple, <span className="text-gradient-primary">Transparent</span> Pricing
+            <span className="mb-4 inline-flex items-center rounded-full border border-brand/40 bg-brand/10 px-4 py-1.5 text-sm font-medium text-brand-foreground dark:text-brand">
+              Pricing
+            </span>
+            <h2 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
+              Simple, <span className="text-brand">Transparent</span> Pricing
             </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+            <p className="mx-auto max-w-2xl text-lg text-muted-foreground">
               Start free and upgrade as your farm grows. No hidden fees.
             </p>
           </motion.div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+        <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-2">
           {plans.map((plan, i) => (
             <motion.div
-              key={i}
+              key={plan.name}
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ delay: i * 0.1 }}
-              className={`relative p-6 rounded-2xl border ${
+              className={`relative rounded-2xl border bg-card p-8 ${
                 plan.popular
-                  ? "border-primary shadow-lg bg-card scale-[1.02]"
-                  : "border-border/50 bg-card"
+                  ? "border-brand shadow-xl ring-1 ring-brand/30"
+                  : "border-border/60"
               }`}
             >
               {plan.popular && (
-                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 gradient-primary">
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-brand px-4 py-1 text-xs font-bold text-brand-foreground">
                   Most Popular
-                </Badge>
+                </span>
               )}
-              <h3 className="text-xl font-bold mb-1">{plan.name}</h3>
-              <p className="text-sm text-muted-foreground mb-4">{plan.description}</p>
+              <h3 className="mb-1 text-xl font-bold">{plan.name}</h3>
+              <p className="mb-4 text-sm text-muted-foreground">{plan.description}</p>
               <div className="mb-6">
                 <span className="text-4xl font-bold">${plan.price}</span>
                 <span className="text-muted-foreground">/{plan.period}</span>
               </div>
-              <ul className="space-y-3 mb-6">
-                {plan.features.map((feature, j) => (
-                  <li key={j} className="flex items-center gap-2 text-sm">
-                    <Check className="w-4 h-4 text-green-500 shrink-0" />
+              <ul className="mb-6 space-y-3">
+                {plan.features.map((feature) => (
+                  <li key={feature} className="flex items-center gap-2 text-sm">
+                    <Check className="h-4 w-4 shrink-0 text-brand" />
                     {feature}
                   </li>
                 ))}
               </ul>
-              <Link to="/auth">
-                <Button className={`w-full ${plan.popular ? "gradient-primary" : ""}`} variant={plan.popular ? "default" : "outline"}>
+              <Link to="/auth" className="block">
+                <Button
+                  className={`w-full rounded-full ${
+                    plan.popular
+                      ? "bg-brand text-brand-foreground hover:bg-brand/90"
+                      : ""
+                  }`}
+                  variant={plan.popular ? "default" : "outline"}
+                >
                   {plan.cta}
                 </Button>
               </Link>
@@ -459,73 +582,69 @@ const farmerOutcomes = [
     icon: Leaf,
     title: "Spot Crop Problems Early",
     description: "Use AI-assisted diagnosis and satellite vegetation analysis to identify crop stress, disease, and pest issues before they spread.",
-    color: "bg-green-500",
   },
   {
     icon: Cloud,
     title: "Plan Around the Weather",
     description: "Access real-time forecasts and agricultural alerts for planting, irrigation, and harvesting — tuned to your farm's location.",
-    color: "bg-blue-500",
   },
   {
     icon: BarChart3,
     title: "Track Costs & Income",
     description: "Record expenses, sales, and yields so you can see what's working financially and plan the next season with real numbers.",
-    color: "bg-amber-500",
   },
   {
     icon: Bot,
     title: "Get Answers Anytime",
     description: "Ask the AI farming assistant questions about crops, livestock, and best practices — day or night.",
-    color: "bg-purple-500",
   },
   {
     icon: Users,
     title: "Connect with Agronomists",
     description: "Find reviewed agronomists, book consultations, and get expert advice tailored to your farm.",
-    color: "bg-rose-500",
   },
   {
     icon: Map,
     title: "Keep Every Farm Organized",
     description: "Manage crops, livestock, irrigation, and calendar events for all your farms in one place.",
-    color: "bg-emerald-500",
   },
 ];
 
 function BuiltForFarmersSection() {
   return (
-    <section id="built-for-farmers" className="py-24">
-      <div className="max-w-7xl mx-auto px-4 md:px-6">
-        <div className="text-center mb-16">
+    <section id="built-for-farmers" className="py-24 bg-brand-soft/40 dark:bg-brand-soft/10">
+      <div className="mx-auto max-w-7xl px-4 md:px-6">
+        <div className="mb-16 text-center">
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-            <Badge variant="secondary" className="mb-4">Built for Farmers</Badge>
-            <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
-              What FarmBond <span className="text-gradient-primary">Helps You Do</span>
+            <span className="mb-4 inline-flex items-center rounded-full border border-brand/40 bg-brand/10 px-4 py-1.5 text-sm font-medium text-brand-foreground dark:text-brand">
+              Built for Farmers
+            </span>
+            <h2 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
+              What FarmBond <span className="text-brand">Helps You Do</span>
             </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+            <p className="mx-auto max-w-2xl text-lg text-muted-foreground">
               FarmBond is designed to help farmers make better decisions with better information.
             </p>
           </motion.div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           {farmerOutcomes.map((item, i) => {
             const Icon = item.icon;
             return (
               <motion.div
-                key={i}
+                key={item.title}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ delay: i * 0.1 }}
-                className="p-6 rounded-2xl bg-card border border-border/50 hover:border-primary/20 hover:shadow-lg transition-all"
+                transition={{ delay: i * 0.08 }}
+                className="rounded-2xl border border-border/60 bg-card p-6 transition-all hover:-translate-y-1 hover:border-brand/40 hover:shadow-xl"
               >
-                <div className={`flex items-center justify-center w-12 h-12 rounded-xl ${item.color} mb-4`}>
-                  <Icon className="w-6 h-6 text-white" />
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-brand/15 text-brand-foreground dark:text-brand">
+                  <Icon className="h-6 w-6" />
                 </div>
-                <h3 className="text-lg font-semibold mb-2">{item.title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{item.description}</p>
+                <h3 className="mb-2 text-lg font-semibold">{item.title}</h3>
+                <p className="text-sm leading-relaxed text-muted-foreground">{item.description}</p>
               </motion.div>
             );
           })}
@@ -542,29 +661,29 @@ function BuiltForFarmersSection() {
 function CTASection() {
   return (
     <section className="py-24">
-      <div className="max-w-4xl mx-auto px-4 md:px-6">
+      <div className="mx-auto max-w-4xl px-4 md:px-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          className="relative gradient-nature rounded-3xl p-12 md:p-16 text-center text-white overflow-hidden"
+          className="relative overflow-hidden rounded-3xl bg-brand-deep p-12 text-center text-white md:p-16"
         >
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
-          <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
+          <div className="absolute -top-16 -right-16 h-64 w-64 rounded-full bg-white/5" />
+          <div className="absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-brand/20" />
           <div className="relative">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">
+            <h2 className="mb-4 text-3xl font-bold md:text-4xl">
               Ready to Transform Your Farm?
             </h2>
-            <p className="text-white/80 max-w-xl mx-auto mb-8">
+            <p className="mx-auto mb-8 max-w-xl text-white/80">
               Start farming smarter. Track your crops, plan around the weather, and get expert
               help when you need it — all in one place.
             </p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link to="/auth">
-                <Button size="lg" className="bg-white text-primary hover:bg-white/90 px-8">
+                <span className="inline-flex h-12 items-center rounded-full bg-white px-8 text-base font-semibold text-brand-deep transition-all hover:bg-white/90 hover:shadow-xl">
                   Start Your Free Trial
-                  <ArrowRight className="w-5 h-5 ml-2" />
-                </Button>
+                  <ArrowRight className="ml-2 h-5 w-5" />
+                </span>
               </Link>
             </div>
           </div>
@@ -581,12 +700,12 @@ function CTASection() {
 function Footer() {
   return (
     <footer className="border-t border-border py-12">
-      <div className="max-w-7xl mx-auto px-4 md:px-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-8">
+      <div className="mx-auto max-w-7xl px-4 md:px-6">
+        <div className="mb-8 grid grid-cols-2 gap-8 md:grid-cols-4">
           <div>
-            <div className="flex items-center gap-2 mb-4">
-              <div className="flex items-center justify-center w-8 h-8 rounded-lg gradient-primary">
-                <Sprout className="w-4 h-4 text-white" />
+            <div className="mb-4 flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand">
+                <Sprout className="h-4 w-4 text-brand-foreground" />
               </div>
               <span className="font-bold">FarmBond</span>
             </div>
@@ -595,35 +714,37 @@ function Footer() {
             </p>
           </div>
           <div>
-            <h4 className="font-semibold mb-3 text-sm">Product</h4>
+            <h4 className="mb-3 text-sm font-semibold">Product</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
-              <li><a href="#features" className="hover:text-foreground transition-colors">Features</a></li>
-              <li><a href="#pricing" className="hover:text-foreground transition-colors">Pricing</a></li>
+              <li><a href="#features" className="transition-colors hover:text-foreground">Features</a></li>
+              <li><a href="#pricing" className="transition-colors hover:text-foreground">Pricing</a></li>
             </ul>
           </div>
           <div>
-            <h4 className="font-semibold mb-3 text-sm">Company</h4>
+            <h4 className="mb-3 text-sm font-semibold">Company</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
-              <li><Link to="/about" className="hover:text-foreground transition-colors">About</Link></li>
+              <li><Link to="/about" className="transition-colors hover:text-foreground">About</Link></li>
             </ul>
           </div>
           <div>
-            <h4 className="font-semibold mb-3 text-sm">Legal</h4>
+            <h4 className="mb-3 text-sm font-semibold">Legal</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
-              <li><Link to="/privacy" className="hover:text-foreground transition-colors">Privacy</Link></li>
-              <li><Link to="/terms" className="hover:text-foreground transition-colors">Terms</Link></li>
-              <li><Link to="/security" className="hover:text-foreground transition-colors">Security</Link></li>
-              <li><CookieSettingsButton variant="link" size="sm" className="h-auto p-0 text-sm text-muted-foreground hover:text-foreground" /></li>
+              <li><Link to="/privacy" className="transition-colors hover:text-foreground">Privacy</Link></li>
+              <li><Link to="/terms" className="transition-colors hover:text-foreground">Terms</Link></li>
+              <li><Link to="/security" className="transition-colors hover:text-foreground">Security</Link></li>
+              <li>
+                <CookieSettingsButton variant="link" size="sm" className="h-auto p-0 text-sm text-muted-foreground hover:text-foreground" />
+              </li>
             </ul>
           </div>
         </div>
-        <div className="pt-8 border-t border-border flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex flex-col items-center justify-between gap-4 border-t border-border pt-8 md:flex-row">
           <p className="text-sm text-muted-foreground">
             © 2026 FarmBond. All rights reserved.
           </p>
           <div className="flex items-center gap-4">
-            <Globe className="w-4 h-4 text-muted-foreground" />
-            <Smartphone className="w-4 h-4 text-muted-foreground" />
+            <Globe className="h-4 w-4 text-muted-foreground" />
+            <Smartphone className="h-4 w-4 text-muted-foreground" />
           </div>
         </div>
       </div>
@@ -640,6 +761,7 @@ export default function Landing() {
     <div className="min-h-screen bg-background">
       <Navbar />
       <HeroSection />
+      <CapabilityStrip />
       <FeaturesSection />
       <PricingSection />
       <BuiltForFarmersSection />
