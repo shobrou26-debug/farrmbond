@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { api } from "@/convex/_generated/api";
@@ -806,15 +807,29 @@ function LivestockOverview({
 // ============================================================
 
 function FinancialSnapshot() {
-  const summary = useQuery(api.transactions.getFinancialSummary, {});
-  // Backend financial totals are stored in KES; convert and format them into
-  // the user's configured currency (same pattern as Finances.tsx). KES users
-  // get an identity conversion, so the amount is unchanged.
+  const transactions = useQuery(api.transactions.listUserTransactions);
   const { format, convert } = useCurrency();
 
-  if (summary === undefined) return <Skeleton className="h-28 rounded-2xl" />;
+  // Each transaction stores its own currency — the one the user had selected
+  // when the entry was recorded (KES by default). The backend summary sums
+  // raw amounts without conversion, so for the snapshot we convert every row
+  // from its stored currency into the user's configured currency and then sum
+  // (same per-row pattern as Finances.tsx). KES users get an identity
+  // conversion, so their totals are unchanged.
+  const totals = useMemo(() => {
+    let income = 0;
+    let expenses = 0;
+    for (const txn of transactions ?? []) {
+      const value = convert(txn.amount, txn.currency ?? "KES");
+      if (txn.type === "income") income += value;
+      else expenses += value;
+    }
+    return { income, expenses, net: income - expenses };
+  }, [transactions, convert]);
 
-  if (summary.totalIncome === 0 && summary.totalExpenses === 0) {
+  if (transactions === undefined) return <Skeleton className="h-28 rounded-2xl" />;
+
+  if (totals.income === 0 && totals.expenses === 0) {
     return (
       <Link
         to="/finances"
@@ -834,7 +849,7 @@ function FinancialSnapshot() {
     );
   }
 
-  const profit = summary.netProfit;
+  const profit = totals.net;
   const profitPositive = profit >= 0;
 
   return (
@@ -850,14 +865,14 @@ function FinancialSnapshot() {
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Income</p>
           <p className="mt-1 flex items-center justify-center gap-1 text-sm font-bold text-green-600">
             <TrendingUp className="h-3.5 w-3.5" />
-            {format(convert(summary.totalIncome, "KES"))}
+            {format(totals.income)}
           </p>
         </div>
         <div>
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Expenses</p>
           <p className="mt-1 flex items-center justify-center gap-1 text-sm font-bold text-red-600">
             <TrendingDown className="h-3.5 w-3.5" />
-            {format(convert(summary.totalExpenses, "KES"))}
+            {format(totals.expenses)}
           </p>
         </div>
         <div>
@@ -866,7 +881,7 @@ function FinancialSnapshot() {
             className={`mt-1 text-sm font-bold ${profitPositive ? "text-green-600" : "text-red-600"}`}
           >
             {profitPositive ? "+" : "-"}
-            {format(convert(Math.abs(profit), "KES"))}
+            {format(Math.abs(profit))}
           </p>
         </div>
       </div>
