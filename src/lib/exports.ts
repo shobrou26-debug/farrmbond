@@ -330,26 +330,34 @@ export function exportTransactionHistory(
 }
 
 // Analytics Export
-export function exportAnalyticsData(data: Record<string, unknown>[], title: string, format: "pdf" | "excel"): void {
+// Rows arrive already converted into the user's configured currency (the
+// backend summary now aggregates per-transaction in display currency, see
+// getMonthlyFinancialSummary); `currencyCode` only labels the totals.
+export function exportAnalyticsData(
+  data: Record<string, unknown>[],
+  title: string,
+  format: "pdf" | "excel",
+  currencyCode: string = "KES"
+): void {
   const columns: ExportColumn[] = [
     { header: "Period", key: "period", width: 15 },
-    { header: "Revenue", key: "revenue", width: 15 },
-    { header: "Expenses", key: "expenses", width: 15 },
-    { header: "Profit", key: "profit", width: 15 },
+    { header: `Revenue (${currencyCode})`, key: "revenue", width: 15 },
+    { header: `Expenses (${currencyCode})`, key: "expenses", width: 15 },
+    { header: `Profit (${currencyCode})`, key: "profit", width: 15 },
     { header: "Yield (tons)", key: "yield", width: 15 },
     { header: "Active Farms", key: "farms", width: 15 },
   ];
 
   const options: ExportOptions = {
     title,
-    subtitle: "Performance analytics and trends",
+    subtitle: `Performance analytics and trends — all amounts in ${currencyCode}`,
     filename: `${title.replace(/\s+/g, "_").toLowerCase()}-${new Date().toISOString().split("T")[0]}`,
     columns,
     data,
     includeSummary: true,
     summaryData: {
-      "Total Revenue": `KES ${data.reduce((sum, d) => sum + (Number(d.revenue) || 0), 0).toLocaleString()}`,
-      "Total Expenses": `KES ${data.reduce((sum, d) => sum + (Number(d.expenses) || 0), 0).toLocaleString()}`,
+      "Total Revenue": `${currencyCode} ${data.reduce((sum, d) => sum + (Number(d.revenue) || 0), 0).toLocaleString()}`,
+      "Total Expenses": `${currencyCode} ${data.reduce((sum, d) => sum + (Number(d.expenses) || 0), 0).toLocaleString()}`,
       "Average Profit Margin": `${((data.reduce((sum, d) => sum + (Number(d.profit) || 0), 0) / data.reduce((sum, d) => sum + (Number(d.revenue) || 0), 1)) * 100).toFixed(1)}%`,
     },
   };

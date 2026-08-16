@@ -164,28 +164,6 @@ function ProfileTab() {
         </CardContent>
       </Card>
 
-      <Card className="border-border/50">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Farm Preferences</CardTitle>
-          <CardDescription>Customize your farming experience</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Measurement Units</label>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" className="flex-1">Metric (kg, ha)</Button>
-                <Button variant="ghost" size="sm" className="flex-1">Imperial (lbs, ac)</Button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Currency</label>
-              <Input defaultValue="KES" placeholder="KES" />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       <div className="flex justify-end">
         <Button onClick={handleSave} className="gradient-primary">
           {saved ? (
@@ -1726,6 +1704,79 @@ function AppearanceTab({ currentTheme, setTheme, unitSystem, setUnits, timezone,
                 )}
               </button>
             ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Preferences — units, currency, timezone (persist via the existing
+          useUnits / useCurrency / useTimezone preference system) */}
+      <Card className="border-border/50">
+        <CardHeader>
+          <CardTitle className="text-base">Preferences</CardTitle>
+          <p className="text-sm text-muted-foreground">Units, currency, and timezone used across the app</p>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Measurement Units</label>
+            <div className="grid grid-cols-2 gap-2 max-w-sm">
+              {(["metric", "imperial"] as const).map((u) => (
+                <button
+                  key={u}
+                  type="button"
+                  onClick={() => setUnits(u)}
+                  className={`rounded-xl border px-4 py-2.5 text-sm font-medium transition-all ${
+                    unitSystem === u
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border hover:border-primary/50"
+                  }`}
+                >
+                  {u === "metric" ? "Metric (kg, ha)" : "Imperial (lbs, ac)"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Currency</label>
+            <Select value={currency} onValueChange={(c) => setCurrency(c)}>
+              <SelectTrigger className="max-w-sm">
+                <SelectValue placeholder="Select currency" />
+              </SelectTrigger>
+              <SelectContent>
+                {CURRENCY_GROUPS.map((group) => (
+                  <SelectGroup key={group.label}>
+                    <SelectLabel>{group.label}</SelectLabel>
+                    {group.currencies.map((c) => (
+                      <SelectItem key={c.code} value={c.code}>
+                        <span className="mr-2">{c.flag}</span>
+                        {c.name} ({c.code})
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Timezone</label>
+            <Select value={timezone} onValueChange={(tz) => setTimezone(tz)}>
+              <SelectTrigger className="max-w-sm">
+                <SelectValue placeholder="Select timezone" />
+              </SelectTrigger>
+              <SelectContent>
+                {TIMEZONE_GROUPS.map((group) => (
+                  <SelectGroup key={group.label}>
+                    <SelectLabel>{group.label}</SelectLabel>
+                    {group.zones.map((z) => (
+                      <SelectItem key={z.value} value={z.value}>
+                        {z.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>

@@ -13,6 +13,7 @@ import {
   isProActive,
 } from "./authHelpers";
 import { ROLES } from "./schema";
+import { convertCurrency } from "./currency";
 
 // ============================================================
 // Farm Queries
@@ -98,7 +99,8 @@ export const getFarmStats = query({
 export const getFarmComparisonData = query({
   args: {},
   handler: async (ctx) => {
-    const { userId } = await requireAuth(ctx);
+    const { userId, user } = await requireAuth(ctx);
+    const displayCurrency = user.currency ?? "KES";
 
     const farms = await ctx.db
       .query("farms")
@@ -142,12 +144,17 @@ export const getFarmComparisonData = query({
       const healthyLivestock = farmLivestock.filter((l) => l.status === "healthy");
       const farmTx = transactions.filter((t) => t.farmId === farm._id);
 
+      // Currency-safe: convert each row from its own stored currency into
+      // the user's configured display currency before summing (shared module
+      // with the frontend), so mixed-currency farms compare fairly.
+      const amountOf = (t: { amount: number; currency?: string | null }) =>
+        convertCurrency(t.amount, t.currency ?? "KES", displayCurrency);
       const revenue = farmTx
         .filter((t) => t.type === "income")
-        .reduce((sum, t) => sum + t.amount, 0);
+        .reduce((sum, t) => sum + amountOf(t), 0);
       const expenses = farmTx
         .filter((t) => t.type === "expense")
-        .reduce((sum, t) => sum + t.amount, 0);
+        .reduce((sum, t) => sum + amountOf(t), 0);
       const profit = revenue - expenses;
 
       const soilEntry = soil.find((s) => s.farmId === farm._id);

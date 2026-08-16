@@ -1,6 +1,10 @@
 import { useCallback, useMemo } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+// Single source of truth for conversion rates/function — the SAME module
+// the Convex backend summaries use, so every surface agrees.
+import { convertCurrency } from "@/convex/currency";
+export { convertCurrency, EXCHANGE_RATES_TO_USD } from "@/convex/currency";
 
 // ============================================================
 // Supported Currencies
@@ -18,6 +22,8 @@ export type CurrencyCode =
   | "UGX"
   | "ETB"
   | "RWF"
+  | "ZMW"
+  | "MWK"
   | "INR"
   | "BRL"
   | "MXN"
@@ -63,6 +69,8 @@ export const CURRENCIES: Currency[] = [
   { code: "UGX", name: "Ugandan Shilling", symbol: "USh", locale: "en-UG", flag: "🇺🇬" },
   { code: "ETB", name: "Ethiopian Birr", symbol: "Br", locale: "en-ET", flag: "🇪🇹" },
   { code: "RWF", name: "Rwandan Franc", symbol: "FRw", locale: "rw-RW", flag: "🇷🇼" },
+  { code: "ZMW", name: "Zambian Kwacha", symbol: "ZK", locale: "en-ZM", flag: "🇿🇲" },
+  { code: "MWK", name: "Malawian Kwacha", symbol: "MK", locale: "en-MW", flag: "🇲🇼" },
 
   // Americas
   { code: "USD", name: "US Dollar", symbol: "$", locale: "en-US", flag: "🇺🇸" },
@@ -105,50 +113,6 @@ export const CURRENCIES: Currency[] = [
 ];
 
 // ============================================================
-// Approximate exchange rates to USD (for display purposes)
-// ============================================================
-
-const EXCHANGE_RATES_TO_USD: Record<string, number> = {
-  USD: 1,
-  EUR: 0.92,
-  GBP: 0.79,
-  KES: 153,
-  NGN: 1540,
-  GHS: 14.8,
-  ZAR: 18.2,
-  TZS: 2510,
-  UGX: 3780,
-  ETB: 56,
-  RWF: 1350,
-  INR: 83.5,
-  BRL: 4.97,
-  MXN: 17.1,
-  CAD: 1.36,
-  PHP: 56,
-  IDR: 15700,
-  THB: 35.5,
-  VND: 24300,
-  CNY: 7.24,
-  JPY: 149,
-  AUD: 1.53,
-  CHF: 0.88,
-  SEK: 10.4,
-  NOK: 10.6,
-  DKK: 6.87,
-  PLN: 4.03,
-  CZK: 22.7,
-  HUF: 358,
-  TRY: 32.5,
-  AED: 3.67,
-  SAR: 3.75,
-  PKR: 286,
-  BDT: 110,
-  LKR: 312,
-  MMK: 2100,
-  KHR: 4100,
-};
-
-// ============================================================
 // Formatting Helpers
 // ============================================================
 
@@ -180,21 +144,6 @@ export function formatCurrency(
 }
 
 /**
- * Convert an amount from one currency to another using approximate rates
- */
-export function convertCurrency(
-  amount: number,
-  fromCurrency: string,
-  toCurrency: string
-): number {
-  const fromRate = EXCHANGE_RATES_TO_USD[fromCurrency] ?? 1;
-  const toRate = EXCHANGE_RATES_TO_USD[toCurrency] ?? 1;
-  // Convert to USD first, then to target
-  const usdAmount = amount / fromRate;
-  return usdAmount * toRate;
-}
-
-/**
  * Get currency info by code
  */
 export function getCurrencyInfo(code: string): Currency | undefined {
@@ -208,7 +157,7 @@ export const CURRENCY_GROUPS = [
   {
     label: "Africa",
     currencies: CURRENCIES.filter((c) =>
-      ["KES", "NGN", "GHS", "ZAR", "TZS", "UGX", "ETB", "RWF"].includes(c.code)
+      ["KES", "NGN", "GHS", "ZAR", "TZS", "UGX", "ETB", "RWF", "ZMW", "MWK"].includes(c.code)
     ),
   },
   {

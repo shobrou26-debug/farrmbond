@@ -18,6 +18,7 @@ import {
   validateString,
 } from "./authHelpers";
 import { ROLES } from "./schema";
+import { convertCurrency } from "./currency";
 
 // ============================================================
 // Weekly AI Report Generator
@@ -431,8 +432,19 @@ export const generateWeeklyReports = internalMutation({
           .withIndex("by_farm", (q) => q.eq("farmId", farm._id))
           .collect();
         const recentTx = transactions.filter((t) => t.date > weekAgo);
-        const income = recentTx.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
-        const expenses = recentTx.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+        // Currency-safe: convert each stored amount into the owner's configured
+        // display currency before summing, and label the report text with the
+        // currency code so a bare number is never presented as an unlabeled sum.
+        const userDoc = await ctx.db.get(farm.userId);
+        const displayCurrency = userDoc?.currency ?? "KES";
+        const amountOf = (t: { amount: number; currency?: string | null }) =>
+          convertCurrency(t.amount, t.currency ?? "KES", displayCurrency);
+        const income = recentTx
+          .filter((t) => t.type === "income")
+          .reduce((s, t) => s + amountOf(t), 0);
+        const expenses = recentTx
+          .filter((t) => t.type === "expense")
+          .reduce((s, t) => s + amountOf(t), 0);
         const completedTasks = crops.filter((c) => c.status === "harvested").length;
 
         const scoredCrops = crops.filter((c) => typeof c.healthScore === "number");
@@ -455,7 +467,7 @@ export const generateWeeklyReports = internalMutation({
             : `${crops.length} crops tracked, but none have a recorded health score yet.`,
           livestockStatus: `${livestock.length} livestock managed. ${livestock.filter((l) => l.status === "healthy").length} healthy.`,
           weatherSummary: "Weather data updated via intelligence pipeline.",
-          financialPerformance: `Income: ${income.toFixed(2)}. Expenses: ${expenses.toFixed(2)}. Net: ${(income - expenses).toFixed(2)}.`,
+          financialPerformance: `Income: ${income.toFixed(2)} ${displayCurrency}. Expenses: ${expenses.toFixed(2)} ${displayCurrency}. Net: ${(income - expenses).toFixed(2)} ${displayCurrency}.`,
           tasksCompleted: completedTasks,
           tasksUpcoming: crops.filter((c) => c.status !== "harvested" && c.status !== "failed").length,
           recommendations: healthScore?.riskFactors?.map((rf) => ({

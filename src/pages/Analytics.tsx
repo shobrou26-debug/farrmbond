@@ -46,7 +46,7 @@ type Livestock = {
 };
 
 export default function Analytics() {
-  const { format } = useCurrency();
+  const { format, currency } = useCurrency();
   // Advanced analytics is a Pro feature — ALL data flows through the gated
   // server query. Free/expired users receive an authorization error instead
   // of any analytics data.
@@ -142,7 +142,7 @@ export default function Analytics() {
   const handleExportPDF = async () => {
     try {
       const bundle = await getExportData({ resource: "analytics" });
-      exportAnalyticsData(bundle.rows, "Analytics Report", "pdf");
+      exportAnalyticsData(bundle.rows, "Analytics Report", "pdf", currency);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Exports require FarmBond Pro");
     }
@@ -151,7 +151,7 @@ export default function Analytics() {
   const handleExportExcel = async () => {
     try {
       const bundle = await getExportData({ resource: "analytics" });
-      exportAnalyticsData(bundle.rows, "Analytics Report", "excel");
+      exportAnalyticsData(bundle.rows, "Analytics Report", "excel", currency);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Exports require FarmBond Pro");
     }

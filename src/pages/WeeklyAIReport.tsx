@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { generatePDF } from "@/lib/exports";
+import { useCurrency } from "@/hooks/use-currency";
 import {
   FileText,
   Download,
@@ -109,6 +110,7 @@ const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 // ============================================================
 
 export default function WeeklyAIReport() {
+  const { currency } = useCurrency();
   const [selectedSection, setSelectedSection] = useState<"overview" | "crops" | "livestock" | "finance" | "recommendations">("overview");
   const [selectedFarmId, setSelectedFarmId] = useState<Id<"farms"> | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -240,7 +242,7 @@ export default function WeeklyAIReport() {
         section: "Finance",
         value:
           financial.income > 0 || financial.expenses > 0
-            ? `Income: ${financial.income} • Expenses: ${financial.expenses} • Net: ${financial.profit}`
+            ? `Income: ${financial.income} ${currency} • Expenses: ${financial.expenses} ${currency} • Net: ${financial.profit} ${currency}`
             : "No financial data this week",
       },
       ...risks.map((r) => ({ section: `Risk (${r.level})`, value: `${r.risk} — ${r.mitigation}` })),

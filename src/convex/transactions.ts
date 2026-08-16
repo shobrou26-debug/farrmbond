@@ -9,6 +9,7 @@ import {
   validateNumber,
   sanitizeInput,
 } from "./authHelpers";
+import { convertCurrency } from "./currency";
 
 // ============================================================
 // Transaction Queries
@@ -91,16 +92,30 @@ export const listFarmTransactionsPaginated = query({
   },
 });
 
-/** Get financial summary for the current user */
+/**
+ * Get financial summary for the current user.
+ *
+ * Currency-safe aggregation: each transaction stores the currency it was
+ * entered in (the user's currency at entry time, KES by default), so every
+ * row is converted from its OWN stored currency into the user's configured
+ * display currency before summing — the same per-row pattern the frontend
+ * uses on the Dashboard and Finances pages (shared conversion module). This
+ * prevents mixed-currency transactions from producing misleading totals.
+ */
 export const getFinancialSummary = query({
   args: {},
   handler: async (ctx) => {
-    const { userId } = await requireAuth(ctx);
+    const { userId, user } = await requireAuth(ctx);
+    const displayCurrency = user.currency ?? "KES";
 
     const transactions = await ctx.db
       .query("transactions")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
+
+    // Convert each stored amount into the user's configured display currency.
+    const amountOf = (t: { amount: number; currency?: string | null }) =>
+      convertCurrency(t.amount, t.currency ?? "KES", displayCurrency);
 
     const now = Date.now();
     const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
@@ -111,24 +126,24 @@ export const getFinancialSummary = query({
 
     const totalIncome = transactions
       .filter((t) => t.type === "income")
-      .reduce((sum, t) => sum + t.amount, 0);
+      .reduce((sum, t) => sum + amountOf(t), 0);
     const totalExpenses = transactions
       .filter((t) => t.type === "expense")
-      .reduce((sum, t) => sum + t.amount, 0);
+      .reduce((sum, t) => sum + amountOf(t), 0);
 
     const thisMonthIncome = thisMonth
       .filter((t) => t.type === "income")
-      .reduce((sum, t) => sum + t.amount, 0);
+      .reduce((sum, t) => sum + amountOf(t), 0);
     const thisMonthExpenses = thisMonth
       .filter((t) => t.type === "expense")
-      .reduce((sum, t) => sum + t.amount, 0);
+      .reduce((sum, t) => sum + amountOf(t), 0);
 
     const lastMonthIncome = lastMonth
       .filter((t) => t.type === "income")
-      .reduce((sum, t) => sum + t.amount, 0);
+      .reduce((sum, t) => sum + amountOf(t), 0);
     const lastMonthExpenses = lastMonth
       .filter((t) => t.type === "expense")
-      .reduce((sum, t) => sum + t.amount, 0);
+      .reduce((sum, t) => sum + amountOf(t), 0);
 
     return {
       totalIncome,
@@ -152,17 +167,25 @@ export const getFinancialSummary = query({
 
 /**
  * Monthly income/expense/profit breakdown for the last N months.
- * Used by the Analytics page chart.
+ * Used by the Analytics page chart and exports.
+ *
+ * Currency-safe: like `getFinancialSummary`, every row is converted from its
+ * own stored currency into the user's configured display currency before the
+ * monthly buckets are summed (shared conversion module with the frontend).
  */
 export const getMonthlyFinancialSummary = query({
   args: { months: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    const { userId } = await requireAuth(ctx);
+    const { userId, user } = await requireAuth(ctx);
+    const displayCurrency = user.currency ?? "KES";
 
     const transactions = await ctx.db
       .query("transactions")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
+
+    const amountOf = (t: { amount: number; currency?: string | null }) =>
+      convertCurrency(t.amount, t.currency ?? "KES", displayCurrency);
 
     const months = Math.min(12, Math.max(1, args.months ?? 7));
     const now = new Date();
@@ -176,10 +199,10 @@ export const getMonthlyFinancialSummary = query({
       const monthTx = transactions.filter((t) => t.date >= start && t.date < end);
       const income = monthTx
         .filter((t) => t.type === "income")
-        .reduce((sum, t) => sum + t.amount, 0);
+        .reduce((sum, t) => sum + amountOf(t), 0);
       const expenses = monthTx
         .filter((t) => t.type === "expense")
-        .reduce((sum, t) => sum + t.amount, 0);
+        .reduce((sum, t) => sum + amountOf(t), 0);
 
       result.push({
         month: d.toLocaleString("en", { month: "short" }),
