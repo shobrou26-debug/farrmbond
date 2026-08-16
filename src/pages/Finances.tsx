@@ -432,7 +432,6 @@ export default function Finances() {
   const { format: fmt, convert, currency } = useCurrency();
   const {
     transactions,
-    summary,
     monthly,
     farms,
     isLoading,
@@ -532,8 +531,25 @@ export default function Finances() {
     [marketData]
   );
 
+  // Financial totals are computed from the loaded transaction rows: every row
+  // stores the currency it was entered in (the user's currency at entry time,
+  // KES by default), so each amount is converted from its own stored currency
+  // into the user's configured currency before summing — the same per-row
+  // pattern as the Dashboard financial snapshot. KES users get an identity
+  // conversion, so their totals are unchanged.
+  const totals = useMemo(() => {
+    let income = 0;
+    let expenses = 0;
+    for (const txn of transactions) {
+      const value = convert(txn.amount, txn.currency ?? "KES");
+      if (txn.type === "income") income += value;
+      else expenses += value;
+    }
+    return { income, expenses, net: income - expenses };
+  }, [transactions, convert]);
+
   const profitMargin =
-    summary && summary.totalIncome > 0 ? ((summary.netProfit / summary.totalIncome) * 100).toFixed(1) : "0.0";
+    totals.income > 0 ? ((totals.net / totals.income) * 100).toFixed(1) : "0.0";
 
   return (
     <AppLayout>
@@ -561,7 +577,7 @@ export default function Finances() {
                 <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-green-500"><TrendingUp className="w-6 h-6 text-white" /></div>
                 <div>
                   <p className="text-sm text-muted-foreground">Total Income</p>
-                  <p className="text-2xl font-bold text-green-600">{fmt(summary ? convert(summary.totalIncome, "KES") : 0)}</p>
+                  <p className="text-2xl font-bold text-green-600">{fmt(totals.income)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -570,7 +586,7 @@ export default function Finances() {
                 <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-red-500"><TrendingDown className="w-6 h-6 text-white" /></div>
                 <div>
                   <p className="text-sm text-muted-foreground">Total Expenses</p>
-                  <p className="text-2xl font-bold text-red-600">{fmt(summary ? convert(summary.totalExpenses, "KES") : 0)}</p>
+                  <p className="text-2xl font-bold text-red-600">{fmt(totals.expenses)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -579,8 +595,8 @@ export default function Finances() {
                 <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-blue-500"><Wallet className="w-6 h-6 text-white" /></div>
                 <div>
                   <p className="text-sm text-muted-foreground">Net Profit</p>
-                  <p className={`text-2xl font-bold ${summary && summary.netProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                    {fmt(summary ? convert(summary.netProfit, "KES") : 0)}
+                  <p className={`text-2xl font-bold ${totals.net >= 0 ? "text-green-600" : "text-red-600"}`}>
+                    {fmt(totals.net)}
                   </p>
                 </div>
               </CardContent>
@@ -611,8 +627,11 @@ export default function Finances() {
                         <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="var(--muted-foreground)" />
                         <YAxis tick={{ fontSize: 12 }} stroke="var(--muted-foreground)" tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))} />
                         <Tooltip
+                          // The monthly buckets come from the backend as raw stored
+                          // amounts (currency-agnostic sums); format them in the user's
+                          // configured currency without a fabricated KES conversion.
                           formatter={(value: number | string, name: string) => [
-                            fmt(convert(Number(value), "KES")),
+                            fmt(Number(value)),
                             name === "income" ? "Income" : name === "expenses" ? "Expenses" : name,
                           ]}
                           contentStyle={{ borderRadius: 12, border: "1px solid var(--border)" }}
