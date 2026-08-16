@@ -283,13 +283,19 @@ export function exportFarmReport(farms: Record<string, unknown>[], format: "pdf"
 }
 
 // Transaction History Export
-export function exportTransactionHistory(transactions: Record<string, unknown>[], format: "pdf" | "excel"): void {
+// Rows arrive already converted into the user's configured currency (see
+// Finances.tsx); `currencyCode` only labels the amount column and totals.
+export function exportTransactionHistory(
+  transactions: Record<string, unknown>[],
+  format: "pdf" | "excel",
+  currencyCode: string = "KES"
+): void {
   const columns: ExportColumn[] = [
     { header: "Date", key: "date", width: 15 },
     { header: "Type", key: "type", width: 12 },
     { header: "Category", key: "category", width: 18 },
     { header: "Description", key: "description", width: 30 },
-    { header: "Amount (KES)", key: "amount", width: 15 },
+    { header: `Amount (${currencyCode})`, key: "amount", width: 15 },
     { header: "Farm", key: "farm", width: 20 },
     { header: "Payment Method", key: "paymentMethod", width: 18 },
   ];
@@ -309,9 +315,9 @@ export function exportTransactionHistory(transactions: Record<string, unknown>[]
     data: transactions,
     includeSummary: true,
     summaryData: {
-      "Total Income": `KES ${totalIncome.toLocaleString()}`,
-      "Total Expenses": `KES ${totalExpenses.toLocaleString()}`,
-      "Net Profit": `KES ${(totalIncome - totalExpenses).toLocaleString()}`,
+      "Total Income": `${currencyCode} ${totalIncome.toLocaleString()}`,
+      "Total Expenses": `${currencyCode} ${totalExpenses.toLocaleString()}`,
+      "Net Profit": `${currencyCode} ${(totalIncome - totalExpenses).toLocaleString()}`,
       "Total Transactions": transactions.length,
     },
   };

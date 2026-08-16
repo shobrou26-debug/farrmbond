@@ -471,6 +471,16 @@ export default function Finances() {
   // action (server-authorization), never exported from local state alone.
   const getExportData = useAction(api.exports.getExportData);
 
+  // Each row stores the currency it was entered in (the user's currency at
+  // entry time, KES by default). Convert rows into the user's configured
+  // currency first so the exported file matches what the app displays — the
+  // same per-row pattern used for the on-screen totals.
+  const toExportRows = (rows: Record<string, unknown>[]) =>
+    rows.map((r) => ({
+      ...r,
+      amount: convert(Number(r.amount) || 0, String(r.currency ?? "KES")),
+    }));
+
   const handleExportPDF = async () => {
     try {
       const bundle = await getExportData({ resource: "transactions" });
@@ -478,7 +488,7 @@ export default function Finances() {
         toast.info("No transactions to export yet.");
         return;
       }
-      exportTransactionHistory(bundle.rows, "pdf");
+      exportTransactionHistory(toExportRows(bundle.rows), "pdf", currency);
       toast.success("PDF exported");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Exports require FarmBond Pro");
@@ -492,7 +502,7 @@ export default function Finances() {
         toast.info("No transactions to export yet.");
         return;
       }
-      exportTransactionHistory(bundle.rows, "excel");
+      exportTransactionHistory(toExportRows(bundle.rows), "excel", currency);
       toast.success("Excel exported");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Exports require FarmBond Pro");

@@ -77,6 +77,11 @@ export const getExportData = action({
               category: t.category,
               description: t.description,
               amount: t.amount,
+              // Keep the stored currency on the row so the frontend can convert
+              // each amount into the user's configured currency before export
+              // (transactions are stored in the currency selected at entry time,
+              // which is not always KES).
+              currency: t.currency ?? "KES",
               farm: farmName,
               paymentMethod: t.paymentMethod ?? "",
             };
