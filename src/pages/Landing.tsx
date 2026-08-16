@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
+import { useTheme, getLastLightTheme } from "@/hooks/use-theme";
 import { CookieSettingsButton } from "@/components/CookiePreferences";
 import {
   Sprout,
@@ -51,9 +52,11 @@ const heroSlides = [
 function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [dark, setDark] = useState(
-    () => typeof document !== "undefined" && document.documentElement.classList.contains("dark"),
-  );
+  // One theme system app-wide: reuse the existing six-theme preference
+  // system (dark-farm is the dark theme) instead of a separate dark-class
+  // toggle, so Landing stays in sync with the app header and Settings.
+  const { theme, setTheme } = useTheme();
+  const isDark = theme === "dark-farm";
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -63,8 +66,9 @@ function Navbar() {
   }, []);
 
   const toggleTheme = () => {
-    document.documentElement.classList.toggle("dark");
-    setDark(document.documentElement.classList.contains("dark"));
+    // Same behavior as the app header: toggling back from Dark Farm restores
+    // the user's previous light theme rather than resetting to the default.
+    setTheme(isDark ? getLastLightTheme() : "dark-farm");
   };
 
   const overHero = !scrolled;
@@ -135,10 +139,10 @@ function Navbar() {
               variant="ghost"
               size="icon"
               onClick={toggleTheme}
-              aria-label="Toggle dark mode"
+              aria-label="Toggle theme"
               className={overHero ? "text-white hover:bg-white/10 hover:text-white" : ""}
             >
-              {dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+              {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </Button>
             <Link to="/auth" className="hidden sm:block">
               <Button

@@ -41,7 +41,7 @@ import {
   LayoutGrid,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { useTheme } from "@/hooks/use-theme";
+import { useTheme, getLastLightTheme } from "@/hooks/use-theme";
 import { useIsMobile, useHaptic, useScrollDirection } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -619,10 +619,11 @@ function Header({ onMenuClick }: { onMenuClick: () => void }) {
 
   const toggleTheme = () => {
     haptic.light();
-    // Use the existing six-theme preference system: dark-farm is the dark
-    // theme, green-fields the default light theme. Persists via useTheme
-    // (Convex preferences + localStorage) and stays in sync with Settings.
-    setTheme(isDark ? "green-fields" : "dark-farm");
+    // Same six-theme preference system as Settings: dark-farm is the dark
+    // theme. Switching back restores the user's previous light theme
+    // (Golden Harvest → Dark Farm → Golden Harvest), persisted through the
+    // existing theme preference system (Convex + localStorage).
+    setTheme(isDark ? getLastLightTheme() : "dark-farm");
   };
 
   return (

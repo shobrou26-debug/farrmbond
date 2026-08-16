@@ -1,4 +1,5 @@
 import "@vly-ai/integrations";
+import { MotionConfig } from "framer-motion";
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { PWAInstallPrompt, OfflineBanner } from "@/components/PWAInstallPrompt";
@@ -134,6 +135,7 @@ createRoot(document.getElementById("root")!).render(
       <ConvexAuthProvider client={convex}>
         <LanguageProvider>
           <ThemeApplier />
+        <MotionConfig reducedMotion="user">
         <BrowserRouter>
           <PWAInstallPrompt />
           <OfflineBanner />
@@ -200,6 +202,7 @@ createRoot(document.getElementById("root")!).render(
           </Suspense>
         </BrowserRouter>
         <Toaster />
+        </MotionConfig>
         </LanguageProvider>
       </ConvexAuthProvider>
     </RootErrorBoundary>

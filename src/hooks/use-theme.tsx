@@ -26,6 +26,17 @@ export const THEMES: ThemeConfig[] = [
   { id: "dark-farm", name: "Dark Farm", description: "Rich dark mode with green accents", preview: "oklch(0.58 0.18 150)" },
 ];
 
+// Remember the last light theme so light/dark toggles can restore it
+// (e.g. Golden Harvest → Dark Farm → Golden Harvest) instead of always
+// falling back to the Green Fields default.
+const LIGHT_THEME_KEY = "farmbond-theme-light";
+
+function recordLastLightTheme(theme: ThemeName) {
+  if (theme !== "dark-farm") {
+    localStorage.setItem(LIGHT_THEME_KEY, theme);
+  }
+}
+
 function applyThemeClass(theme: ThemeName) {
   const html = document.documentElement;
   // Remove all theme classes
@@ -48,12 +59,23 @@ function applyThemeClass(theme: ThemeName) {
   }
   // Persist to localStorage as fallback
   localStorage.setItem("farmbond-theme", theme);
+  recordLastLightTheme(theme);
 }
 
 function getStoredTheme(): ThemeName {
   const stored = localStorage.getItem("farmbond-theme") as ThemeName | null;
   if (stored && THEMES.some((t) => t.id === stored)) return stored;
   return "green-fields";
+}
+
+/**
+ * The last light theme the user had active (never dark-farm). Used by the
+ * header/landing light-dark toggles so switching back from Dark Farm restores
+ * the user's previous light theme. Falls back to the Green Fields default.
+ */
+export function getLastLightTheme(): ThemeName {
+  const stored = localStorage.getItem(LIGHT_THEME_KEY) as ThemeName | null;
+  return stored && THEMES.some((t) => t.id === stored) ? stored : "green-fields";
 }
 
 export function useTheme() {
