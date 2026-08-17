@@ -1,31 +1,28 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useAction } from "convex/react";
+import { motion, useReducedMotion } from "framer-motion";
+import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useHaptic } from "@/hooks/use-mobile";
 import {
   Bot,
   User,
   Send,
   Loader2,
   Leaf,
-  Bug,
   Cloud,
-  DollarSign,
   Sprout,
-  Beef,
-  Zap,
   Sparkles,
-  Mic,
-  Paperclip,
-  ThumbsUp,
-  ThumbsDown,
   Copy,
-  RotateCcw,
+  Trash2,
+  MapPin,
+  TrendingUp,
+  Droplets,
+  AlertTriangle,
 } from "lucide-react";
 
 // ============================================================
@@ -36,23 +33,109 @@ interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
-  timestamp: Date;
+  timestamp: number;
+}
+
+const STORAGE_KEY = "farmbond-ai-conversation";
+const MAX_STORED_MESSAGES = 100;
+
+// ============================================================
+// Local conversation persistence (client-side only).
+// FarmBond has no backend AI-conversation table — the `messages`
+// table is for farmer↔agronomist messaging. Persisting locally
+// keeps the conversation across reloads without a schema change.
+// ============================================================
+
+function loadStoredMessages(): Message[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Message[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMessages(messages: Message[]) {
+  try {
+    const trimmed = messages.slice(-MAX_STORED_MESSAGES);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+  } catch {
+    // Storage unavailable (private mode / quota) — chat still works in memory
+  }
+}
+
+function clearStoredMessages() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 // ============================================================
-// Suggestion Chips
+// Suggestion Chips (honest questions — the AI answers from real
+// data or explicitly says what information is missing)
 // ============================================================
 
 const suggestions = [
-  { icon: Leaf, label: "Crop Health", prompt: "How can I improve the health of my tomato crops?" },
-  { icon: Bug, label: "Pest Control", prompt: "What are natural ways to control aphids on vegetables?" },
-  { icon: Cloud, label: "Weather Tips", prompt: "How should I prepare my farm for heavy rainfall?" },
-  { icon: DollarSign, label: "Market Prices", prompt: "What are current maize prices in Kenya?" },
-  { icon: Sprout, label: "Planting Guide", prompt: "What's the best time to plant beans in East Africa?" },
-  { icon: Beef, label: "Livestock Care", prompt: "How do I maintain healthy cattle during dry season?" },
+  { icon: Sprout, label: "My farms", prompt: "How are my farms doing?" },
+  { icon: Cloud, label: "This week's weather", prompt: "What does this week's weather mean for my crops?" },
+  { icon: Droplets, label: "Irrigation", prompt: "Should I irrigate today?" },
+  { icon: TrendingUp, label: "Profit", prompt: "How can I reduce my farm expenses?" },
+  { icon: AlertTriangle, label: "Risks", prompt: "What risks should I watch this week?" },
+  { icon: Leaf, label: "Crop attention", prompt: "Which crop needs the most attention?" },
 ];
 
+// ============================================================
+// Entrance animation (reduced-motion aware)
+// ============================================================
 
+function useEntranceVariants() {
+  const shouldReduceMotion = useReducedMotion();
+  const duration = shouldReduceMotion ? 0 : 0.3;
+  return {
+    hidden: { opacity: 0, y: shouldReduceMotion ? 0 : 12 },
+    visible: { opacity: 1, y: 0, transition: { duration } },
+  };
+}
+
+// ============================================================
+// Lightweight message formatter: **bold headers** and • bullets
+// ============================================================
+
+function MessageContent({ content }: { content: string }) {
+  return (
+    <div className="text-sm leading-relaxed break-words">
+      {content.split("\n").map((line, i) => {
+        if (line.startsWith("**") && line.endsWith("**")) {
+          return (
+            <h3 key={i} className="text-sm font-bold mt-3 mb-1">
+              {line.replace(/\*\*/g, "")}
+            </h3>
+          );
+        }
+        if (line.startsWith("• ")) {
+          return (
+            <div key={i} className="flex items-start gap-2 ml-2">
+              <span className="text-primary mt-1 shrink-0">•</span>
+              <span>{line.slice(2)}</span>
+            </div>
+          );
+        }
+        if (line.trim() === "") {
+          return <div key={i} className="h-2" />;
+        }
+        return (
+          <p key={i} className="leading-relaxed">
+            {line}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
 
 // ============================================================
 // Chat Message Component
@@ -60,84 +143,155 @@ const suggestions = [
 
 function ChatMessage({ message }: { message: Message }) {
   const [copied, setCopied] = useState(false);
+  const haptic = useHaptic();
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(message.content);
+  const handleCopy = useCallback(() => {
+    haptic.light();
+    navigator.clipboard.writeText(message.content).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
+  }, [message.content, haptic]);
+
+  const isUser = message.role === "user";
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className={`flex gap-4 ${message.role === "user" ? "justify-end" : "justify-start"}`}
+      transition={{ duration: 0.25 }}
+      className={`flex gap-3 ${isUser ? "justify-end" : "justify-start"}`}
     >
-      {message.role === "assistant" && (
-        <div className="flex items-center justify-center w-10 h-10 rounded-xl gradient-primary shrink-0">
-          <Bot className="w-5 h-5 text-white" />
+      {!isUser && (
+        <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-brand-deep shrink-0 mt-1">
+          <Bot className="w-4 h-4 text-white" />
         </div>
       )}
-      
+
       <div
-        className={`max-w-[80%] rounded-2xl p-4 ${
-          message.role === "user"
-            ? "bg-primary text-primary-foreground"
-            : "bg-card border border-border/50"
+        className={`max-w-[85%] sm:max-w-[75%] rounded-2xl p-4 ${
+          isUser
+            ? "bg-primary text-primary-foreground rounded-br-md"
+            : "bg-card border border-border/60 rounded-bl-md"
         }`}
       >
-        <div className="prose prose-sm max-w-none">
-          {message.content.split("\n").map((line, i) => {
-            if (line.startsWith("**") && line.endsWith("**")) {
-              return (
-                <h3 key={i} className="text-sm font-bold mt-3 mb-1">
-                  {line.replace(/\*\*/g, "")}
-                </h3>
-              );
-            }
-            if (line.startsWith("• ")) {
-              return (
-                <div key={i} className="flex items-start gap-2 ml-2">
-                  <span className="text-primary mt-1">•</span>
-                  <span>{line.slice(2)}</span>
-                </div>
-              );
-            }
-            if (line.trim() === "") {
-              return <div key={i} className="h-2" />;
-            }
-            return (
-              <p key={i} className="text-sm leading-relaxed">
-                {line}
-              </p>
-            );
-          })}
-        </div>
-        
-        {message.role === "assistant" && (
-          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/50">
-            <Button variant="ghost" size="icon" className="h-7 w-7">
-              <ThumbsUp className="w-3.5 h-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7">
-              <ThumbsDown className="w-3.5 h-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopy}>
-              <Copy className="w-3.5 h-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7">
-              <RotateCcw className="w-3.5 h-3.5" />
+        <MessageContent content={message.content} />
+
+        {!isUser && (
+          <div className="flex items-center gap-1 mt-3 pt-2 border-t border-border/50">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 gap-1.5 text-muted-foreground hover:text-foreground px-2"
+              onClick={handleCopy}
+              aria-label={copied ? "Copied to clipboard" : "Copy response"}
+            >
+              {copied ? <CheckIcon /> : <Copy className="w-3.5 h-3.5" />}
+              <span className="text-xs">{copied ? "Copied" : "Copy"}</span>
             </Button>
           </div>
         )}
       </div>
-      
-      {message.role === "user" && (
-        <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-secondary shrink-0">
-          <User className="w-5 h-5 text-secondary-foreground" />
+
+      {isUser && (
+        <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-secondary shrink-0 mt-1">
+          <User className="w-4 h-4 text-secondary-foreground" />
         </div>
       )}
+    </motion.div>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      className="w-3.5 h-3.5"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M20 6L9 17l-5-5" />
+    </svg>
+  );
+}
+
+// ============================================================
+// Empty State — shown for a brand-new conversation
+// ============================================================
+
+function EmptyState({
+  onPick,
+  farmCount,
+  cropCount,
+}: {
+  onPick: (prompt: string) => void;
+  farmCount: number | undefined;
+  cropCount: number | undefined;
+}) {
+  const variants = useEntranceVariants();
+
+  return (
+    <motion.div
+      initial="hidden"
+      animate="visible"
+      variants={{ visible: { transition: { staggerChildren: 0.05 } } }}
+      className="flex flex-col items-center justify-center min-h-full px-4 py-10"
+    >
+      <motion.div
+        variants={variants}
+        className="flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-deep shadow-lg shadow-brand-deep/20 mb-4"
+      >
+        <Sparkles className="w-7 h-7 text-white" />
+      </motion.div>
+      <motion.h2
+        variants={variants}
+        className="text-xl sm:text-2xl font-semibold text-center"
+      >
+        Ask your farm, anything
+      </motion.h2>
+      <motion.p
+        variants={variants}
+        className="text-sm text-muted-foreground text-center max-w-md mt-2 leading-relaxed"
+      >
+        FarmBond AI answers using your actual farm data — crops, livestock,
+        weather and finances. If something isn&apos;t recorded yet, it will tell
+        you honestly instead of guessing.
+      </motion.p>
+
+      {farmCount === 0 && (
+        <motion.p
+          variants={variants}
+          className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-full px-3 py-1.5 mt-4"
+        >
+          <MapPin className="w-3.5 h-3.5" />
+          No farms registered yet — add one to get farm-specific answers.
+        </motion.p>
+      )}
+
+      <motion.div
+        variants={variants}
+        className="flex flex-wrap justify-center gap-2 mt-6 max-w-lg"
+      >
+        {suggestions.map((s, i) => {
+          const Icon = s.icon;
+          return (
+            <motion.button
+              key={i}
+              variants={variants}
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => onPick(s.prompt)}
+              className="flex items-center gap-2 px-3.5 py-2.5 min-h-[44px] rounded-full bg-muted/50 hover:bg-muted text-sm text-muted-foreground hover:text-foreground transition-colors border border-transparent hover:border-border/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring tap-highlight-none"
+            >
+              <Icon className="w-4 h-4 shrink-0" />
+              {s.label}
+            </motion.button>
+          );
+        })}
+      </motion.div>
     </motion.div>
   );
 }
@@ -146,195 +300,250 @@ function ChatMessage({ message }: { message: Message }) {
 // Main AI Assistant Page
 // ============================================================
 
+const WELCOME_MESSAGE: Message = {
+  id: "welcome",
+  role: "assistant",
+  content:
+    "Hello! I'm your FarmBond farming assistant 🌱\n\nI can help you with:\n• Farm health and performance — using your real FarmBond data\n• Crop management and pest control\n• Weather-based decisions and irrigation timing\n• Livestock care and vaccination planning\n• Farm budgeting and cost reduction\n\nAsk me about your farms, crops, or this week's weather — I'll use your recorded data and tell you honestly when information is missing.",
+  timestamp: Date.now(),
+};
+
 export default function AIAssistant() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      role: "assistant",
-      content: "Hello! I'm your AI Farming Assistant 🌱\n\nI can help you with:\n• Crop management and disease identification\n• Pest control solutions\n• Weather-based farming advice\n• Market prices and trends\n• Livestock care tips\n• Farm planning and budgeting\n\nAsk me anything about farming, and I'll provide detailed, actionable advice!",
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>(() => {
+    const stored = loadStoredMessages();
+    return stored.length > 0 ? stored : [WELCOME_MESSAGE];
+  });
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const haptic = useHaptic();
+  const shouldReduceMotion = useReducedMotion();
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  // Real data for the context header + empty-state hint
+  const farmsRes = useQuery(api.farms.listUserFarms, {});
+  const cropsRes = useQuery(api.crops.listUserCrops, {});
+  const farmCount = farmsRes?.page?.length;
+  const cropCount = cropsRes?.page?.length;
+
+  const chatWithFarmContext = useAction(api.aiAssistant.chatWithFarmContext);
+
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: shouldReduceMotion ? "auto" : "smooth",
+      block: "end",
+    });
+  }, [shouldReduceMotion]);
 
   useEffect(() => {
     scrollToBottom();
+  }, [messages, isLoading, scrollToBottom]);
+
+  // Persist locally whenever the conversation changes
+  useEffect(() => {
+    saveMessages(messages);
   }, [messages]);
 
-  const chatWithAI = useAction(api.aiAssistant.chatWithAI);
+  const handleSend = useCallback(
+    async (content?: string) => {
+      const messageContent = (content ?? input).trim();
+      if (!messageContent || isLoading) return;
 
-  const handleSend = useCallback(async (content?: string) => {
-    const messageContent = content || input.trim();
-    if (!messageContent || isLoading) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: messageContent,
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsLoading(true);
-
-    try {
-      // Build conversation history for context
-      const history = messages.slice(-6).map((m) => ({
-        role: m.role === "user" ? ("user" as const) : ("model" as const),
-        parts: [{ text: m.content }],
-      }));
-
-      const result = await chatWithAI({
-        message: messageContent,
-        history: history,
-      });
-
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: result.response,
-        timestamp: new Date(),
+      haptic.light();
+      const userMessage: Message = {
+        id: `u-${Date.now()}`,
+        role: "user",
+        content: messageContent,
+        timestamp: Date.now(),
       };
-      setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error("AI chat error:", error);
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: "I'm sorry, I encountered an error processing your request. Please make sure the GROQ_API_KEY is configured in your environment, or try again later.\n\nGet a free key at https://console.groq.com — 14,400 requests/day free.",
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [input, isLoading, messages, chatWithAI]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+      setMessages((prev) => [...prev, userMessage]);
+      setInput("");
+      setIsLoading(true);
+
+      try {
+        // Conversation history for context (last 6 messages, Gemini-style)
+        const history = messages.slice(-6).map((m) => ({
+          role: m.role === "user" ? ("user" as const) : ("model" as const),
+          parts: [{ text: m.content }],
+        }));
+
+        const result = await chatWithFarmContext({
+          message: messageContent,
+          history: history,
+        });
+
+        const assistantMessage: Message = {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: result.response,
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+      } catch (error) {
+        console.error("AI chat error:", error);
+        const msg =
+          error instanceof Error ? error.message : "Something went wrong";
+        // Show the server's honest message (quota / auth / provider errors),
+        // but never a fabricated AI answer.
+        const assistantMessage: Message = {
+          id: `e-${Date.now()}`,
+          role: "assistant",
+          content: `I couldn't complete that request. ${msg}\n\nPlease try again, or check your connection and daily AI allowance.`,
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [input, isLoading, messages, chatWithFarmContext, haptic]
+  );
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
 
+  const handleNewConversation = useCallback(() => {
+    haptic.medium();
+    clearStoredMessages();
+    setMessages([WELCOME_MESSAGE]);
+    setInput("");
+  }, [haptic]);
+
+  const hasRealMessages = messages.some((m) => m.id !== "welcome");
+
   return (
     <AppLayout>
-      <div className="flex flex-col h-[calc(100vh-4rem)] lg:h-screen">
+      <div className="flex flex-col h-[calc(100dvh-4rem)] lg:h-[calc(100dvh-5rem)]">
         {/* Header */}
         <div className="border-b border-border bg-background/95 backdrop-blur-xl px-4 md:px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-10 h-10 rounded-xl gradient-primary">
+          <div className="flex items-center justify-between gap-3 max-w-5xl mx-auto">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-brand-deep shrink-0">
                 <Bot className="w-5 h-5 text-white" />
               </div>
-              <div>
-                <h1 className="text-lg font-semibold">AI Farming Assistant</h1>
+              <div className="min-w-0">
+                <h1 className="text-base sm:text-lg font-semibold truncate">
+                  AI Farming Assistant
+                </h1>
                 <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  <span className="text-xs text-muted-foreground">Online • Ready to help</span>
+                  <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shrink-0" />
+                  <span className="text-xs text-muted-foreground truncate">
+                    {farmCount === undefined
+                      ? "Connecting to your farm data…"
+                      : farmCount > 0
+                        ? `${farmCount} farm${farmCount === 1 ? "" : "s"} · ${cropCount ?? 0} crop${cropCount === 1 ? "" : "s"} connected`
+                        : "No farm data connected yet"}
+                  </span>
                 </div>
               </div>
             </div>
-            <Badge variant="secondary" className="hidden sm:flex">
-              <Sparkles className="w-3 h-3 mr-1 text-primary" />
-              Powered by Groq AI
-            </Badge>
+            <div className="flex items-center gap-2 shrink-0">
+              <Badge variant="secondary" className="hidden sm:inline-flex">
+                <Sparkles className="w-3 h-3 mr-1 text-primary" />
+                FarmBond AI
+              </Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 h-9"
+                onClick={handleNewConversation}
+                aria-label="Start a new conversation"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span className="hidden sm:inline">New chat</span>
+              </Button>
+            </div>
           </div>
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
-          {messages.map((message) => (
-            <ChatMessage key={message.id} message={message} />
-          ))}
-          
-          {isLoading && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex gap-4"
-            >
-              <div className="flex items-center justify-center w-10 h-10 rounded-xl gradient-primary shrink-0">
-                <Bot className="w-5 h-5 text-white" />
-              </div>
-              <div className="bg-card border border-border/50 rounded-2xl p-4">
-                <div className="flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                  <span className="text-sm text-muted-foreground">Thinking...</span>
+        <div
+          className="flex-1 overflow-y-auto px-4 md:px-6 py-6"
+          role="log"
+          aria-live="polite"
+          aria-label="AI assistant conversation"
+        >
+          <div className="max-w-5xl mx-auto space-y-5">
+            {/* When the EmptyState is shown it replaces the welcome bubble, so
+                the intro is not duplicated. */}
+            {messages
+              .filter((m) => hasRealMessages || m.id !== "welcome")
+              .map((message) => (
+                <ChatMessage key={message.id} message={message} />
+              ))}
+
+            {isLoading && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex gap-3"
+              >
+                <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-brand-deep shrink-0">
+                  <Bot className="w-4 h-4 text-white" />
                 </div>
-              </div>
-            </motion.div>
-          )}
-          
-          <div ref={messagesEndRef} />
+                <div className="bg-card border border-border/60 rounded-2xl rounded-bl-md p-4 min-w-[180px]">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                    <span className="text-xs text-muted-foreground">
+                      Thinking with your farm data…
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    <Skeleton className="h-2.5 w-full" />
+                    <Skeleton className="h-2.5 w-4/5" />
+                    <Skeleton className="h-2.5 w-3/5" />
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {!hasRealMessages && !isLoading && (
+              <EmptyState
+                onPick={(prompt) => handleSend(prompt)}
+                farmCount={farmCount}
+                cropCount={cropCount}
+              />
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
         </div>
 
-        {/* Suggestion Chips */}
-        {messages.length <= 1 && (
-          <div className="px-4 md:px-6 pb-2">
-            <div className="flex flex-wrap gap-2">
-              {suggestions.map((suggestion, i) => {
-                const Icon = suggestion.icon;
-                return (
-                  <motion.button
-                    key={i}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: i * 0.05 }}
-                    onClick={() => handleSend(suggestion.prompt)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-full bg-muted/50 hover:bg-muted text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <Icon className="w-4 h-4" />
-                    {suggestion.label}
-                  </motion.button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
         {/* Input Area */}
-        <div className="border-t border-border bg-background/95 backdrop-blur-xl p-4 md:px-6">
-          <div className="flex items-end gap-3 max-w-4xl mx-auto">
-            <Button variant="ghost" size="icon" className="shrink-0 mb-1">
-              <Paperclip className="w-5 h-5" />
-            </Button>
-            <div className="flex-1 relative">
-              <Input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask me anything about farming..."
-                className="min-h-[48px] pr-12 rounded-xl"
-                disabled={isLoading}
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-1 top-1/2 -translate-y-1/2 mb-0"
-              >
-                <Mic className="w-5 h-5" />
-              </Button>
+        <div className="border-t border-border bg-background/95 backdrop-blur-xl p-3 md:p-4">
+          <div className="max-w-5xl mx-auto">
+            <div className="flex items-end gap-2">
+              <div className="flex-1 relative">
+                <Textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask about your farm, crops, weather…"
+                  className="min-h-[48px] max-h-32 resize-none rounded-xl pr-12 py-3"
+                  disabled={isLoading}
+                  rows={1}
+                  aria-label="Message the AI assistant"
+                />
+                <Button
+                  onClick={() => handleSend()}
+                  disabled={!input.trim() || isLoading}
+                  className="absolute right-1.5 bottom-1.5 h-9 w-9 rounded-lg"
+                  size="icon"
+                  aria-label="Send message"
+                >
+                  <Send className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
-            <Button
-              onClick={() => handleSend()}
-              disabled={!input.trim() || isLoading}
-              className="shrink-0 gradient-primary mb-1"
-              size="icon"
-            >
-              <Send className="w-5 h-5" />
-            </Button>
+            <p className="text-center text-xs text-muted-foreground mt-2 px-2">
+              FarmBond AI answers from your recorded farm data. Always verify
+              important decisions with a local agronomist or extension officer.
+            </p>
           </div>
-          <p className="text-center text-xs text-muted-foreground mt-2">
-            AI responses are generated based on agricultural best practices. Always verify with local experts.
-          </p>
         </div>
       </div>
     </AppLayout>

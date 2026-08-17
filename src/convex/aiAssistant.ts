@@ -1,4 +1,5 @@
 import { action, internalMutation, internalQuery } from "./_generated/server";
+import type { ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { createAuditLog, isSubscriptionActive } from "./authHelpers";
@@ -132,16 +133,19 @@ FORMAT YOUR RESPONSES WITH:
 Keep responses concise but comprehensive. Aim for 150-400 words unless the question requires more detail.`;
 
 /**
- * Build Groq/OpenAI-compatible messages array from conversation history
+ * Build Groq/OpenAI-compatible messages array from conversation history.
+ * Accepts an optional system prompt override so farm-aware requests can
+ * inject the farmer's real FarmBond context.
  */
 function buildGroqMessages(
   history: Array<{ role: string; parts: Array<{ text: string }> }> | undefined,
   currentMessage: string,
+  systemPrompt: string = SYSTEM_PROMPT,
 ) {
   const messages: Array<{ role: string; content: string }> = [];
 
   // System instruction
-  messages.push({ role: "system", content: SYSTEM_PROMPT });
+  messages.push({ role: "system", content: systemPrompt });
 
   if (!history || history.length === 0) {
     messages.push({ role: "user", content: currentMessage });
@@ -164,6 +168,227 @@ function buildGroqMessages(
 }
 
 /**
+ * Enforce the user's daily AI chat quota.
+ * Returns the resolved quota (userId + limit) or throws when over limit.
+ */
+async function enforceChatQuota(ctx: ActionCtx) {
+  const quota = await getAiQuota(ctx, "ai_chat");
+  const used = await ctx.runQuery(internal.aiAssistant.getAiUsageCount, {
+    userId: quota.userId,
+    usageAction: "ai_chat",
+  });
+  if (used >= quota.limit) {
+    throw new Error(
+      quota.isPro
+        ? "Daily AI message limit reached. Please try again tomorrow."
+        : `Free plan allows ${AI_FREE_DAILY_CHAT_LIMIT} AI messages per day. Upgrade to Pro for unlimited AI — Settings > Subscription.`
+    );
+  }
+  return quota;
+}
+
+/** Record one successful chat usage entry. */
+async function logChatUsage(ctx: ActionCtx, userId: any) {
+  await ctx.runMutation(internal.aiAssistant.logAiUsage, {
+    userId,
+    usageAction: "ai_chat",
+    feature: "chat",
+  });
+}
+
+/**
+ * Shared chat completion: calls Groq and falls back to Gemini when Groq
+ * fails or is unconfigured. Throws only when no provider can answer.
+ */
+async function runChatCompletion(
+  systemPrompt: string,
+  message: string,
+  history: Array<{ role: string; parts: Array<{ text: string }> }> | undefined,
+): Promise<string> {
+  if (GROQ_API_KEY) {
+    try {
+      const response = await fetch(GROQ_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: GROQ_MODEL,
+          messages: buildGroqMessages(history, message, systemPrompt),
+          temperature: 0.7,
+          top_p: 0.95,
+          max_tokens: 2048,
+          frequency_penalty: 0.1,
+          presence_penalty: 0.1,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Groq API error:", response.status, errorText);
+        throw new Error(`Groq error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const text = data.choices?.[0]?.message?.content;
+      if (text) return text;
+      throw new Error("No response generated from AI");
+    } catch (error) {
+      console.error("Groq chat failed, trying Gemini fallback:", error);
+      // Fall through to Gemini when available
+    }
+  }
+
+  if (GEMINI_API_KEY) {
+    const result = await chatWithGeminiFallback(message, history, systemPrompt);
+    return result.response;
+  }
+
+  throw new Error("AI service is not configured.");
+}
+
+/**
+ * Build a concise, real FarmBond context block for the authenticated farmer.
+ * Only includes data that actually exists (farms, crops, livestock, cached
+ * weather, financial summary). When something is missing it is omitted or
+ * explicitly marked unavailable — never fabricated.
+ */
+async function buildFarmContext(ctx: ActionCtx): Promise<string> {
+  const parts: string[] = [];
+
+  // Farmer profile — preferences the AI should respect in answers
+  const user = await ctx.runQuery(api.users.currentUser);
+  if (user) {
+    const bits: string[] = [];
+    if (user.name) bits.push(`name: ${user.name}`);
+    if (user.country) bits.push(`country: ${user.country}`);
+    if (user.language) bits.push(`language: ${user.language}`);
+    if (user.currency) bits.push(`currency: ${user.currency}`);
+    if (user.units) bits.push(`units: ${user.units}`);
+    if (user.timezone) bits.push(`timezone: ${user.timezone}`);
+    if (bits.length) parts.push(`Farmer profile: ${bits.join(", ")}`);
+  }
+
+  // Farms (all of them, capped for prompt size)
+  const farmsRes = await ctx.runQuery(api.farms.listUserFarms, {});
+  const farms = farmsRes?.page ?? [];
+  if (farms.length === 0) {
+    parts.push("Farms: none registered yet.");
+    return parts.join("\n");
+  }
+
+  for (const farm of farms.slice(0, 3)) {
+    const loc = farm.location;
+    const locBits: string[] = [];
+    if (loc?.address) locBits.push(loc.address);
+    if (loc?.city) locBits.push(loc.city);
+    if (loc?.country) locBits.push(loc.country);
+    const sizeBit = farm.sizeUnit === "acres" ? `${farm.size} acres` : `${farm.size} ha`;
+    const farmLines: string[] = [
+      `Farm "${farm.name}" (${sizeBit}, status: ${farm.status})` +
+        (locBits.length ? ` — ${locBits.join(", ")}` : "") +
+        (loc?.latitude != null && loc?.longitude != null
+          ? ` [lat ${loc.latitude.toFixed(2)}, lon ${loc.longitude.toFixed(2)}]`
+          : ""),
+    ];
+
+    const soilBits: string[] = [];
+    if (farm.soilType) soilBits.push(`type: ${farm.soilType}`);
+    if (farm.soilPh != null) soilBits.push(`pH: ${farm.soilPh}`);
+    if (farm.ndviScore != null) soilBits.push(`NDVI: ${farm.ndviScore}/100`);
+    if (farm.irrigationType) soilBits.push(`irrigation: ${farm.irrigationType}`);
+    if (soilBits.length) farmLines.push(`  Soil: ${soilBits.join(", ")}`);
+
+    // Crops on this farm
+    const cropsRes = await ctx.runQuery(api.crops.listFarmCrops, {
+      farmId: farm._id,
+    });
+    const crops = cropsRes?.page ?? [];
+    if (crops.length > 0) {
+      const cropBits = crops.slice(0, 6).map((c) => {
+        const bits = [
+          c.name,
+          c.variety ? `(${c.variety})` : "",
+          `planted ${new Date(c.plantingDate).toISOString().slice(0, 10)}`,
+          `status: ${c.status}`,
+        ];
+        if (c.healthScore != null) bits.push(`health: ${c.healthScore}/100`);
+        if (c.expectedHarvestDate) bits.push(`harvest ${new Date(c.expectedHarvestDate).toISOString().slice(0, 10)}`);
+        return bits.filter(Boolean).join(" ");
+      });
+      farmLines.push(
+        `  Crops: ${cropBits.join(" | ")}${crops.length > 6 ? ` (+${crops.length - 6} more)` : ""}`
+      );
+    }
+
+    // Livestock on this farm
+    const livestockRes = await ctx.runQuery(api.livestock.listFarmLivestock, {
+      farmId: farm._id,
+    });
+    const livestock = livestockRes?.page ?? [];
+    if (livestock.length > 0) {
+      const liveBits = livestock.slice(0, 4).map((l) => {
+        const bits = [`${l.quantity} ${l.type}`, `status: ${l.status}`];
+        if (l.healthScore != null) bits.push(`health: ${l.healthScore}/100`);
+        if (l.nextVaccination) bits.push(`next vaccination ${new Date(l.nextVaccination).toISOString().slice(0, 10)}`);
+        return bits.join(", ");
+      });
+      farmLines.push(
+        `  Livestock: ${liveBits.join(" | ")}${livestock.length > 4 ? ` (+${livestock.length - 4} more)` : ""}`
+      );
+    }
+
+    // Cached weather for the farm location (real data only; null when unavailable)
+    if (loc?.latitude != null && loc?.longitude != null) {
+      const weather = await ctx.runQuery(api.weather.getCachedWeather, {
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+      });
+      if (weather) {
+        const wbits = [
+          `temp ${weather.temperature}°C`,
+          `humidity ${weather.humidity}%`,
+          `wind ${weather.windSpeed} km/h`,
+          `precip ${weather.precipitation} mm`,
+        ];
+        if (weather.uvIndex != null) wbits.push(`UV ${weather.uvIndex}`);
+        const forecastDays = (weather.forecast ?? [])
+          .slice(0, 3)
+          .map(
+            (f) =>
+              `${new Date(f.date).toISOString().slice(0, 10)}: high ${f.tempHigh}°C / low ${f.tempLow}°C, ${f.precipitation} mm, ${f.condition}`
+          );
+        farmLines.push(`  Weather (cached): ${wbits.join(", ")}`);
+        if (forecastDays.length) farmLines.push(`  Forecast (next days): ${forecastDays.join(" | ")}`);
+      } else {
+        farmLines.push("  Weather: no cached forecast available for this location");
+      }
+    }
+
+    parts.push(farmLines.join("\n"));
+  }
+
+  if (farms.length > 3) {
+    parts.push(`(${farms.length - 3} more farms not detailed)`);
+  }
+
+  // Financial summary — already converted to the user's display currency by
+  // the backend; labeled with the user's currency code.
+  try {
+    const fin = await ctx.runQuery(api.transactions.getFinancialSummary, {});
+    const cur = user?.currency ?? "KES";
+    parts.push(
+      `Finances (${cur}): total income ${Math.round(fin.totalIncome)}, total expenses ${Math.round(fin.totalExpenses)}, net profit ${Math.round(fin.netProfit)}; this month income ${Math.round(fin.thisMonthIncome)}, expenses ${Math.round(fin.thisMonthExpenses)}, profit ${Math.round(fin.thisMonthProfit)}`
+    );
+  } catch {
+    // Financial data unavailable — omit rather than fabricate
+  }
+
+  return parts.join("\n");
+}
+
+/**
  * Send a message to the AI farming assistant via Groq
  * Free tier: 14,400 requests/day (llama-3.1-8b-instant)
  * or 1,000 requests/day (llama-3.3-70b-versatile)
@@ -181,80 +406,54 @@ export const chatWithAI = action({
     ),
   },
   handler: async (ctx, args) => {
-    if (!GROQ_API_KEY) {
-      throw new Error(
-        "AI service is not configured. Please add GROQ_API_KEY to your environment variables. " +
-        "Get a free key at https://console.groq.com — 14,400 requests/day free."
-      );
-    }
+    const quota = await enforceChatQuota(ctx);
+    const text = await runChatCompletion(SYSTEM_PROMPT, args.message, args.history);
+    await logChatUsage(ctx, quota.userId);
+    return { response: text };
+  },
+});
 
-    // Auth + daily usage quota (free users get a limited allowance; Pro is
-    // near-unlimited). Enforced server-side — cannot be bypassed from the UI.
-    const quota = await getAiQuota(ctx, "ai_chat");
-    const used = await ctx.runQuery(internal.aiAssistant.getAiUsageCount, {
-      userId: quota.userId,
-      usageAction: "ai_chat",
-    });
-    if (used >= quota.limit) {
-      throw new Error(
-        quota.isPro
-          ? "Daily AI message limit reached. Please try again tomorrow."
-          : `Free plan allows ${AI_FREE_DAILY_CHAT_LIMIT} AI messages per day. Upgrade to Pro for unlimited AI — Settings > Subscription.`
-      );
-    }
+/**
+ * Farm-aware chat: same as `chatWithAI` but injects the farmer's REAL
+ * FarmBond context (farms, crops, livestock, cached weather, finances) into
+ * the system prompt so the assistant can answer farm-specific questions
+ * using actual data — and honestly state when data is missing.
+ *
+ * All data is fetched server-side through auth-guarded queries scoped to the
+ * authenticated user, so one farmer can never see another farmer's data.
+ */
+export const chatWithFarmContext = action({
+  args: {
+    message: v.string(),
+    history: v.optional(
+      v.array(
+        v.object({
+          role: v.union(v.literal("user"), v.literal("model")),
+          parts: v.array(v.object({ text: v.string() })),
+        })
+      )
+    ),
+  },
+  handler: async (ctx, args) => {
+    const quota = await enforceChatQuota(ctx);
 
-    const messages = buildGroqMessages(args.history, args.message);
+    const farmContext = await buildFarmContext(ctx);
 
-    try {
-      const response = await fetch(GROQ_API_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: GROQ_MODEL,
-          messages,
-          temperature: 0.7,
-          top_p: 0.95,
-          max_tokens: 2048,
-          frequency_penalty: 0.1,
-          presence_penalty: 0.1,
-        }),
-      });
+    const systemPrompt = `${SYSTEM_PROMPT}
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Groq API error:", response.status, errorText);
+===== THE FARMER'S CURRENT FARMBOND DATA (real data from their FarmBond account) =====
+${farmContext}
 
-        // If Groq is down, try Gemini as fallback for text
-        if (GEMINI_API_KEY) {
-          console.log("Falling back to Gemini for text chat...");
-          return await chatWithGeminiFallback(args.message, args.history);
-        }
+===== DATA HONESTY RULES (mandatory) =====
+- The FarmBond data above is the ONLY farm-specific data you have. Use it when answering farm-specific questions.
+- NEVER invent farm statistics, weather, prices, yields, health scores, or financial figures. If the data needed to answer is missing, say so explicitly (e.g. "I don't have recorded data for that yet").
+- Always distinguish actual data (from the section above) from general agricultural recommendations.
+- For plant or livestock disease questions, provide general guidance but do not claim a definitive diagnosis; recommend consulting a local agronomist or extension officer.
+- Present weather and measurements in the farmer's preferred units when the profile includes a units preference; otherwise use the units shown in the data.`;
 
-        throw new Error(`AI service error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const text = data.choices?.[0]?.message?.content;
-
-      if (!text) {
-        throw new Error("No response generated from AI");
-      }
-
-      // Record usage only after a successful response
-      await ctx.runMutation(internal.aiAssistant.logAiUsage, {
-        userId: quota.userId,
-        usageAction: "ai_chat",
-        feature: "chat",
-      });
-
-      return { response: text };
-    } catch (error) {
-      console.error("AI chat error:", error);
-      throw error;
-    }
+    const text = await runChatCompletion(systemPrompt, args.message, args.history);
+    await logChatUsage(ctx, quota.userId);
+    return { response: text };
   },
 });
 
@@ -264,6 +463,7 @@ export const chatWithAI = action({
 async function chatWithGeminiFallback(
   message: string,
   history?: Array<{ role: string; parts: Array<{ text: string }> }>,
+  systemPrompt: string = SYSTEM_PROMPT,
 ) {
   if (!GEMINI_API_KEY) {
     throw new Error("No AI provider available");
@@ -274,12 +474,12 @@ async function chatWithGeminiFallback(
   if (!history || history.length === 0) {
     contents.push({
       role: "user",
-      parts: [{ text: `System instruction: ${SYSTEM_PROMPT}\n\nUser question: ${message}` }],
+      parts: [{ text: `System instruction: ${systemPrompt}\n\nUser question: ${message}` }],
     });
   } else {
     contents.push({
       role: "user",
-      parts: [{ text: `System instruction: ${SYSTEM_PROMPT}\n\n${history[0]?.parts[0]?.text || message}` }],
+      parts: [{ text: `System instruction: ${systemPrompt}\n\n${history[0]?.parts[0]?.text || message}` }],
     });
     for (let i = 1; i < history.length; i++) {
       contents.push(history[i]);
