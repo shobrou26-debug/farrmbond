@@ -1,0 +1,60 @@
+{
+  "name": "FarmBond - AI-Powered Smart Farming",
+  "short_name": "FarmBond",
+  "description": "AI-powered smart farming platform for increasing productivity, reducing losses, and maximizing profits.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8faf8",
+  "theme_color": "#2d6a4f",
+  "orientation": "any",
+  "scope": "/",
+  "lang": "en",
+  "categories": ["agriculture", "business", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "url": "/dashboard",
+      "description": "View your farm dashboard"
+    },
+    {
+      "name": "Weather",
+      "short_name": "Weather",
+      "url": "/weather",
+      "description": "Check weather forecasts"
+    },
+    {
+      "name": "AI Assistant",
+      "short_name": "AI Assistant",
+      "url": "/ai-assistant",
+      "description": "Chat with AI farming assistant"
+    }
+  ]
+}
