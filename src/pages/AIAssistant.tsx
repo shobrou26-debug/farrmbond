@@ -50,8 +50,19 @@ function loadStoredMessages(): Message[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw) as Message[];
-    return Array.isArray(parsed) ? parsed : [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    // Validate every entry so malformed/legacy storage can never crash the
+    // page (e.g. a missing `content` would throw in the renderer).
+    return parsed.filter(
+      (m): m is Message =>
+        !!m &&
+        typeof m === "object" &&
+        (m.role === "user" || m.role === "assistant") &&
+        typeof m.content === "string" &&
+        typeof m.id === "string" &&
+        typeof m.timestamp === "number"
+    );
   } catch {
     return [];
   }
@@ -147,9 +158,16 @@ function ChatMessage({ message }: { message: Message }) {
 
   const handleCopy = useCallback(() => {
     haptic.light();
-    navigator.clipboard.writeText(message.content).catch(() => {});
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    navigator.clipboard
+      .writeText(message.content)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {
+        // Clipboard unavailable (permissions/secure-context) — leave the
+        // button unchanged rather than falsely claiming success.
+      });
   }, [message.content, haptic]);
 
   const isUser = message.role === "user";
