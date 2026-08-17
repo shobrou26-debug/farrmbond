@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { useWeather } from "@/hooks/use-weather";
 import { useIrrigation } from "@/hooks/use-irrigation";
+import { useHaptic } from "@/hooks/use-mobile";
 import {
   Droplets,
   Plus,
@@ -41,7 +43,6 @@ import {
   Power,
   PowerOff,
   TrendingDown,
-  TrendingUp,
   Activity,
   Bell,
   Trash2,
@@ -50,6 +51,8 @@ import {
   Loader2,
   History,
   Sprout,
+  CalendarDays,
+  MapPin,
 } from "lucide-react";
 
 // ============================================================
@@ -111,6 +114,30 @@ const formatDateTime = (ts: number) =>
     minute: "2-digit",
   });
 
+function titleCase(value: string): string {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ============================================================
+// Animation (respects prefers-reduced-motion)
+// ============================================================
+
+function useEntranceVariants() {
+  const shouldReduceMotion = useReducedMotion();
+  const duration = shouldReduceMotion ? 0 : 0.35;
+  const stagger = shouldReduceMotion ? 0 : 0.05;
+  return {
+    container: {
+      hidden: { opacity: 0 },
+      visible: { opacity: 1, transition: { staggerChildren: stagger } },
+    },
+    item: {
+      hidden: { opacity: 0, y: shouldReduceMotion ? 0 : 14 },
+      visible: { opacity: 1, y: 0, transition: { duration } },
+    },
+  };
+}
+
 // ============================================================
 // Water Usage Stats (computed from real irrigation history)
 // ============================================================
@@ -144,9 +171,27 @@ function WaterUsageStats({
   const month = history.filter((r) => r.date >= now - 30 * day).reduce((s, r) => s + r.waterAmount, 0);
 
   const stats = [
-    { label: "Today's Usage", value: `${(today / 1000).toFixed(1)} kL`, sub: `${history.filter((r) => r.date >= todayStart.getTime()).length} runs`, icon: Droplets, color: "bg-blue-500" },
-    { label: "Weekly Usage", value: `${(week / 1000).toFixed(1)} kL`, sub: `${history.filter((r) => r.date >= now - 7 * day).length} runs`, icon: Activity, color: "bg-cyan-500" },
-    { label: "Monthly Usage", value: `${(month / 1000).toFixed(1)} kL`, sub: `${history.filter((r) => r.date >= now - 30 * day).length} runs`, icon: TrendingDown, color: "bg-indigo-500" },
+    {
+      label: "Today's Usage",
+      value: `${(today / 1000).toFixed(1)} kL`,
+      sub: `${history.filter((r) => r.date >= todayStart.getTime()).length} run${history.filter((r) => r.date >= todayStart.getTime()).length === 1 ? "" : "s"}`,
+      icon: Droplets,
+      chip: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+    },
+    {
+      label: "Weekly Usage",
+      value: `${(week / 1000).toFixed(1)} kL`,
+      sub: `${history.filter((r) => r.date >= now - 7 * day).length} run${history.filter((r) => r.date >= now - 7 * day).length === 1 ? "" : "s"}`,
+      icon: Activity,
+      chip: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
+    },
+    {
+      label: "Monthly Usage",
+      value: `${(month / 1000).toFixed(1)} kL`,
+      sub: `${history.filter((r) => r.date >= now - 30 * day).length} run${history.filter((r) => r.date >= now - 30 * day).length === 1 ? "" : "s"}`,
+      icon: TrendingDown,
+      chip: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
+    },
     {
       label: "Soil Moisture",
       value: soilMoisture === null ? "—" : `${Math.round(soilMoisture)}%`,
@@ -157,25 +202,28 @@ function WaterUsageStats({
           ? "Estimated"
           : "Lab / field test",
       icon: Leaf,
-      color: soilMoisture !== null && soilMoisture < 40 ? "bg-amber-500" : "bg-green-500",
+      chip:
+        soilMoisture !== null && soilMoisture < 40
+          ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+          : "bg-brand/10 text-brand-foreground dark:text-brand",
     },
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      {stats.map((stat, i) => {
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4 lg:gap-4">
+      {stats.map((stat) => {
         const Icon = stat.icon;
         return (
-          <Card key={i} className="border-border/50 card-hover">
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between">
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">{stat.label}</p>
-                  <p className="text-2xl font-bold">{stat.value}</p>
-                  <p className="text-xs text-muted-foreground">{stat.sub}</p>
+          <Card key={stat.label} className="border-border/60">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground sm:text-sm">{stat.label}</p>
+                  <p className="mt-1.5 truncate text-2xl font-bold tracking-tight">{stat.value}</p>
+                  <p className="mt-1 truncate text-[11px] text-muted-foreground sm:text-xs">{stat.sub}</p>
                 </div>
-                <div className={`flex items-center justify-center w-10 h-10 rounded-xl ${stat.color}`}>
-                  <Icon className="w-5 h-5 text-white" />
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl sm:h-11 sm:w-11 ${stat.chip}`}>
+                  <Icon className="h-5 w-5 sm:h-5.5 sm:w-5.5" />
                 </div>
               </div>
             </CardContent>
@@ -203,7 +251,8 @@ function SmartRecommendations({
       description: string;
       priority: "high" | "medium" | "low";
       icon: typeof Droplets;
-      color: string;
+      badge: string;
+      dot: string;
     }> = [];
 
     if (weather?.daily.some((d) => d.precipitationSum > 10)) {
@@ -212,7 +261,8 @@ function SmartRecommendations({
         description: "Significant rain expected. Watering now may waste resources and cause waterlogging.",
         priority: "high",
         icon: CloudRain,
-        color: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+        badge: "border-sky-500/25 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+        dot: "bg-sky-500",
       });
     }
 
@@ -223,7 +273,8 @@ function SmartRecommendations({
           description: `Soil moisture is ${Math.round(soilMoisture)}% — critically low. Consider irrigating sooner.`,
           priority: "high",
           icon: Droplets,
-          color: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+          badge: "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+          dot: "bg-amber-500",
         });
       } else if (soilMoisture < 40) {
         recs.push({
@@ -231,7 +282,8 @@ function SmartRecommendations({
           description: `Soil moisture is ${Math.round(soilMoisture)}% — below the optimal 50-70% band.`,
           priority: "medium",
           icon: Droplets,
-          color: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+          badge: "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+          dot: "bg-amber-500",
         });
       } else if (soilMoisture > 75) {
         recs.push({
@@ -239,7 +291,8 @@ function SmartRecommendations({
           description: `Soil moisture is ${Math.round(soilMoisture)}% — high waterlogging risk. Hold off watering.`,
           priority: "medium",
           icon: CloudRain,
-          color: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+          badge: "border-sky-500/25 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+          dot: "bg-sky-500",
         });
       } else {
         recs.push({
@@ -247,7 +300,8 @@ function SmartRecommendations({
           description: "Soil moisture is within the healthy 50-70% band. Continue your current schedule.",
           priority: "low",
           icon: CheckCircle2,
-          color: "bg-green-500/10 text-green-600 border-green-500/20",
+          badge: "border-green-500/25 bg-green-500/10 text-green-700 dark:text-green-300",
+          dot: "bg-green-500",
         });
       }
     }
@@ -258,7 +312,8 @@ function SmartRecommendations({
         description: "High UV index expected. Water before 6 AM to minimize evaporation losses.",
         priority: "medium",
         icon: Sun,
-        color: "bg-orange-500/10 text-orange-600 border-orange-500/20",
+        badge: "border-orange-500/25 bg-orange-500/10 text-orange-700 dark:text-orange-300",
+        dot: "bg-orange-500",
       });
     }
 
@@ -268,7 +323,8 @@ function SmartRecommendations({
         description: "Strong winds detected. Prefer drip irrigation to prevent water drift.",
         priority: "medium",
         icon: Wind,
-        color: "bg-purple-500/10 text-purple-600 border-purple-500/20",
+        badge: "border-purple-500/25 bg-purple-500/10 text-purple-700 dark:text-purple-300",
+        dot: "bg-purple-500",
       });
     }
 
@@ -276,42 +332,44 @@ function SmartRecommendations({
   }, [weather, soilMoisture]);
 
   return (
-    <Card className="border-border/50">
+    <Card className="border-border/60">
       <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2">
-          <Leaf className="w-4 h-4 text-green-500" />
-          Recommendations
-        </CardTitle>
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10 text-brand-foreground dark:text-brand">
+            <Leaf className="h-4 w-4" />
+          </span>
+          <div>
+            <CardTitle className="text-base">Recommendations</CardTitle>
+            <p className="text-xs text-muted-foreground">From real weather & soil data</p>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
         {recommendations.length === 0 ? (
-          <div className="text-center py-6 text-muted-foreground">
-            <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-green-500" />
-            <p className="text-sm">
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-muted/20 py-8 text-center">
+            <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-green-500" />
+            <p className="text-sm text-muted-foreground">
               {soilMoisture === null
                 ? "Select a farm to see soil-based recommendations"
                 : "No current irrigation recommendations"}
             </p>
           </div>
         ) : (
-          recommendations.map((rec, i) => {
+          recommendations.map((rec) => {
             const Icon = rec.icon;
             return (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className={`p-3 rounded-xl border ${rec.color}`}
-              >
+              <div key={rec.title} className={`rounded-xl border p-3.5 ${rec.badge}`}>
                 <div className="flex items-start gap-3">
-                  <Icon className="w-5 h-5 mt-0.5 shrink-0" />
-                  <div>
-                    <h4 className="text-sm font-semibold">{rec.title}</h4>
-                    <p className="text-xs mt-0.5 opacity-80">{rec.description}</p>
+                  <Icon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-semibold">{rec.title}</h4>
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${rec.dot}`} aria-hidden />
+                    </div>
+                    <p className="mt-0.5 text-xs opacity-80">{rec.description}</p>
                   </div>
                 </div>
-              </motion.div>
+              </div>
             );
           })
         )}
@@ -328,14 +386,14 @@ function IrrigationAlerts({ alerts }: { alerts: DerivedAlert[] }) {
   if (alerts.length === 0) return null;
 
   return (
-    <Card className="border-amber-500/30 bg-amber-500/5">
+    <Card className="border-amber-500/25 bg-amber-500/5">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Bell className="w-4 h-4 text-amber-500" />
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Bell className="h-4 w-4 text-amber-500" aria-hidden />
             Active Alerts
           </CardTitle>
-          <Badge variant="secondary" className="bg-amber-500/10 text-amber-600">
+          <Badge className="border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300">
             {alerts.length}
           </Badge>
         </div>
@@ -344,19 +402,19 @@ function IrrigationAlerts({ alerts }: { alerts: DerivedAlert[] }) {
         {alerts.map((alert) => (
           <div
             key={alert.id}
-            className={`p-3 rounded-xl border-l-4 ${
+            className={`rounded-xl border-l-4 p-3 ${
               alert.severity === "high"
-                ? "border-red-500 bg-red-500/5"
+                ? "border-l-red-500 bg-red-500/5"
                 : alert.severity === "medium"
-                ? "border-amber-500 bg-amber-500/5"
-                : "border-blue-500 bg-blue-500/5"
+                ? "border-l-amber-500 bg-amber-500/5"
+                : "border-l-blue-500 bg-blue-500/5"
             }`}
           >
             <div className="flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground" />
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
               <div>
                 <h4 className="text-sm font-semibold">{alert.title}</h4>
-                <p className="text-xs text-muted-foreground mt-0.5">{alert.message}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{alert.message}</p>
               </div>
             </div>
           </div>
@@ -484,7 +542,7 @@ function ScheduleModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{schedule ? "Edit Irrigation Schedule" : "Add Irrigation Schedule"}</DialogTitle>
           <DialogDescription>
@@ -502,7 +560,7 @@ function ScheduleModal({
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="sch-farm">Farm *</Label>
               <Select value={form.farmId} onValueChange={(v) => setForm((f) => ({ ...f, farmId: v }))}>
@@ -529,7 +587,7 @@ function ScheduleModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="sch-frequency">Frequency *</Label>
               <Select value={form.frequency} onValueChange={(v) => setForm((f) => ({ ...f, frequency: v }))}>
@@ -558,15 +616,16 @@ function ScheduleModal({
           {form.frequency === "custom" && (
             <div className="space-y-2">
               <Label>Days of the week</Label>
-              <div className="flex gap-2 flex-wrap">
+              <div className="flex flex-wrap gap-2">
                 {DAY_LABELS.map((label, day) => (
                   <button
                     key={day}
                     type="button"
                     onClick={() => toggleDay(day)}
-                    className={`w-10 h-10 rounded-lg text-xs font-medium transition-all ${
+                    aria-pressed={form.customDays.includes(day)}
+                    className={`h-10 w-10 rounded-lg text-xs font-medium transition-all focus-visible:ring-2 focus-visible:ring-ring/60 ${
                       form.customDays.includes(day)
-                        ? "bg-primary text-primary-foreground"
+                        ? "bg-brand text-brand-foreground"
                         : "bg-muted text-muted-foreground hover:bg-muted/70"
                     }`}
                   >
@@ -601,7 +660,7 @@ function ScheduleModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="sch-source">Method</Label>
               <Select value={form.waterSource} onValueChange={(v) => setForm((f) => ({ ...f, waterSource: v }))}>
@@ -641,8 +700,8 @@ function ScheduleModal({
           </label>
 
           {formError && (
-            <p className="text-sm text-red-600 flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4" /> {formError}
+            <p className="flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
+              <AlertTriangle className="h-4 w-4" aria-hidden /> {formError}
             </p>
           )}
 
@@ -650,8 +709,12 @@ function ScheduleModal({
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting} className="gradient-primary">
-              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            <Button
+              type="submit"
+              disabled={isSubmitting}
+              className="rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
+            >
+              {isSubmitting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />}
               {isSubmitting ? "Saving..." : schedule ? "Save Changes" : "Create Schedule"}
             </Button>
           </DialogFooter>
@@ -735,7 +798,9 @@ function RecordIrrigationModal({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Droplets className="w-5 h-5 text-blue-500" />
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400">
+              <Droplets className="h-4 w-4" />
+            </span>
             Record Irrigation — {schedule.name}
           </DialogTitle>
           <DialogDescription>
@@ -795,8 +860,8 @@ function RecordIrrigationModal({
           </div>
 
           {formError && (
-            <p className="text-sm text-red-600 flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4" /> {formError}
+            <p className="flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
+              <AlertTriangle className="h-4 w-4" aria-hidden /> {formError}
             </p>
           )}
 
@@ -804,8 +869,12 @@ function RecordIrrigationModal({
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting} className="gradient-primary">
-              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Droplets className="w-4 h-4" />}
+            <Button
+              type="submit"
+              disabled={isSubmitting}
+              className="rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
+            >
+              {isSubmitting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Droplets className="mr-1.5 h-4 w-4" />}
               {isSubmitting ? "Saving..." : "Record"}
             </Button>
           </DialogFooter>
@@ -923,10 +992,12 @@ function SoilTestModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Sprout className="w-5 h-5 text-green-500" />
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand/10 text-brand-foreground dark:text-brand">
+              <Sprout className="h-4 w-4" />
+            </span>
             Record Soil Test{farmName ? ` — ${farmName}` : ""}
           </DialogTitle>
           <DialogDescription>
@@ -935,7 +1006,7 @@ function SoilTestModal({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="soil-ph">Soil pH *</Label>
               <Input
@@ -1046,8 +1117,8 @@ function SoilTestModal({
           </div>
 
           {formError && (
-            <p className="text-sm text-red-600 flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4" /> {formError}
+            <p className="flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
+              <AlertTriangle className="h-4 w-4" aria-hidden /> {formError}
             </p>
           )}
 
@@ -1055,8 +1126,12 @@ function SoilTestModal({
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting} className="gradient-primary">
-              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sprout className="w-4 h-4" />}
+            <Button
+              type="submit"
+              disabled={isSubmitting}
+              className="rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
+            >
+              {isSubmitting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Sprout className="mr-1.5 h-4 w-4" />}
               {isSubmitting ? "Saving..." : "Save Soil Test"}
             </Button>
           </DialogFooter>
@@ -1087,48 +1162,58 @@ function ScheduleCard({
   onDelete: (schedule: ScheduleDoc) => void;
   onRecord: (schedule: ScheduleDoc) => void;
 }) {
+  const overdue = schedule.nextRunAt < Date.now() && schedule.isActive;
+
   return (
-    <Card className={`border-border/50 card-hover ${!schedule.isActive ? "opacity-60" : ""}`}>
+    <Card className={`border-border/60 transition-all hover:border-brand/40 hover:shadow-md hover:shadow-brand/5 ${!schedule.isActive ? "opacity-60" : ""}`}>
       <CardContent className="p-4">
-        <div className="flex items-start justify-between mb-3">
-          <div>
-            <h3 className="text-sm font-semibold">{schedule.name}</h3>
-            <p className="text-xs text-muted-foreground">{schedule.zone || farmName}</p>
+        <div className="mb-3 flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand-foreground dark:text-brand">
+                <Droplets className="h-4 w-4" />
+              </span>
+              <h3 className="truncate text-sm font-semibold">{schedule.name}</h3>
+            </div>
+            <p className="mt-1 flex items-center gap-1 truncate pl-10 text-xs text-muted-foreground">
+              <MapPin className="h-3 w-3 shrink-0" aria-hidden />
+              {schedule.zone || farmName}
+            </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="text-[10px]">
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Badge variant="secondary" className="border-border/60 text-[10px]">
               {FREQUENCY_LABELS[schedule.frequency] ?? schedule.frequency}
             </Badge>
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7"
+              className="h-10 w-10 touch-target"
               disabled={isBusy}
               onClick={() => onToggle(schedule)}
               aria-label={schedule.isActive ? "Disable schedule" : "Enable schedule"}
             >
               {schedule.isActive ? (
-                <Power className="w-4 h-4 text-green-500" />
+                <Power className="h-4 w-4 text-green-600 dark:text-green-400" />
               ) : (
-                <PowerOff className="w-4 h-4 text-muted-foreground" />
+                <PowerOff className="h-4 w-4 text-muted-foreground" />
               )}
             </Button>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 text-center mb-3">
-          <div className="p-2 rounded-lg bg-muted/30">
-            <Clock className="w-4 h-4 mx-auto text-muted-foreground mb-1" />
+        <div className="mb-3 grid grid-cols-3 gap-2">
+          <div className="rounded-xl border border-border/60 bg-muted/30 px-2 py-2.5 text-center">
+            <Clock className="mx-auto mb-1 h-4 w-4 text-muted-foreground" aria-hidden />
             <p className="text-xs font-medium">{schedule.startTime}</p>
             <p className="text-[10px] text-muted-foreground">{schedule.duration} min</p>
           </div>
-          <div className="p-2 rounded-lg bg-muted/30">
-            <Droplets className="w-4 h-4 mx-auto text-blue-400 mb-1" />
-            <p className="text-xs font-medium">{schedule.waterAmount} L</p>
+          <div className="rounded-xl border border-border/60 bg-muted/30 px-2 py-2.5 text-center">
+            <Droplets className="mx-auto mb-1 h-4 w-4 text-blue-400" aria-hidden />
+            <p className="truncate text-xs font-medium">{schedule.waterAmount.toLocaleString()} L</p>
             <p className="text-[10px] text-muted-foreground">per session</p>
           </div>
-          <div className="p-2 rounded-lg bg-muted/30">
-            <Leaf className="w-4 h-4 mx-auto text-green-400 mb-1" />
+          <div className="rounded-xl border border-border/60 bg-muted/30 px-2 py-2.5 text-center">
+            <Leaf className="mx-auto mb-1 h-4 w-4 text-green-500" aria-hidden />
             <p className="text-xs font-medium">
               {schedule.soilMoistureTarget !== undefined ? `${schedule.soilMoistureTarget}%` : "—"}
             </p>
@@ -1136,37 +1221,41 @@ function ScheduleCard({
           </div>
         </div>
 
-        <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
-          <span>Last: {formatDate(schedule.lastRunAt)}</span>
-          <span className={schedule.nextRunAt < Date.now() && schedule.isActive ? "text-amber-500 font-medium" : ""}>
+        <div className="mb-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span className="flex min-w-0 items-center gap-1">
+            <CalendarDays className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="truncate">Last: {formatDate(schedule.lastRunAt)}</span>
+          </span>
+          <span className={`shrink-0 font-medium ${overdue ? "text-amber-600 dark:text-amber-400" : ""}`}>
             Next: {formatDateTime(schedule.nextRunAt)}
           </span>
         </div>
 
         {schedule.weatherDependent && (
-          <Badge variant="outline" className="text-[10px] w-full justify-center mb-3">
-            <Cloud className="w-3 h-3 mr-1" />
+          <Badge variant="outline" className="mb-3 w-full justify-center text-[10px]">
+            <Cloud className="mr-1 h-3 w-3" aria-hidden />
             Weather-aware
           </Badge>
         )}
 
-        <div className="flex gap-2 mt-1">
-          <Button variant="outline" size="sm" className="flex-1" onClick={() => onEdit(schedule)}>
-            <Edit className="w-3.5 h-3.5 mr-1" />
+        <div className="mt-1 flex gap-2">
+          <Button variant="outline" size="sm" className="flex-1 rounded-full" onClick={() => onEdit(schedule)}>
+            <Edit className="mr-1 h-3.5 w-3.5" aria-hidden />
             Edit
           </Button>
-          <Button variant="outline" size="sm" className="flex-1" onClick={() => onRecord(schedule)}>
-            <Droplets className="w-3.5 h-3.5 mr-1" />
+          <Button variant="outline" size="sm" className="flex-1 rounded-full" onClick={() => onRecord(schedule)}>
+            <Droplets className="mr-1 h-3.5 w-3.5" aria-hidden />
             Record
           </Button>
           <Button
             variant="ghost"
             size="sm"
+            className="h-9 w-9 shrink-0 rounded-full p-0 touch-target"
             disabled={isBusy}
             onClick={() => onDelete(schedule)}
             aria-label={`Delete schedule ${schedule.name}`}
           >
-            <Trash2 className="w-3.5 h-3.5 text-destructive" />
+            {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5 text-destructive" />}
           </Button>
         </div>
       </CardContent>
@@ -1179,6 +1268,8 @@ function ScheduleCard({
 // ============================================================
 
 export default function Irrigation() {
+  const variants = useEntranceVariants();
+  const haptic = useHaptic();
   const { data: weatherData } = useWeather();
   const [selectedFarmId, setSelectedFarmId] = useState<Id<"farms"> | undefined>(undefined);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -1282,6 +1373,7 @@ export default function Irrigation() {
   };
 
   const handleToggle = async (schedule: ScheduleDoc) => {
+    haptic.light();
     setTogglingId(schedule._id);
     try {
       if (schedule.isActive) {
@@ -1360,40 +1452,71 @@ export default function Irrigation() {
 
   return (
     <AppLayout>
-      <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
+      <div className="mx-auto max-w-[1400px] p-3 sm:p-4 md:p-6 lg:p-8">
         {/* Header */}
         <motion.div
-          initial={{ opacity: 0, y: -10 }}
+          initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="mb-8"
+          transition={{ duration: 0.4 }}
+          className="mb-5 sm:mb-7"
         >
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">Irrigation Scheduling</h1>
-              <p className="text-muted-foreground mt-1">
+              <h1 className="flex items-center gap-3 text-2xl font-bold tracking-tight sm:text-3xl">
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-deep text-brand sm:h-12 sm:w-12">
+                  <Droplets className="h-6 w-6" aria-hidden />
+                </span>
+                Irrigation Scheduling
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">
                 Plan irrigation runs for your farms with weather and soil awareness
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex gap-1 rounded-full border border-border/60 bg-muted/40 p-1">
+                {(
+                  [
+                    { id: "schedules" as const, label: "Schedules", icon: Droplets },
+                    { id: "history" as const, label: "History", icon: History },
+                  ]
+                ).map((tab) => (
+                  <Button
+                    key={tab.id}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      haptic.selection();
+                      setView(tab.id);
+                    }}
+                    className={`rounded-full px-3.5 ${
+                      view === tab.id
+                        ? "bg-brand text-brand-foreground hover:bg-brand/90"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <tab.icon className="mr-1.5 h-4 w-4" aria-hidden />
+                    {tab.label}
+                    {tab.id === "schedules" && schedules.length > 0 && (
+                      <span
+                        className={`ml-1 rounded-full px-1.5 text-[10px] font-semibold ${
+                          view === tab.id ? "bg-white/20" : "bg-muted"
+                        }`}
+                      >
+                        {schedules.length}
+                      </span>
+                    )}
+                  </Button>
+                ))}
+              </div>
               <Button
-                variant="outline"
-                onClick={() => setView(view === "schedules" ? "history" : "schedules")}
+                className="rounded-full bg-brand text-brand-foreground hover:bg-brand/90 touch-target"
+                onClick={() => {
+                  haptic.selection();
+                  setEditingSchedule(null);
+                  setShowAddModal(true);
+                }}
               >
-                {view === "schedules" ? (
-                  <>
-                    <History className="w-4 h-4 mr-2" />
-                    Irrigation History
-                  </>
-                ) : (
-                  <>
-                    <Droplets className="w-4 h-4 mr-2" />
-                    Schedules
-                  </>
-                )}
-              </Button>
-              <Button className="gradient-primary" onClick={() => { setEditingSchedule(null); setShowAddModal(true); }}>
-                <Plus className="w-4 h-4 mr-2" />
+                <Plus className="mr-1.5 h-4 w-4" />
                 Add Schedule
               </Button>
             </div>
@@ -1401,83 +1524,91 @@ export default function Irrigation() {
 
           {/* Farm filter */}
           <div className="mt-4 max-w-xs">
-            <Select
-              value={selectedFarmId ?? "all"}
-              onValueChange={(v) => setSelectedFarmId(v === "all" ? undefined : (v as Id<"farms">))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All farms</SelectItem>
-                {farms.map((farm) => (
-                  <SelectItem key={farm._id} value={farm._id}>
-                    {farm.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="relative">
+              <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+              <Select
+                value={selectedFarmId ?? "all"}
+                onValueChange={(v) => {
+                  haptic.selection();
+                  setSelectedFarmId(v === "all" ? undefined : (v as Id<"farms">));
+                }}
+              >
+                <SelectTrigger className="pl-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All farms</SelectItem>
+                  {farms.map((farm) => (
+                    <SelectItem key={farm._id} value={farm._id}>
+                      {farm.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
-          className="space-y-6"
-        >
+        <motion.div variants={variants.container} initial="hidden" animate="visible" className="space-y-4 sm:space-y-6">
           {/* Water Usage Stats */}
-          <WaterUsageStats
-            history={history as unknown as HistoryRow[]}
-            soilMoisture={soilMoisture}
-            soilSource={soilSource}
-          />
+          <motion.div variants={variants.item}>
+            <WaterUsageStats
+              history={history as unknown as HistoryRow[]}
+              soilMoisture={soilMoisture}
+              soilSource={soilSource}
+            />
+          </motion.div>
 
           {/* Derived Alerts */}
-          <IrrigationAlerts alerts={alertsList} />
+          <motion.div variants={variants.item}>
+            <IrrigationAlerts alerts={alertsList} />
+          </motion.div>
 
           {view === "schedules" ? (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
               {/* Schedules */}
-              <div className="lg:col-span-2 space-y-4">
+              <motion.div variants={variants.item} className="space-y-4 lg:col-span-2">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">Schedules</h2>
-                  <Badge variant="secondary">{schedules.length}</Badge>
+                  <h2 className="text-base font-semibold sm:text-lg">Schedules</h2>
+                  <Badge variant="secondary" className="border-border/60">{schedules.length}</Badge>
                 </div>
 
                 {isLoading ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     {[1, 2].map((i) => (
-                      <div key={i} className="h-48 bg-muted/50 rounded-xl animate-pulse" />
+                      <Skeleton key={i} className="h-56 rounded-2xl" />
                     ))}
                   </div>
                 ) : schedules.length === 0 ? (
-                  <Card className="border-border/50">
-                    <CardContent className="flex flex-col items-center justify-center py-14 text-center">
-                      <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-3">
-                        <Droplets className="w-6 h-6 text-muted-foreground" />
-                      </div>
-                      <p className="font-medium">
-                        {farms.length === 0 ? "No farms registered" : "No irrigation schedules yet"}
-                      </p>
-                      <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-                        {farms.length === 0
-                          ? "Register a farm first, then create irrigation schedules for it."
-                          : "Create your first irrigation schedule to start tracking water usage."}
-                      </p>
-                      {farms.length > 0 && (
-                        <Button
-                          className="mt-4 gradient-primary"
-                          size="sm"
-                          onClick={() => { setEditingSchedule(null); setShowAddModal(true); }}
-                        >
-                          <Plus className="w-4 h-4 mr-2" />Add Schedule
-                        </Button>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-muted/20 px-6 py-14 text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand/10 text-brand-foreground dark:text-brand">
+                      <Droplets className="h-7 w-7" />
+                    </div>
+                    <p className="mt-4 text-base font-semibold">
+                      {farms.length === 0 ? "No farms registered" : "No irrigation schedules yet"}
+                    </p>
+                    <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                      {farms.length === 0
+                        ? "Register a farm first, then create irrigation schedules for it."
+                        : "Create your first irrigation schedule to start tracking water usage."}
+                    </p>
+                    {farms.length > 0 && (
+                      <Button
+                        className="mt-5 rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
+                        size="sm"
+                        onClick={() => {
+                          haptic.selection();
+                          setEditingSchedule(null);
+                          setShowAddModal(true);
+                        }}
+                      >
+                        <Plus className="mr-1.5 h-4 w-4" />
+                        Add Schedule
+                      </Button>
+                    )}
+                  </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     {schedules.map((schedule) => (
                       <ScheduleCard
                         key={schedule._id}
@@ -1485,25 +1616,30 @@ export default function Irrigation() {
                         farmName={farmMap.get(schedule.farmId) ?? "Unknown farm"}
                         isBusy={isDeleting === schedule._id || togglingId === schedule._id}
                         onToggle={handleToggle}
-                        onEdit={(s) => { setEditingSchedule(s); setShowAddModal(true); }}
+                        onEdit={(s) => {
+                          setEditingSchedule(s);
+                          setShowAddModal(true);
+                        }}
                         onDelete={handleDelete}
                         onRecord={setRecordingSchedule}
                       />
                     ))}
                   </div>
                 )}
-              </div>
+              </motion.div>
 
               {/* Recommendations + Soil */}
-              <div className="space-y-6">
+              <motion.div variants={variants.item} className="space-y-4 sm:space-y-6">
                 <SmartRecommendations weather={weatherData} soilMoisture={soilMoisture} />
 
-                <Card className="border-border/50">
+                <Card className="border-border/60">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <Sprout className="w-4 h-4 text-green-500" />
-                      Soil Status
-                    </CardTitle>
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10 text-brand-foreground dark:text-brand">
+                        <Sprout className="h-4 w-4" />
+                      </span>
+                      <CardTitle className="text-sm">Soil Status</CardTitle>
+                    </div>
                   </CardHeader>
                   <CardContent>
                     {selectedFarmId === undefined ? (
@@ -1511,31 +1647,31 @@ export default function Irrigation() {
                         Select a farm to view its soil analysis.
                       </p>
                     ) : soil === undefined ? (
-                      <div className="h-20 bg-muted/40 rounded-xl animate-pulse" />
+                      <Skeleton className="h-20 rounded-xl" />
                     ) : soil ? (
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-muted-foreground">Moisture</span>
-                          <span className={`text-lg font-bold ${soilMoisture !== null && soilMoisture < 40 ? "text-amber-500" : "text-green-600"}`}>
+                          <span className={`text-lg font-bold ${soilMoisture !== null && soilMoisture < 40 ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}`}>
                             {soilMoisture !== null ? `${Math.round(soilMoisture)}%` : "—"}
                           </span>
                         </div>
-                        <div className="grid grid-cols-2 gap-2 text-sm">
-                          <div className="p-2 rounded-lg bg-muted/30">
-                            <p className="text-xs text-muted-foreground">Drainage</p>
-                            <p className="font-medium capitalize">{soil.drainage ?? "—"}</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
+                            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Drainage</p>
+                            <p className="mt-0.5 text-sm font-semibold capitalize">{soil.drainage ?? "—"}</p>
                           </div>
-                          <div className="p-2 rounded-lg bg-muted/30">
-                            <p className="text-xs text-muted-foreground">Texture</p>
-                            <p className="font-medium capitalize">{soil.texture ?? "—"}</p>
+                          <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
+                            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Texture</p>
+                            <p className="mt-0.5 text-sm font-semibold capitalize">{soil.texture ?? "—"}</p>
                           </div>
-                          <div className="p-2 rounded-lg bg-muted/30">
-                            <p className="text-xs text-muted-foreground">Fertility</p>
-                            <p className="font-medium capitalize">{soil.fertility ?? "—"}</p>
+                          <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
+                            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Fertility</p>
+                            <p className="mt-0.5 text-sm font-semibold capitalize">{soil.fertility ?? "—"}</p>
                           </div>
-                          <div className="p-2 rounded-lg bg-muted/30">
-                            <p className="text-xs text-muted-foreground">pH</p>
-                            <p className="font-medium">{soil.ph ?? "—"}</p>
+                          <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
+                            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">pH</p>
+                            <p className="mt-0.5 text-sm font-semibold">{soil.ph ?? "—"}</p>
                           </div>
                         </div>
                         <p className="text-[11px] text-muted-foreground">
@@ -1554,63 +1690,71 @@ export default function Irrigation() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="w-full mt-3"
-                        onClick={() => setSoilTestFarmId(selectedFarmId)}
+                        className="mt-3 w-full rounded-full"
+                        onClick={() => {
+                          haptic.selection();
+                          setSoilTestFarmId(selectedFarmId);
+                        }}
                       >
-                        <Sprout className="w-3.5 h-3.5 mr-1" />
+                        <Sprout className="mr-1 h-3.5 w-3.5" aria-hidden />
                         {soil ? "Update Soil Test" : "Record Soil Test"}
                       </Button>
                     )}
                   </CardContent>
                 </Card>
-              </div>
+              </motion.div>
             </div>
           ) : (
             /* History view */
-            <Card className="border-border/50">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <History className="w-4 h-4 text-blue-500" />
-                  Irrigation History
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {history.length === 0 ? (
-                  <div className="text-center py-12">
-                    <Inbox className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
-                    <p className="font-medium">No irrigation records yet</p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Record an irrigation run from a schedule card to start building history.
-                    </p>
+            <motion.div variants={variants.item}>
+              <Card className="border-border/60">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                      <History className="h-4 w-4" />
+                    </span>
+                    <CardTitle className="text-base">Irrigation History</CardTitle>
                   </div>
-                ) : (
-                  <div className="space-y-2">
-                    {history.map((run) => (
-                      <div
-                        key={run._id}
-                        className="flex items-center gap-4 p-3 rounded-xl hover:bg-muted/50 transition-colors"
-                      >
-                        <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-blue-500/10">
-                          <Droplets className="w-5 h-5 text-blue-500" />
+                </CardHeader>
+                <CardContent>
+                  {history.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-muted/20 py-12 text-center">
+                      <Inbox className="mx-auto mb-3 h-12 w-12 text-muted-foreground/30" aria-hidden />
+                      <p className="font-medium">No irrigation records yet</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Record an irrigation run from a schedule card to start building history.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {history.map((run) => (
+                        <div
+                          key={run._id}
+                          className="flex items-center gap-3 rounded-xl border border-border/40 bg-card p-3 transition-colors hover:border-brand/40 hover:bg-muted/30 sm:gap-4 sm:p-3.5"
+                        >
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                            <Droplets className="h-5 w-5" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{run.scheduleName}</p>
+                            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                              {new Date(run.date).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
+                              {" • "}
+                              {titleCase(run.status)}
+                              {run.method ? ` • ${titleCase(run.method)}` : ""}
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-sm font-bold tabular-nums">{run.waterAmount.toLocaleString()} L</p>
+                            <p className="text-xs text-muted-foreground">{run.duration} min</p>
+                          </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{run.scheduleName}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(run.date).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
-                            {" • "}{run.status}
-                            {run.method ? ` • ${run.method}` : ""}
-                          </p>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <p className="text-sm font-bold">{run.waterAmount.toLocaleString()} L</p>
-                          <p className="text-xs text-muted-foreground">{run.duration} min</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
           )}
         </motion.div>
       </div>
