@@ -2,7 +2,8 @@ import { useMemo, useState } from "react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import {
   BarChart,
@@ -20,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +42,7 @@ import { exportTransactionHistory } from "@/lib/exports";
 import { useMarketPrices } from "@/hooks/use-market-prices";
 import { useFinances } from "@/hooks/use-finances";
 import { useCurrency } from "@/hooks/use-currency";
+import { useHaptic } from "@/hooks/use-mobile";
 import {
   TrendingUp,
   TrendingDown,
@@ -60,16 +63,32 @@ import {
   Minus,
   Inbox,
   Loader2,
+  BarChart3,
+  PiggyBank,
+  CalendarDays,
+  Coins,
+  Receipt,
 } from "lucide-react";
 
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.06 } },
-};
-const itemVariants = {
-  hidden: { opacity: 0, y: 16 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
-};
+// ============================================================
+// Animation (respects prefers-reduced-motion)
+// ============================================================
+
+function useEntranceVariants() {
+  const shouldReduceMotion = useReducedMotion();
+  const duration = shouldReduceMotion ? 0 : 0.35;
+  const stagger = shouldReduceMotion ? 0 : 0.05;
+  return {
+    container: {
+      hidden: { opacity: 0 },
+      visible: { opacity: 1, transition: { staggerChildren: stagger } },
+    },
+    item: {
+      hidden: { opacity: 0, y: shouldReduceMotion ? 0 : 14 },
+      visible: { opacity: 1, y: 0, transition: { duration } },
+    },
+  };
+}
 
 const categoryIcons: Record<string, typeof Wheat> = {
   cereal: Wheat,
@@ -99,6 +118,10 @@ const TRANSACTION_CATEGORIES = [
 
 const PAYMENT_METHODS = ["cash", "mobile_money", "bank_transfer", "card", "cheque"];
 
+function titleCase(value: string): string {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 // ============================================================
 // Market Price Card
 // ============================================================
@@ -109,45 +132,54 @@ function MarketPriceCard({ price }: { price: import("@/hooks/use-market-prices")
   const isUp = price.trend === "up";
 
   return (
-    <Card className="border-border/50 card-hover">
+    <Card className="border-border/60 transition-all hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md hover:shadow-brand/5">
       <CardContent className="p-4">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10">
-              <Icon className="w-4 h-4 text-primary" />
+        <div className="mb-3 flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand-foreground dark:text-brand">
+              <Icon className="h-4 w-4" />
             </div>
-            <div>
-              <p className="text-sm font-medium">{price.name}</p>
-              <p className="text-[10px] text-muted-foreground">{price.unit}</p>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">{price.name}</p>
+              <p className="truncate text-[10px] text-muted-foreground">{price.unit}</p>
             </div>
           </div>
           <Badge
             variant="secondary"
-            className={`text-[10px] ${
+            className={`shrink-0 border text-[10px] ${
               isUp
-                ? "bg-green-500/10 text-green-600"
+                ? "border-green-500/25 bg-green-500/10 text-green-700 dark:text-green-300"
                 : price.trend === "down"
-                ? "bg-red-500/10 text-red-600"
-                : "bg-gray-500/10 text-gray-600"
+                ? "border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300"
+                : "border-slate-500/25 bg-slate-500/10 text-slate-600 dark:text-slate-300"
             }`}
           >
             {isUp ? (
-              <TrendingUp className="w-3 h-3 mr-0.5" />
+              <TrendingUp className="mr-0.5 h-3 w-3" />
             ) : price.trend === "down" ? (
-              <TrendingDown className="w-3 h-3 mr-0.5" />
+              <TrendingDown className="mr-0.5 h-3 w-3" />
             ) : (
-              <Minus className="w-3 h-3 mr-0.5" />
+              <Minus className="mr-0.5 h-3 w-3" />
             )}
             {Math.abs(price.changePercent)}%
           </Badge>
         </div>
-        <div className="flex items-end justify-between">
-          <div>
-            <p className="text-xl font-bold">{fmt(convert(price.currentPrice, price.currency))}</p>
-            <p className={`text-xs mt-0.5 ${isUp ? "text-green-600" : price.trend === "down" ? "text-red-600" : "text-muted-foreground"}`}>
-              {isUp ? "+" : ""}{price.change.toLocaleString()} from last week
-            </p>
-          </div>
+        <div className="flex items-end justify-between gap-2">
+          <p className="text-xl font-bold tracking-tight">
+            {fmt(convert(price.currentPrice, price.currency))}
+          </p>
+          <p
+            className={`truncate text-xs ${
+              isUp
+                ? "text-green-600 dark:text-green-400"
+                : price.trend === "down"
+                ? "text-red-600 dark:text-red-400"
+                : "text-muted-foreground"
+            }`}
+          >
+            {isUp ? "+" : ""}
+            {price.change.toLocaleString()} {price.unit}
+          </p>
         </div>
       </CardContent>
     </Card>
@@ -155,7 +187,7 @@ function MarketPriceCard({ price }: { price: import("@/hooks/use-market-prices")
 }
 
 // ============================================================
-// Top Gainers/Losers
+// Top Gainers / Losers
 // ============================================================
 
 function TopMovers({
@@ -168,35 +200,193 @@ function TopMovers({
   type: "gainers" | "losers";
 }) {
   const { format: fmt, convert } = useCurrency();
+  const tone =
+    type === "gainers"
+      ? "border-green-500/25 bg-green-500/10 text-green-700 dark:text-green-300"
+      : "border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300";
+
   return (
-    <Card className="border-border/50">
+    <Card className="border-border/60">
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-sm">
           {type === "gainers" ? (
-            <TrendingUp className="w-4 h-4 text-green-500" />
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-green-500/10 text-green-600 dark:text-green-400">
+              <TrendingUp className="h-4 w-4" />
+            </span>
           ) : (
-            <TrendingDown className="w-4 h-4 text-red-500" />
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-500/10 text-red-600 dark:text-red-400">
+              <TrendingDown className="h-4 w-4" />
+            </span>
           )}
           {title}
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2">
-        {items.map((item) => (
-          <div key={item.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium">{item.name}</span>
-              <span className="text-[10px] text-muted-foreground">{item.unit}</span>
+      <CardContent className="space-y-1.5">
+        {items.length === 0 ? (
+          <p className="py-4 text-center text-xs text-muted-foreground">No price movements yet</p>
+        ) : (
+          items.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center justify-between gap-2 rounded-xl px-2 py-2 transition-colors hover:bg-muted/50"
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-sm font-medium">{item.name}</span>
+                <span className="shrink-0 text-[10px] text-muted-foreground">{item.unit}</span>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-sm font-bold">{fmt(convert(item.currentPrice, item.currency))}</p>
+                <p className={`text-[10px] font-medium ${type === "gainers" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                  {type === "gainers" ? "+" : ""}
+                  {item.changePercent}%
+                </p>
+              </div>
             </div>
-            <div className="text-right">
-              <p className="text-sm font-bold">{fmt(convert(item.currentPrice, item.currency))}</p>
-              <p className={`text-[10px] ${type === "gainers" ? "text-green-600" : "text-red-600"}`}>
-                {type === "gainers" ? "+" : ""}{item.changePercent}%
-              </p>
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </CardContent>
     </Card>
+  );
+}
+
+// ============================================================
+// Financial Hero (real summary data from getFinancialSummary)
+// ============================================================
+
+function FinancialHero({
+  totals,
+  summary,
+  loading,
+  txnCount,
+}: {
+  totals: { income: number; expenses: number; net: number };
+  summary: {
+    thisMonthIncome?: number;
+    thisMonthExpenses?: number;
+    incomeChange?: number;
+    expenseChange?: number;
+  } | undefined;
+  loading: boolean;
+  txnCount: number;
+}) {
+  const { format: fmt } = useCurrency();
+  const monthLabel = new Date().toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+  const netPositive = totals.net >= 0;
+  const profitMargin =
+    totals.income > 0 ? ((totals.net / totals.income) * 100).toFixed(1) : "0.0";
+
+  const sumPositive = (summary?.thisMonthIncome ?? 0) + (summary?.thisMonthExpenses ?? 0);
+  const incomePct =
+    sumPositive > 0 ? ((summary?.thisMonthIncome ?? 0) / sumPositive) * 100 : 50;
+
+  return (
+    <div className="relative overflow-hidden rounded-3xl border border-border/60 bg-brand-deep text-white">
+      <div className="pointer-events-none absolute -right-14 -top-14 h-52 w-52 rounded-full bg-brand/20" />
+      <div className="pointer-events-none absolute -bottom-20 -left-12 h-44 w-44 rounded-full bg-brand/10" />
+      <div className="relative z-10 p-5 sm:p-7">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="inline-flex w-fit items-center gap-2 rounded-full border border-brand/50 bg-black/25 px-3 py-1 text-[11px] font-medium text-brand backdrop-blur-sm">
+              <CalendarDays className="h-3 w-3" aria-hidden />
+              {monthLabel}
+            </p>
+            <p className="mt-3 text-xs font-medium uppercase tracking-wider text-white/60">
+              Net profit · all time
+            </p>
+            {loading ? (
+              <Skeleton className="mt-2 h-10 w-44 bg-white/20" />
+            ) : (
+              <p className="mt-1 text-3xl font-bold tracking-tight sm:text-4xl">
+                {netPositive ? "" : "−"}
+                {fmt(Math.abs(totals.net))}
+              </p>
+            )}
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-white/70">
+              <Wallet className="h-3.5 w-3.5 text-brand" aria-hidden />
+              {txnCount} transaction{txnCount === 1 ? "" : "s"} recorded
+            </p>
+          </div>
+
+          {/* This month's income vs expenses */}
+          <div className="w-full rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur-sm sm:w-80">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-white/60">
+              This month
+            </p>
+            {loading || summary === undefined ? (
+              <div className="mt-3 space-y-3">
+                <Skeleton className="h-4 w-full bg-white/20" />
+                <Skeleton className="h-4 w-full bg-white/20" />
+              </div>
+            ) : (
+              <>
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5 text-xs text-white/80">
+                    <Coins className="h-3.5 w-3.5 text-brand" aria-hidden />
+                    Income
+                  </span>
+                  <span className="text-sm font-bold">
+                    {fmt(summary.thisMonthIncome ?? 0)}
+                    <span
+                      className={`ml-1.5 text-[10px] font-medium ${
+                        (summary.incomeChange ?? 0) >= 0 ? "text-green-300" : "text-red-300"
+                      }`}
+                    >
+                      {(summary.incomeChange ?? 0) >= 0 ? "+" : ""}
+                      {(summary.incomeChange ?? 0).toFixed(1)}%
+                    </span>
+                  </span>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5 text-xs text-white/80">
+                    <Receipt className="h-3.5 w-3.5 text-amber-300" aria-hidden />
+                    Expenses
+                  </span>
+                  <span className="text-sm font-bold">
+                    {fmt(summary.thisMonthExpenses ?? 0)}
+                    <span
+                      className={`ml-1.5 text-[10px] font-medium ${
+                        (summary.expenseChange ?? 0) >= 0 ? "text-red-300" : "text-green-300"
+                      }`}
+                    >
+                      {(summary.expenseChange ?? 0) >= 0 ? "+" : ""}
+                      {(summary.expenseChange ?? 0).toFixed(1)}%
+                    </span>
+                  </span>
+                </div>
+                <div className="mt-3 flex h-1.5 overflow-hidden rounded-full bg-white/20">
+                  <div
+                    className="h-full rounded-l-full bg-brand transition-all duration-700"
+                    style={{ width: `${incomePct}%` }}
+                  />
+                  <div
+                    className="h-full flex-1 rounded-r-full bg-amber-400/80"
+                    style={{ width: `${100 - incomePct}%` }}
+                  />
+                </div>
+                <div className="mt-1.5 flex justify-between text-[10px] text-white/50">
+                  <span>Income {Math.round(incomePct)}%</span>
+                  <span>Expenses {Math.round(100 - incomePct)}%</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-medium backdrop-blur-sm">
+            <Calculator className="h-3.5 w-3.5 text-brand" aria-hidden />
+            Profit margin {profitMargin}%
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-medium backdrop-blur-sm">
+            <TrendingUp className="h-3.5 w-3.5 text-brand" aria-hidden />
+            {netPositive ? "Profitable" : "Loss-making"}
+          </span>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -291,7 +481,7 @@ function AddTransactionModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Add Transaction</DialogTitle>
           <DialogDescription>
@@ -306,37 +496,53 @@ function AddTransactionModal({
                 key={type}
                 type="button"
                 onClick={() => setForm((f) => ({ ...f, type }))}
-                className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all ${
+                className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all focus-visible:ring-2 focus-visible:ring-ring/60 ${
                   form.type === type
                     ? type === "income"
-                      ? "border-green-500/50 bg-green-500/10 text-green-600"
-                      : "border-red-500/50 bg-red-500/10 text-red-600"
+                      ? "border-green-500/50 bg-green-500/10 text-green-700 dark:text-green-300"
+                      : "border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-300"
                     : "border-border hover:bg-muted/50"
                 }`}
               >
-                {type === "income" ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
+                {type === "income" ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
                 {type === "income" ? "Income" : "Expense"}
               </button>
             ))}
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="tx-farm">Farm *</Label>
-            <Select value={form.farmId} onValueChange={(v) => setForm((f) => ({ ...f, farmId: v }))}>
-              <SelectTrigger id="tx-farm">
-                <SelectValue placeholder="Select farm" />
-              </SelectTrigger>
-              <SelectContent>
-                {farms.map((farm) => (
-                  <SelectItem key={farm._id} value={farm._id}>
-                    {farm.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {farms.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border bg-muted/30 p-4 text-center">
+              <p className="text-sm font-medium">No farms registered yet</p>
+              <p className="mx-auto mt-1 max-w-xs text-xs text-muted-foreground">
+                Register your farm before recording income or expenses.
+              </p>
+              <Link
+                to="/farms/new"
+                className="mt-3 inline-flex h-10 items-center rounded-full border border-brand/40 bg-brand/10 px-4 text-sm font-medium text-brand-foreground transition-colors hover:bg-brand/20 dark:text-brand"
+              >
+                <Plus className="mr-1.5 h-4 w-4" />
+                Register a farm
+              </Link>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="tx-farm">Farm *</Label>
+              <Select value={form.farmId} onValueChange={(v) => setForm((f) => ({ ...f, farmId: v }))}>
+                <SelectTrigger id="tx-farm">
+                  <SelectValue placeholder="Select farm" />
+                </SelectTrigger>
+                <SelectContent>
+                  {farms.map((farm) => (
+                    <SelectItem key={farm._id} value={farm._id}>
+                      {farm.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="tx-category">Category *</Label>
               <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}>
@@ -346,7 +552,7 @@ function AddTransactionModal({
                 <SelectContent>
                   {TRANSACTION_CATEGORIES.map((cat) => (
                     <SelectItem key={cat} value={cat}>
-                      {cat.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                      {titleCase(cat)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -376,7 +582,7 @@ function AddTransactionModal({
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="tx-date">Date *</Label>
               <Input
@@ -395,7 +601,7 @@ function AddTransactionModal({
                 <SelectContent>
                   {PAYMENT_METHODS.map((pm) => (
                     <SelectItem key={pm} value={pm}>
-                      {pm.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                      {titleCase(pm)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -404,8 +610,8 @@ function AddTransactionModal({
           </div>
 
           {formError && (
-            <p className="text-sm text-red-600 flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4" /> {formError}
+            <p className="flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
+              <AlertTriangle className="h-4 w-4" aria-hidden /> {formError}
             </p>
           )}
 
@@ -413,8 +619,12 @@ function AddTransactionModal({
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting} className="gradient-primary">
-              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            <Button
+              type="submit"
+              disabled={isSubmitting || farms.length === 0}
+              className="rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
+            >
+              {isSubmitting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />}
               {isSubmitting ? "Saving..." : "Save Transaction"}
             </Button>
           </DialogFooter>
@@ -429,9 +639,12 @@ function AddTransactionModal({
 // ============================================================
 
 export default function Finances() {
+  const variants = useEntranceVariants();
+  const haptic = useHaptic();
   const { format: fmt, convert, currency } = useCurrency();
   const {
     transactions,
+    summary,
     monthly,
     farms,
     isLoading,
@@ -558,88 +771,97 @@ export default function Finances() {
     return { income, expenses, net: income - expenses };
   }, [transactions, convert]);
 
-  const profitMargin =
-    totals.income > 0 ? ((totals.net / totals.income) * 100).toFixed(1) : "0.0";
-
   return (
     <AppLayout>
-      <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">Finances</h1>
-              <p className="text-muted-foreground mt-1">Track income, expenses, and market prices</p>
-            </div>
-            <div className="flex gap-2">
-              <ExportDropdown onExportPDF={handleExportPDF} onExportExcel={handleExportExcel} />
-              <Button className="gradient-primary" onClick={() => setShowAddModal(true)}>
-                <Plus className="w-4 h-4 mr-2" />Add Transaction
-              </Button>
-            </div>
+      <div className="mx-auto max-w-[1400px] p-3 sm:p-4 md:p-6 lg:p-8">
+        {/* Page header */}
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="mb-5 flex flex-col gap-4 sm:mb-7 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Finances</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Track income, expenses, and market prices
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportDropdown onExportPDF={handleExportPDF} onExportExcel={handleExportExcel} />
+            <Button
+              onClick={() => {
+                haptic.selection();
+                setShowAddModal(true);
+              }}
+              className="rounded-full bg-brand text-brand-foreground hover:bg-brand/90 touch-target"
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              Add Transaction
+            </Button>
           </div>
         </motion.div>
 
-        <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-6">
-          {/* Financial Summary */}
-          <motion.div variants={itemVariants} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card className="border-border/50">
-              <CardContent className="p-5 flex items-center gap-4">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-green-500"><TrendingUp className="w-6 h-6 text-white" /></div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Total Income</p>
-                  <p className="text-2xl font-bold text-green-600">{fmt(totals.income)}</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="border-border/50">
-              <CardContent className="p-5 flex items-center gap-4">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-red-500"><TrendingDown className="w-6 h-6 text-white" /></div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Total Expenses</p>
-                  <p className="text-2xl font-bold text-red-600">{fmt(totals.expenses)}</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="border-border/50">
-              <CardContent className="p-5 flex items-center gap-4">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-blue-500"><Wallet className="w-6 h-6 text-white" /></div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Net Profit</p>
-                  <p className={`text-2xl font-bold ${totals.net >= 0 ? "text-green-600" : "text-red-600"}`}>
-                    {fmt(totals.net)}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="border-border/50">
-              <CardContent className="p-5 flex items-center gap-4">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-amber-500"><Calculator className="w-6 h-6 text-white" /></div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Profit Margin</p>
-                  <p className="text-2xl font-bold">{profitMargin}%</p>
-                </div>
-              </CardContent>
-            </Card>
+        <motion.div
+          variants={variants.container}
+          initial="hidden"
+          animate="visible"
+          className="space-y-4 sm:space-y-6"
+        >
+          {/* Financial hero */}
+          <motion.div variants={variants.item}>
+            <FinancialHero
+              totals={totals}
+              summary={summary}
+              loading={isLoading}
+              txnCount={transactions.length}
+            />
           </motion.div>
 
           {/* Monthly chart */}
-          <motion.div variants={itemVariants}>
-            <Card className="border-border/50">
+          <motion.div variants={variants.item}>
+            <Card className="border-border/60">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Monthly Income vs Expenses</CardTitle>
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10 text-brand-foreground dark:text-brand">
+                      <BarChart3 className="h-4 w-4" />
+                    </span>
+                    <div>
+                      <CardTitle className="text-base">Monthly Income vs Expenses</CardTitle>
+                      <p className="text-xs text-muted-foreground">
+                        Last 7 months · all amounts in {currency}
+                      </p>
+                    </div>
+                  </div>
+                  <Link
+                    to="/analytics"
+                    onClick={() => haptic.light()}
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-foreground transition-colors hover:underline sm:mt-0 dark:text-brand"
+                  >
+                    View Analytics <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                </div>
               </CardHeader>
               <CardContent>
-                {monthly.length > 0 ? (
-                  <div className="h-64">
+                {isLoading ? (
+                  <Skeleton className="h-64 w-full rounded-xl" />
+                ) : monthly.length > 0 ? (
+                  <div className="h-64" role="img" aria-label="Bar chart of monthly income versus expenses">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={monthly} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
                         <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="var(--muted-foreground)" />
-                        <YAxis tick={{ fontSize: 12 }} stroke="var(--muted-foreground)" tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))} />
+                        <YAxis
+                          tick={{ fontSize: 12 }}
+                          stroke="var(--muted-foreground)"
+                          tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))}
+                        />
                         <Tooltip
-                          // The monthly buckets come from the backend as raw stored
-                          // amounts (currency-agnostic sums); format them in the user's
-                          // configured currency without a fabricated KES conversion.
+                          // The monthly buckets arrive from the backend already
+                          // converted into the user's configured display currency
+                          // (getMonthlyFinancialSummary converts each row server-side),
+                          // so values are formatted directly — no client conversion.
                           formatter={(value: number | string, name: string) => [
                             fmt(Number(value)),
                             name === "income" ? "Income" : name === "expenses" ? "Expenses" : name,
@@ -653,63 +875,76 @@ export default function Finances() {
                     </ResponsiveContainer>
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground text-center py-8">
-                    No financial data yet — add your first transaction to see monthly trends.
-                  </p>
+                  <div className="flex flex-col items-center justify-center py-10 text-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand/10 text-brand-foreground dark:text-brand">
+                      <Inbox className="h-6 w-6" />
+                    </div>
+                    <p className="mt-3 text-sm font-medium">No financial trends yet</p>
+                    <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+                      Add your first transaction to see monthly income and expense trends.
+                    </p>
+                  </div>
                 )}
               </CardContent>
             </Card>
           </motion.div>
 
           {/* Market Prices Section */}
-          <motion.div variants={itemVariants}>
-            <div className="flex items-center justify-between mb-4">
+          <motion.div variants={variants.item}>
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-lg font-semibold">Market Prices</h2>
+                <h2 className="text-base font-semibold sm:text-lg">Market Prices</h2>
                 <p className="text-sm text-muted-foreground">
                   Reference market data for planning — indicative regional price benchmarks
                 </p>
               </div>
               {marketData && (
-                <span className="text-xs text-muted-foreground flex items-center gap-1" title={marketData.dataSource === "reference" ? "Benchmark ranges, not live exchange data" : undefined}>
-                  <Info className="w-3 h-3" />
+                <span
+                  className="flex w-fit items-center gap-1 text-xs text-muted-foreground"
+                  title={
+                    marketData.dataSource === "reference"
+                      ? "Benchmark ranges, not live exchange data"
+                      : undefined
+                  }
+                >
+                  <Info className="h-3.5 w-3.5" aria-hidden />
                   Reference prices — not live market data
                 </span>
               )}
             </div>
 
             {marketLoading && !marketData ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
                 {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="h-32 bg-muted/50 rounded-xl animate-pulse" />
+                  <Skeleton key={i} className="h-32 rounded-2xl" />
                 ))}
               </div>
             ) : marketData ? (
               <>
                 {topGainer && topGainer.changePercent > 0 && (
-                  <Card className="border-amber-500/30 bg-amber-500/5 mb-4">
-                    <CardContent className="p-4 flex items-center gap-3">
-                      <AlertTriangle className="w-5 h-5 text-amber-500" />
-                      <div className="flex-1">
+                  <Card className="mb-4 border-amber-500/30 bg-amber-500/5">
+                    <CardContent className="flex items-center gap-3 p-4">
+                      <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500" aria-hidden />
+                      <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium">
                           Market alert: {topGainer.name} prices up {Math.abs(topGainer.changePercent)}%
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          Reference trend — consider timing sales of stored {topGainer.id} around current benchmarks.
+                          Reference trend — consider timing sales of stored {topGainer.name.toLowerCase()} around current benchmarks.
                         </p>
                       </div>
-                      <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
                     </CardContent>
                   </Card>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-4">
+                <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
                   {marketData.commodities.slice(0, 8).map((price) => (
                     <MarketPriceCard key={price.id} price={price} />
                   ))}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <TopMovers
                     title="Top Gainers"
                     items={[...marketData.commodities].sort((a, b) => b.changePercent - a.changePercent).slice(0, 4)}
@@ -726,24 +961,66 @@ export default function Finances() {
           </motion.div>
 
           {/* Filters */}
-          <motion.div variants={itemVariants} className="flex flex-col lg:flex-row gap-3 lg:items-center">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search transactions..." className="pl-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+          <motion.div
+            variants={variants.item}
+            className="flex flex-col gap-3 lg:flex-row lg:items-center"
+          >
+            <div className="relative max-w-md flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+              <Input
+                aria-label="Search transactions"
+                placeholder="Search transactions..."
+                className="pl-10"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
             </div>
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex flex-wrap gap-2">
               {(["all", "income", "expense"] as const).map((type) => (
-                <Button key={type} variant={filterType === type ? "default" : "outline"} size="sm" onClick={() => setFilterType(type)} className="capitalize">
+                <Button
+                  key={type}
+                  variant={filterType === type ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    haptic.selection();
+                    setFilterType(type);
+                  }}
+                  className={`rounded-full capitalize ${
+                    filterType === type
+                      ? "bg-brand text-brand-foreground hover:bg-brand/90"
+                      : ""
+                  }`}
+                >
                   {type}
                 </Button>
               ))}
             </div>
-            <div className="flex gap-2 items-center flex-wrap">
-              <Input type="date" aria-label="From date" className="w-40" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-              <span className="text-muted-foreground text-sm">to</span>
-              <Input type="date" aria-label="To date" className="w-40" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                type="date"
+                aria-label="From date"
+                className="w-36 sm:w-40"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+              <span className="text-sm text-muted-foreground">to</span>
+              <Input
+                type="date"
+                aria-label="To date"
+                className="w-36 sm:w-40"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
               {(dateFrom || dateTo) && (
-                <Button variant="ghost" size="sm" onClick={() => { setDateFrom(""); setDateTo(""); }}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setDateFrom("");
+                    setDateTo("");
+                  }}
+                  className="rounded-full"
+                >
                   Clear
                 </Button>
               )}
@@ -751,58 +1028,96 @@ export default function Finances() {
           </motion.div>
 
           {/* Transactions Table */}
-          <motion.div variants={itemVariants}>
-            <Card className="border-border/50">
+          <motion.div variants={variants.item}>
+            <Card className="border-border/60">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Recent Transactions</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">Recent Transactions</CardTitle>
+                  {transactions.length > 0 && (
+                    <Badge variant="secondary" className="border-border/60 text-[10px]">
+                      {filtered.length} of {transactions.length}
+                    </Badge>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 {isLoading ? (
                   <div className="space-y-3">
                     {[1, 2, 3, 4].map((i) => (
-                      <div key={i} className="h-16 bg-muted/40 rounded-xl animate-pulse" />
+                      <Skeleton key={i} className="h-16 rounded-xl" />
                     ))}
                   </div>
                 ) : transactions.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-3">
-                      <Inbox className="w-6 h-6 text-muted-foreground" />
+                  <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand/10 text-brand-foreground dark:text-brand">
+                      <PiggyBank className="h-7 w-7" />
                     </div>
-                    <p className="font-medium">No transactions yet</p>
-                    <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+                    <p className="mt-4 text-base font-semibold">No transactions yet</p>
+                    <p className="mt-1 max-w-sm text-sm text-muted-foreground">
                       Record your first income or expense to start tracking your farm's finances.
                     </p>
-                    <Button className="mt-4 gradient-primary" size="sm" onClick={() => setShowAddModal(true)}>
-                      <Plus className="w-4 h-4 mr-2" />Add Transaction
+                    <Button
+                      className="mt-5 rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
+                      size="sm"
+                      onClick={() => setShowAddModal(true)}
+                    >
+                      <Plus className="mr-1.5 h-4 w-4" />
+                      Add Transaction
                     </Button>
                   </div>
                 ) : filtered.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-10">
+                  <p className="py-10 text-center text-sm text-muted-foreground">
                     No transactions match your filters.
                   </p>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {filtered.map((txn) => (
-                      <div key={txn._id} className="flex items-center gap-4 p-3 rounded-xl hover:bg-muted/50 transition-colors group">
-                        <div className={`flex items-center justify-center w-10 h-10 rounded-xl ${txn.type === "income" ? "bg-green-500/10" : "bg-red-500/10"}`}>
-                          {txn.type === "income" ? <ArrowUpRight className="w-5 h-5 text-green-600" /> : <ArrowDownRight className="w-5 h-5 text-red-600" />}
+                      <div
+                        key={txn._id}
+                        className="group flex items-center gap-3 rounded-xl border border-border/40 bg-card p-3 transition-colors hover:border-brand/40 hover:bg-muted/30 sm:gap-4 sm:p-3.5"
+                      >
+                        <div
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                            txn.type === "income"
+                              ? "bg-green-500/10 text-green-600 dark:text-green-400"
+                              : "bg-red-500/10 text-red-600 dark:text-red-400"
+                          }`}
+                        >
+                          {txn.type === "income" ? (
+                            <ArrowUpRight className="h-5 w-5" />
+                          ) : (
+                            <ArrowDownRight className="h-5 w-5" />
+                          )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{txn.description}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {txn.category.replace(/_/g, " ")} • {farmMap.get(txn.farmId) ?? "Unknown farm"} • {new Date(txn.date).toLocaleDateString()}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{txn.description}</p>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                            {titleCase(txn.category)} · {farmMap.get(txn.farmId) ?? "Unknown farm"}
+                            {txn.paymentMethod ? ` · ${titleCase(txn.paymentMethod)}` : ""} ·{" "}
+                            {new Date(txn.date).toLocaleDateString()}
                           </p>
                         </div>
-                        <span className={`text-sm font-bold tabular-nums ${txn.type === "income" ? "text-green-600" : "text-red-600"}`}>
-                          {txn.type === "income" ? "+" : "-"}{fmt(convert(txn.amount, txn.currency ?? "KES"))}
+                        <span
+                          className={`shrink-0 text-sm font-bold tabular-nums ${
+                            txn.type === "income"
+                              ? "text-green-600 dark:text-green-400"
+                              : "text-red-600 dark:text-red-400"
+                          }`}
+                        >
+                          {txn.type === "income" ? "+" : "−"}
+                          {fmt(convert(txn.amount, txn.currency ?? "KES"))}
                         </span>
                         <button
                           aria-label={`Delete transaction ${txn.description}`}
                           onClick={() => handleDelete(txn._id)}
                           disabled={isDeleting === txn._id}
-                          className="p-2 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-600 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/60 sm:opacity-0 sm:group-hover:opacity-100"
                         >
-                          {isDeleting === txn._id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                          {isDeleting === txn._id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
                         </button>
                       </div>
                     ))}
