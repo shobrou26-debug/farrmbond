@@ -26,6 +26,8 @@ import {
   Beef,
   BarChart3,
   ThermometerSun,
+  CloudRain,
+  Wallet,
 } from "lucide-react";
 
 // ============================================================
@@ -43,10 +45,7 @@ const STORAGE_KEY = "farmbond-ai-conversation";
 const MAX_STORED_MESSAGES = 100;
 
 // ============================================================
-// Local conversation persistence (client-side only).
-// FarmBond has no backend AI-conversation table — the `messages`
-// table is for farmer↔agronomist messaging. Persisting locally
-// keeps the conversation across reloads without a schema change.
+// Local conversation persistence
 // ============================================================
 
 function loadStoredMessages(): Message[] {
@@ -74,7 +73,7 @@ function saveMessages(messages: Message[]) {
     const trimmed = messages.slice(-MAX_STORED_MESSAGES);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
   } catch {
-    // Storage unavailable (private mode / quota)
+    // Storage unavailable
   }
 }
 
@@ -88,33 +87,31 @@ function clearStoredMessages() {
 
 // ============================================================
 // Context-aware suggestion chips
-// Each suggestion adapts to the farmer's available data.
 // ============================================================
 
 interface SuggestionDef {
   icon: typeof Sprout;
   label: string;
   prompt: string;
-  needsData?: "farms" | "crops" | "livestock" | "weather";
+  category: "core" | "crops" | "livestock" | "weather" | "soil" | "finance" | "planning";
 }
 
-const BASE_SUGGESTIONS: SuggestionDef[] = [
-  { icon: Sprout, label: "My farms", prompt: "How are my farms doing?" },
-  { icon: Cloud, label: "This week's weather", prompt: "What does this week's weather mean for my crops?" },
-  { icon: Droplets, label: "Irrigation", prompt: "Should I irrigate today?" },
-  { icon: TrendingUp, label: "Profit", prompt: "How can I reduce my farm expenses?" },
-  { icon: AlertTriangle, label: "Risks", prompt: "What risks should I watch this week?" },
-  { icon: Leaf, label: "Crop attention", prompt: "Which crop needs the most attention?" },
-];
-
-const CONTEXTUAL_SUGGESTIONS: SuggestionDef[] = [
-  { icon: Beef, label: "Livestock", prompt: "How is my livestock doing? Are any vaccinations overdue?", needsData: "livestock" },
-  { icon: BarChart3, label: "Weekly plan", prompt: "Give me a prioritized action plan for this week based on my farm data.", needsData: "farms" },
-  { icon: ThermometerSun, label: "Soil health", prompt: "How is my soil health? What should I improve?", needsData: "farms" },
+const ALL_SUGGESTIONS: SuggestionDef[] = [
+  { icon: Sprout, label: "My farms", prompt: "How are my farms doing?", category: "core" },
+  { icon: BarChart3, label: "Weekly plan", prompt: "What should I prioritize this week based on my farm data?", category: "planning" },
+  { icon: AlertTriangle, label: "Risks", prompt: "What risks should I watch this week?", category: "core" },
+  { icon: Leaf, label: "Crop health", prompt: "How are my crops doing? Which one needs attention?", category: "crops" },
+  { icon: Cloud, label: "Weather outlook", prompt: "What does this week's weather mean for my crops?", category: "weather" },
+  { icon: CloudRain, label: "Rain forecast", prompt: "Is rain expected soon? Should I adjust irrigation?", category: "weather" },
+  { icon: Droplets, label: "Irrigation", prompt: "Should I irrigate today? Check my schedules and weather.", category: "soil" },
+  { icon: ThermometerSun, label: "Soil health", prompt: "How is my soil? What should I improve?", category: "soil" },
+  { icon: Beef, label: "Livestock care", prompt: "How is my livestock doing? Any vaccinations overdue?", category: "livestock" },
+  { icon: Wallet, label: "Farm finances", prompt: "Am I making money? How are my expenses?", category: "finance" },
+  { icon: TrendingUp, label: "Cost reduction", prompt: "How can I reduce my farm expenses and improve profit?", category: "finance" },
 ];
 
 // ============================================================
-// Entrance animation (reduced-motion aware)
+// Entrance animation
 // ============================================================
 
 function useEntranceVariants() {
@@ -127,15 +124,13 @@ function useEntranceVariants() {
 }
 
 // ============================================================
-// Lightweight message formatter:
-// **bold headers**, • bullets, numbered lists, > blockquotes
+// Message formatter
 // ============================================================
 
 function MessageContent({ content }: { content: string }) {
   return (
     <div className="text-sm leading-relaxed break-words">
       {content.split("\n").map((line, i) => {
-        // Bold section headers: **Header text**
         if (line.startsWith("**") && line.endsWith("**")) {
           return (
             <h3 key={i} className="text-sm font-bold mt-3 mb-1">
@@ -143,7 +138,6 @@ function MessageContent({ content }: { content: string }) {
             </h3>
           );
         }
-        // Bullet points: • item
         if (line.startsWith("• ")) {
           return (
             <div key={i} className="flex items-start gap-2 ml-2">
@@ -152,7 +146,6 @@ function MessageContent({ content }: { content: string }) {
             </div>
           );
         }
-        // Numbered lists: 1. item, 2. item, etc.
         const numMatch = line.match(/^(\d+)\.\s+(.+)/);
         if (numMatch) {
           return (
@@ -164,7 +157,6 @@ function MessageContent({ content }: { content: string }) {
             </div>
           );
         }
-        // Blockquotes / source labels: > text
         if (line.startsWith("> ")) {
           return (
             <div key={i} className="ml-3 pl-3 border-l-2 border-border/60 text-muted-foreground text-xs italic">
@@ -172,11 +164,9 @@ function MessageContent({ content }: { content: string }) {
             </div>
           );
         }
-        // Empty lines → spacing
         if (line.trim() === "") {
           return <div key={i} className="h-1.5" />;
         }
-        // Regular text
         return (
           <p key={i} className="leading-relaxed">
             {line}
@@ -188,7 +178,7 @@ function MessageContent({ content }: { content: string }) {
 }
 
 // ============================================================
-// Chat Message Component
+// Chat Message
 // ============================================================
 
 function ChatMessage({ message }: { message: Message }) {
@@ -203,9 +193,7 @@ function ChatMessage({ message }: { message: Message }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       })
-      .catch(() => {
-        // Clipboard unavailable — leave button unchanged
-      });
+      .catch(() => {});
   }, [message.content, haptic]);
 
   const isUser = message.role === "user";
@@ -259,24 +247,14 @@ function ChatMessage({ message }: { message: Message }) {
 
 function CheckIcon() {
   return (
-    <svg
-      className="w-3.5 h-3.5"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
+    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M20 6L9 17l-5-5" />
     </svg>
   );
 }
 
 // ============================================================
-// Empty State — shown for a brand-new conversation
-// Adapts suggestions based on the farmer's available data.
+// Empty State — adapts suggestions to available data
 // ============================================================
 
 function EmptyState({
@@ -292,14 +270,23 @@ function EmptyState({
 }) {
   const variants = useEntranceVariants();
 
-  // Build adaptive suggestion list
-  const allSuggestions = [...BASE_SUGGESTIONS];
+  const visible: SuggestionDef[] = [
+    ALL_SUGGESTIONS[0], // My farms
+    ALL_SUGGESTIONS[1], // Weekly plan
+  ];
+
+  if (cropCount && cropCount > 0) {
+    visible.push(ALL_SUGGESTIONS[3]); // Crop health
+  }
+  visible.push(ALL_SUGGESTIONS[4]); // Weather outlook
+  visible.push(ALL_SUGGESTIONS[6]); // Irrigation
+
   if (livestockCount && livestockCount > 0) {
-    allSuggestions.push(CONTEXTUAL_SUGGESTIONS[0]); // Livestock
+    visible.push(ALL_SUGGESTIONS[8]); // Livestock care
   }
   if (farmCount && farmCount > 0) {
-    allSuggestions.push(CONTEXTUAL_SUGGESTIONS[1]); // Weekly plan
-    allSuggestions.push(CONTEXTUAL_SUGGESTIONS[2]); // Soil health
+    visible.push(ALL_SUGGESTIONS[7]); // Soil health
+    visible.push(ALL_SUGGESTIONS[9]); // Farm finances
   }
 
   return (
@@ -344,7 +331,7 @@ function EmptyState({
         variants={variants}
         className="flex flex-wrap justify-center gap-2 mt-6 max-w-lg"
       >
-        {allSuggestions.map((s, i) => {
+        {visible.map((s, i) => {
           const Icon = s.icon;
           return (
             <motion.button
@@ -366,14 +353,14 @@ function EmptyState({
 }
 
 // ============================================================
-// Main AI Assistant Page
+// Main Page
 // ============================================================
 
 const WELCOME_MESSAGE: Message = {
   id: "welcome",
   role: "assistant",
   content:
-    "Hello! I'm your FarmBond farming assistant 🌱\n\nI can help you with:\n• Farm health and performance — using your real FarmBond data\n• Crop management and pest control\n• Weather-based decisions and irrigation timing\n• Livestock care and vaccination planning\n• Soil health and fertility management\n• Farm budgeting and cost reduction\n• Weekly action plans based on your farm data\n\nAsk me about your farms, crops, or this week's weather — I'll use your recorded data and tell you honestly when information is missing.",
+    "Hello! I'm your FarmBond farming assistant 🌱\n\nI can help you with:\n• Farm health and performance — using your real FarmBond data\n• Crop management, pest control, and growth tracking\n• Weather-based decisions and irrigation timing\n• Livestock care and vaccination planning\n• Soil health analysis and improvement\n• Farm budgeting, expenses, and profit optimization\n• Weekly prioritized action plans\n\nAsk me anything about your farms — I'll use your recorded data and tell you honestly when information is missing.\n\nTry asking: \"How are my farms doing?\" or \"What should I do this week?\"",
   timestamp: Date.now(),
 };
 
@@ -388,13 +375,11 @@ export default function AIAssistant() {
   const haptic = useHaptic();
   const shouldReduceMotion = useReducedMotion();
 
-  // Real data for the context header + empty-state hint
   const farmsRes = useQuery(api.farms.listUserFarms, {});
   const cropsRes = useQuery(api.crops.listUserCrops, {});
   const farmCount = farmsRes?.page?.length;
   const cropCount = cropsRes?.page?.length;
 
-  // Count livestock across all farms for context-aware suggestions
   const firstFarmId = farmsRes?.page?.[0]?._id;
   const livestockRes = useQuery(
     api.livestock.listFarmLivestock,
@@ -415,7 +400,6 @@ export default function AIAssistant() {
     scrollToBottom();
   }, [messages, isLoading, scrollToBottom]);
 
-  // Persist locally whenever the conversation changes
   useEffect(() => {
     saveMessages(messages);
   }, [messages]);
@@ -438,7 +422,6 @@ export default function AIAssistant() {
       setIsLoading(true);
 
       try {
-        // Conversation history for context (last 6 messages, Gemini-style)
         const history = messages.slice(-6).map((m) => ({
           role: m.role === "user" ? ("user" as const) : ("model" as const),
           parts: [{ text: m.content }],
@@ -490,6 +473,11 @@ export default function AIAssistant() {
 
   const hasRealMessages = messages.some((m) => m.id !== "welcome");
 
+  const connectedModules: string[] = [];
+  if (farmCount && farmCount > 0) connectedModules.push(`${farmCount} farm${farmCount === 1 ? "" : "s"}`);
+  if (cropCount && cropCount > 0) connectedModules.push(`${cropCount} crop${cropCount === 1 ? "" : "s"}`);
+  if (livestockCount && livestockCount > 0) connectedModules.push(`${livestockCount} livestock`);
+
   return (
     <AppLayout>
       <div className="flex flex-col h-[calc(100dvh-4rem)] lg:h-[calc(100dvh-5rem)]">
@@ -509,8 +497,8 @@ export default function AIAssistant() {
                   <span className="text-xs text-muted-foreground truncate">
                     {farmCount === undefined
                       ? "Connecting to your farm data…"
-                      : farmCount > 0
-                        ? `${farmCount} farm${farmCount === 1 ? "" : "s"} · ${cropCount ?? 0} crop${cropCount === 1 ? "" : "s"}${livestockCount ? ` · ${livestockCount} livestock` : ""} connected`
+                      : connectedModules.length > 0
+                        ? `${connectedModules.join(" · ")} connected`
                         : "No farm data connected yet"}
                   </span>
                 </div>

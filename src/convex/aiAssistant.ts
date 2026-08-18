@@ -13,15 +13,12 @@ import { createAuditLog, isSubscriptionActive } from "./authHelpers";
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = "llama-3.3-70b-versatile"; // 1,000 req/day free — best quality
-// Alternative: "llama-3.1-8b-instant" — 14,400 req/day free — fastest
 
 const GEMINI_API_KEY = process.env.GOOGLE_GEMINI_API_KEY;
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 
 // ============================================================
 // AI usage limits (per-user, per-day)
-// Free plan gets a daily quota; Pro (active subscription) is unlimited.
-// Usage is tracked in the audit log (action "ai_chat" / "ai_disease").
 // ============================================================
 
 const AI_FREE_DAILY_CHAT_LIMIT = 5;
@@ -29,8 +26,7 @@ const AI_PRO_DAILY_CHAT_LIMIT = 500;
 const AI_FREE_DAILY_DETECT_LIMIT = 3;
 const AI_PRO_DAILY_DETECT_LIMIT = 100;
 
-/** Pure limit selector (exported for tests): free users get a small
- * daily allowance; active Pro users get a much larger one. */
+/** Pure limit selector (exported for tests) */
 export function getAiDailyLimit(
   isPro: boolean,
   usageAction: "ai_chat" | "ai_disease"
@@ -41,12 +37,8 @@ export function getAiDailyLimit(
   return isPro ? AI_PRO_DAILY_DETECT_LIMIT : AI_FREE_DAILY_DETECT_LIMIT;
 }
 
-/** Internal: count a user's AI calls today for a given usage action. */
 export const getAiUsageCount = internalQuery({
-  args: {
-    userId: v.id("users"),
-    usageAction: v.string(),
-  },
+  args: { userId: v.id("users"), usageAction: v.string() },
   handler: async (ctx, args) => {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
@@ -61,13 +53,8 @@ export const getAiUsageCount = internalQuery({
   },
 });
 
-/** Internal: record one AI usage entry for the authenticated user. */
 export const logAiUsage = internalMutation({
-  args: {
-    userId: v.id("users"),
-    usageAction: v.string(),
-    feature: v.string(),
-  },
+  args: { userId: v.id("users"), usageAction: v.string(), feature: v.string() },
   handler: async (ctx, args) => {
     await createAuditLog(ctx, {
       userId: args.userId,
@@ -79,10 +66,6 @@ export const logAiUsage = internalMutation({
   },
 });
 
-/**
- * Resolve the authenticated user's daily AI allowance.
- * Returns the limit, or throws when the user is not authenticated.
- */
 async function getAiQuota(
   ctx: any,
   usageAction: "ai_chat" | "ai_disease"
@@ -95,99 +78,117 @@ async function getAiQuota(
 }
 
 // ============================================================
-// System prompt — structured for data-driven recommendations
+// System prompt — flexible, domain-aware, honest
 // ============================================================
 
-const SYSTEM_PROMPT = `You are FarmBond AI, a professional agricultural intelligence assistant. You help farmers make informed, data-driven decisions about their farms.
+const SYSTEM_PROMPT = `You are FarmBond AI, a professional agricultural intelligence assistant. You help farmers make informed, data-driven decisions using their actual FarmBond account data.
 
 ═══════════════════════════════════════════════════════════════
 IDENTITY
 ═══════════════════════════════════════════════════════════════
-You are a knowledgeable, practical, and honest farming advisor. You combine general agricultural science with the farmer's actual FarmBond data to provide personalized guidance.
+You are a knowledgeable, practical farming advisor. You combine general agricultural science with the farmer's real FarmBond data to give personalized, actionable guidance. You are encouraging but honest.
 
 ═══════════════════════════════════════════════════════════════
-DATA SOURCES
+DATA SOURCES PROVIDED BELOW
 ═══════════════════════════════════════════════════════════════
-The farmer's FarmBond account may provide you with:
-- Farms: name, location, size, soil type, pH, NDVI, irrigation type
-- Crops: name, variety, planting date, status, health score, harvest date
-- Livestock: type, quantity, status, health score, vaccination schedule
-- Weather: current conditions + forecast (cached, labeled "cached" in the data)
-- Soil: pH, organic matter, NPK, moisture, drainage, fertility rating
-- Irrigation: active schedules, water amounts, last run, upcoming runs
-- Finances: income, expenses, profit (converted to their display currency)
-- Market: reference prices for their crops (labeled as reference data, NOT live market data)
-- Health: overall farm health score when enough data exists
+The farmer's FarmBond account may provide:
+• Farms: name, location, size, soil type, pH, NDVI, irrigation type
+• Crops: name, variety, planting date, status, health score, harvest date
+• Livestock: type, quantity, status, health score, vaccination schedule
+• Weather: current conditions + multi-day forecast (labeled "cached")
+• Soil: pH, organic matter, NPK, moisture, drainage, texture, fertility
+• Irrigation: active schedules, water amounts, methods, next runs
+• Finances: total income, expenses, profit, margin (in display currency)
+• Market: reference prices for their crops (NOT live exchange data)
+• Health: overall farm health score and component scores
 
-When this data is provided below, it is REAL data from their FarmBond account.
+ALL DATA BELOW IS REAL — from the farmer's FarmBond account. Use it directly.
 
 ═══════════════════════════════════════════════════════════════
-RESPONSE FRAMEWORK
+HOW TO RESPOND — ADAPT TO THE QUESTION
 ═══════════════════════════════════════════════════════════════
-For every farming question, follow this structure:
 
-1. **Data Assessment** — briefly state what FarmBond data you have for this question and what is missing.
-2. **Analysis** — interpret the available data (e.g., weather forecast, crop stage, soil condition).
-3. **Recommendations** — give 2-4 specific, actionable steps. Each step should:
-   - Start with a clear action verb
-   - Include timing when relevant (e.g., "within the next 2 days")
-   - Reference the source (e.g., "Based on your weather forecast..." or "General best practice...")
-4. **Risk Note** — mention any risks if relevant, or say "No significant risks detected."
-5. **Local Expert** — where appropriate, remind them to verify with a local agronomist or extension officer.
+**Simple questions** (e.g., "What's the weather?", "Is rain expected?"):
+→ Give a direct, concise answer. No framework needed. 2-4 sentences.
+
+**Farm overview questions** (e.g., "How is my farm doing?", "Give me a summary"):
+→ Use this structure:
+  1. **Overview** — summarize key numbers from the data
+  2. **What's going well** — highlight positive indicators
+  3. **Needs attention** — flag concerns or missing data
+  4. **Top actions** — 2-3 specific next steps
+
+**Advisory questions** (e.g., "Should I irrigate?", "What should I plant?"):
+→ Use this structure:
+  1. **What your data shows** — cite the relevant FarmBond data
+  2. **What it means** — interpret the data
+  3. **What to do** — specific, actionable recommendations with timing
+  4. **What's missing** — any data gaps that would improve the advice
+
+**Planning questions** (e.g., "What should I do this week?", "Prioritize my tasks"):
+→ Create a prioritized action list:
+  1. **Urgent** — must do now (risks, deadlines)
+  2. **Important** — this week (crop management, livestock care)
+  3. **Beneficial** — when time allows (improvements, planning)
+→ Each item: what to do + why + when
+
+**Financial questions** (e.g., "Am I making money?", "How are my expenses?"):
+→ Use actual financial data from the context. Show:
+  - Income vs expenses
+  - Profit margin
+  - This month vs overall
+  - Suggestions for improvement
+
+**Disease/health questions** (e.g., "My chicken look sick", "Brown spots on leaves"):
+→ Provide general guidance based on described symptoms.
+→ NEVER claim a definitive diagnosis.
+→ ALWAYS recommend consulting a local agronomist or veterinarian.
 
 ═══════════════════════════════════════════════════════════════
 HONESTY RULES (mandatory — never break these)
 ═══════════════════════════════════════════════════════════════
-- NEVER invent farm statistics, crop yields, financial figures, market prices, or weather data.
-- When you lack data to answer a specific question, say: "I don't have enough recorded data for that yet. Here's what you could do to build this information in FarmBond..."
-- Clearly distinguish between:
-  A) Data retrieved from FarmBond (reference it: "Your data shows...")
-  B) General agricultural knowledge (label it: "Based on general agricultural practice...")
-  C) Information that is unavailable (say: "This information is not available in your FarmBond account.")
-- For plant disease or livestock health questions: provide general guidance based on described symptoms, but NEVER claim a definitive diagnosis. Always recommend consulting a veterinarian, agronomist, or extension officer.
-- Market prices labeled "reference" are reference benchmarks, NOT live exchange data. Never present them as real-time market prices.
-- Weather data labeled "cached" is the last cached forecast, not a live reading.
+• NEVER invent crop yields, farm statistics, prices, weather, soil values, livestock counts, health scores, financial figures, or vaccination dates.
+• When data is missing, say: "I don't have that data in your FarmBond account yet. You can record it in [relevant section] to get better advice."
+• Always label the source of your statements:
+  - "Your data shows..." or "Based on your FarmBond data..." (real data)
+  - "Based on general agricultural practice..." (general knowledge)
+  - "This data is not available in your FarmBond account." (missing)
+• Market prices are reference benchmarks, NOT live market data. Never present them as current exchange prices.
+• Weather is cached — not a live reading.
+• For disease/health questions: general guidance only. Never diagnose definitively. Always recommend a qualified expert.
 
 ═══════════════════════════════════════════════════════════════
-CURRENCY AND UNITS
+CURRENCY, UNITS, AND LOCALIZATION
 ═══════════════════════════════════════════════════════════════
-- The farmer's currency preference is stated in their profile. Use it for all financial amounts.
-- The farmer's unit preference (metric/imperial) is stated in their profile. Respect it.
-- Weather data in the context is in metric (°C, km/h, mm). If the farmer uses imperial, convert in your response.
-- Never assume a currency. If none is stated, ask rather than guessing.
+• Use the farmer's display currency (shown in their profile or Finances line) for all financial amounts.
+• Respect the farmer's unit preference (metric/imperial). Convert weather data if needed.
+• Respond in the farmer's language preference if stated; otherwise respond in the language they write in.
+• Consider their country and climate zone for seasonal and planting advice.
 
 ═══════════════════════════════════════════════════════════════
-LOCALIZATION
+RECOMMENDATION PRIORITIES (when ranking actions)
 ═══════════════════════════════════════════════════════════════
-- The farmer's language preference is in their profile. Respond in that language when stated.
-- If no language is stated, respond in the language the user writes in.
-- Consider their country and climate zone when giving planting or seasonal advice.
+1. Urgent risks — livestock health, extreme weather, overdue critical tasks
+2. Time-sensitive opportunities — planting windows, harvest timing, market selling
+3. Crop management — fertilization, pest control, irrigation optimization
+4. Financial optimization — expense reduction, revenue improvement
+5. Long-term planning — soil health, infrastructure, diversification
 
 ═══════════════════════════════════════════════════════════════
-RECOMMENDATION PRIORITIES
+RESPONSE STYLE
 ═══════════════════════════════════════════════════════════════
-When asked to prioritize or give an action plan, rank by:
-1. Urgent risks (livestock health, extreme weather, overdue irrigation)
-2. Time-sensitive opportunities (optimal planting windows, market selling)
-3. Crop management (fertilization, pest control, growth monitoring)
-4. Financial optimization (expense reduction, profit improvement)
-5. Long-term planning (soil improvement, infrastructure, diversification)
-
-═══════════════════════════════════════════════════════════════
-RESPONSE FORMAT
-═══════════════════════════════════════════════════════════════
-- Use **bold** for section headers
-- Use bullet points (•) for lists
-- Use numbered steps for sequential actions
-- Keep responses focused: 150-400 words unless the question requires more detail
-- Use emoji sparingly for visual clarity (🌱 🐛 🌤️ 💰 🐄)
-- Be professional, encouraging, and practical
-- Give concrete steps, not vague advice`;
+• Use **bold** for section headers
+• Use • bullet points for lists
+• Use numbered steps (1. 2. 3.) for sequential actions
+• Be specific: include days, amounts, percentages when available
+• Be practical: give concrete steps, not vague advice
+• Be encouraging but honest about risks
+• Use emoji sparingly for visual clarity (🌱 🐛 🌤️ 💰 🐄)
+• Keep responses proportional: short for simple questions, detailed for complex ones
+• Aim for clarity over length — a farmer reading on a phone needs concise answers`;
 
 /**
  * Build Groq/OpenAI-compatible messages array from conversation history.
- * Accepts an optional system prompt override so farm-aware requests can
- * inject the farmer's real FarmBond context.
  */
 function buildGroqMessages(
   history: Array<{ role: string; parts: Array<{ text: string }> }> | undefined,
@@ -195,18 +196,14 @@ function buildGroqMessages(
   systemPrompt: string = SYSTEM_PROMPT,
 ) {
   const messages: Array<{ role: string; content: string }> = [];
-
-  // System instruction
   messages.push({ role: "system", content: systemPrompt });
 
   if (!history || history.length === 0) {
     messages.push({ role: "user", content: currentMessage });
   } else {
-    // Convert Gemini-style history to OpenAI/Groq format
     for (let i = 0; i < history.length; i++) {
       const msg = history[i];
       const text = msg.parts?.map((p) => p.text).join("\n") || "";
-      // Strip system instruction prefix from first message if present
       const cleaned = i === 0 ? text.replace(/^System instruction:.*?\n\n/s, "") : text;
       messages.push({
         role: msg.role === "model" ? "assistant" : "user",
@@ -215,14 +212,9 @@ function buildGroqMessages(
     }
     messages.push({ role: "user", content: currentMessage });
   }
-
   return messages;
 }
 
-/**
- * Enforce the user's daily AI chat quota.
- * Returns the resolved quota (userId + limit) or throws when over limit.
- */
 async function enforceChatQuota(ctx: ActionCtx) {
   const quota = await getAiQuota(ctx, "ai_chat");
   const used = await ctx.runQuery(internal.aiAssistant.getAiUsageCount, {
@@ -239,7 +231,6 @@ async function enforceChatQuota(ctx: ActionCtx) {
   return quota;
 }
 
-/** Record one successful chat usage entry. */
 async function logChatUsage(ctx: ActionCtx, userId: any) {
   await ctx.runMutation(internal.aiAssistant.logAiUsage, {
     userId,
@@ -248,10 +239,6 @@ async function logChatUsage(ctx: ActionCtx, userId: any) {
   });
 }
 
-/**
- * Shared chat completion: calls Groq and falls back to Gemini when Groq
- * fails or is unconfigured. Throws only when no provider can answer.
- */
 async function runChatCompletion(
   systemPrompt: string,
   message: string,
@@ -288,7 +275,6 @@ async function runChatCompletion(
       throw new Error("No response generated from AI");
     } catch (error) {
       console.error("Groq chat failed, trying Gemini fallback:", error);
-      // Fall through to Gemini when available
     }
   }
 
@@ -301,30 +287,37 @@ async function runChatCompletion(
 }
 
 // ============================================================
-// Farm context builder — comprehensive, auth-scoped, honest
+// Farm context builder
 // ============================================================
 
-/** Helper to safely format a number for the prompt. */
 function fmtNum(n: number | null | undefined, decimals = 0): string {
   if (n == null) return "—";
   return decimals > 0 ? n.toFixed(decimals) : Math.round(n).toString();
 }
 
+/** Calculate days between two timestamps, returning a human-readable string. */
+function daysBetween(from: number, to: number): string {
+  const days = Math.round((to - from) / (24 * 60 * 60 * 1000));
+  if (days < 0) return `${Math.abs(days)} days ago`;
+  if (days === 0) return "today";
+  return `in ${days} days`;
+}
+
 /**
  * Build a comprehensive, real FarmBond context block for the authenticated
- * farmer. Includes farms, crops, livestock, weather, irrigation schedules,
- * soil data, financial summary, market reference prices, and farm health.
- *
- * Every query is auth-scoped. Missing data is omitted or labeled unavailable
- * — never fabricated.
+ * farmer. Every query is auth-scoped. Missing data is omitted or labeled
+ * unavailable — never fabricated.
  */
 async function buildFarmContext(ctx: ActionCtx): Promise<string> {
   const parts: string[] = [];
-  const now = new Date();
+  const now = Date.now();
+  const today = new Date(now);
 
-  // ── Date/season context ──────────────────────────────────────
+  // ── Date / season context ────────────────────────────────────
+  const month = today.toLocaleString("en", { month: "long" });
+  const hemisphere = today.getMonth() >= 3 && today.getMonth() <= 9 ? "northern" : "southern";
   parts.push(
-    `Current date: ${now.toISOString().slice(0, 10)} (${now.toLocaleString("en", { weekday: "long" })})`
+    `Current date: ${today.toISOString().slice(0, 10)} (${today.toLocaleString("en", { weekday: "long" })}, ${month}, ${hemisphere} hemisphere)`
   );
 
   // ── Farmer profile ───────────────────────────────────────────
@@ -371,7 +364,7 @@ async function buildFarmContext(ctx: ActionCtx): Promise<string> {
     if (farm.irrigationType) soilBits.push(`irrigation: ${farm.irrigationType}`);
     if (soilBits.length) farmLines.push(`  Soil: ${soilBits.join(", ")}`);
 
-    // ── Detailed soil analysis (if available) ──────────────────
+    // Detailed soil analysis
     try {
       const soil = await ctx.runQuery(api.soil.getSoilAnalysis, { farmId: farm._id });
       if (soil) {
@@ -388,57 +381,54 @@ async function buildFarmContext(ctx: ActionCtx): Promise<string> {
         if (soil.isEstimated) sBits.push("(estimated — not a lab test)");
         if (sBits.length) farmLines.push(`  Detailed soil: ${sBits.join(", ")}`);
         if (soil.recommendations?.length) {
-          farmLines.push(`  Soil recommendations: ${soil.recommendations.slice(0, 3).join("; ")}`);
+          farmLines.push(`  Soil advice: ${soil.recommendations.slice(0, 3).join("; ")}`);
         }
       }
     } catch {
-      // Soil data unavailable — omit
+      // Soil data unavailable
     }
 
-    // ── Crops ──────────────────────────────────────────────────
-    const cropsRes = await ctx.runQuery(api.crops.listFarmCrops, {
-      farmId: farm._id,
-    });
+    // Crops — include planting age in days
+    const cropsRes = await ctx.runQuery(api.crops.listFarmCrops, { farmId: farm._id });
     const crops = cropsRes?.page ?? [];
     if (crops.length > 0) {
       const cropBits = crops.slice(0, 6).map((c) => {
+        const ageDays = Math.round((now - c.plantingDate) / (24 * 60 * 60 * 1000));
         const bits = [
           c.name,
           c.variety ? `(${c.variety})` : "",
-          `planted ${new Date(c.plantingDate).toISOString().slice(0, 10)}`,
+          `type: ${c.type}`,
+          `planted ${new Date(c.plantingDate).toISOString().slice(0, 10)} (${ageDays}d ago)`,
           `status: ${c.status}`,
         ];
         if (c.healthScore != null) bits.push(`health: ${c.healthScore}/100`);
-        if (c.expectedHarvestDate) bits.push(`harvest ${new Date(c.expectedHarvestDate).toISOString().slice(0, 10)}`);
+        if (c.expectedHarvestDate) bits.push(`harvest ${daysBetween(now, c.expectedHarvestDate)}`);
         return bits.filter(Boolean).join(" ");
       });
-      farmLines.push(
-        `  Crops: ${cropBits.join(" | ")}${crops.length > 6 ? ` (+${crops.length - 6} more)` : ""}`
-      );
+      farmLines.push(`  Crops (${crops.length}): ${cropBits.join(" | ")}${crops.length > 6 ? ` (+${crops.length - 6} more)` : ""}`);
     } else {
       farmLines.push("  Crops: none on this farm");
     }
 
-    // ── Livestock ──────────────────────────────────────────────
-    const livestockRes = await ctx.runQuery(api.livestock.listFarmLivestock, {
-      farmId: farm._id,
-    });
+    // Livestock — include days until next vaccination
+    const livestockRes = await ctx.runQuery(api.livestock.listFarmLivestock, { farmId: farm._id });
     const livestock = livestockRes?.page ?? [];
     if (livestock.length > 0) {
       const liveBits = livestock.slice(0, 4).map((l) => {
         const bits = [`${l.quantity} ${l.type}`, `status: ${l.status}`];
         if (l.healthScore != null) bits.push(`health: ${l.healthScore}/100`);
-        if (l.nextVaccination) bits.push(`next vaccination ${new Date(l.nextVaccination).toISOString().slice(0, 10)}`);
+        if (l.nextVaccination) {
+          const vaccDays = Math.round((l.nextVaccination - now) / (24 * 60 * 60 * 1000));
+          bits.push(`vaccination ${vaccDays <= 0 ? `OVERDUE by ${Math.abs(vaccDays)}d` : `in ${vaccDays}d`}`);
+        }
         return bits.join(", ");
       });
-      farmLines.push(
-        `  Livestock: ${liveBits.join(" | ")}${livestock.length > 4 ? ` (+${livestock.length - 4} more)` : ""}`
-      );
+      farmLines.push(`  Livestock (${livestock.length}): ${liveBits.join(" | ")}${livestock.length > 4 ? ` (+${livestock.length - 4} more)` : ""}`);
     } else {
       farmLines.push("  Livestock: none on this farm");
     }
 
-    // ── Weather ────────────────────────────────────────────────
+    // Weather
     if (loc?.latitude != null && loc?.longitude != null) {
       try {
         const weather = await ctx.runQuery(api.weather.getCachedWeather, {
@@ -453,59 +443,54 @@ async function buildFarmContext(ctx: ActionCtx): Promise<string> {
             `precip ${weather.precipitation} mm`,
           ];
           if (weather.uvIndex != null) wbits.push(`UV ${weather.uvIndex}`);
-
           const forecastDays = (weather.forecast ?? [])
             .slice(0, 5)
             .map(
               (f) =>
-                `${new Date(f.date).toISOString().slice(0, 10)}: high ${f.tempHigh}°C / low ${f.tempLow}°C, ${f.precipitation} mm, ${f.condition}`
+                `${new Date(f.date).toISOString().slice(0, 10)}: ${f.tempHigh}/${f.tempLow}°C, ${f.precipitation}mm, ${f.condition}`
             );
           farmLines.push(`  Weather (cached): ${wbits.join(", ")}`);
           if (forecastDays.length) farmLines.push(`  Forecast: ${forecastDays.join(" | ")}`);
         } else {
-          farmLines.push("  Weather: no cached forecast available for this location");
+          farmLines.push("  Weather: no cached forecast for this location");
         }
       } catch {
         farmLines.push("  Weather: unavailable");
       }
     }
 
-    // ── Irrigation schedules ───────────────────────────────────
+    // Irrigation schedules
     try {
-      const schedules = await ctx.runQuery(api.irrigation.listMySchedules, {
-        farmId: farm._id,
-      });
+      const schedules = await ctx.runQuery(api.irrigation.listMySchedules, { farmId: farm._id });
       const active = schedules.filter((s: any) => s.isActive);
       if (active.length > 0) {
         const schedBits = active.slice(0, 4).map((s: any) => {
-          const nextRun = s.nextRunAt
-            ? `next run ${new Date(s.nextRunAt).toISOString().slice(0, 10)}`
-            : "no upcoming run";
-          return `"${s.name}" (${s.method}, ${s.waterAmount}L every ${s.frequency}, ${nextRun})`;
+          const nextRun = s.nextRunAt ? daysBetween(now, s.nextRunAt) : "no upcoming run";
+          return `"${s.name}" (${s.method ?? "unspecified method"}, ${s.waterAmount}L, ${s.frequency}, next: ${nextRun})`;
         });
-        farmLines.push(`  Irrigation: ${active.length} active schedules — ${schedBits.join("; ")}`);
+        farmLines.push(`  Irrigation (${active.length} active): ${schedBits.join("; ")}`);
       } else {
         farmLines.push("  Irrigation: no active schedules");
       }
     } catch {
-      // Irrigation data unavailable
+      // unavailable
     }
 
-    // ── Farm health score ──────────────────────────────────────
+    // Farm health score
     try {
-      const health = await ctx.runQuery(api.intelligence.getFarmHealthScore, {
-        farmId: farm._id,
-      });
+      const health = await ctx.runQuery(api.intelligence.getFarmHealthScore, { farmId: farm._id });
       if (health && health.overall != null) {
         const hBits = [`overall ${health.overall}/100`];
         if (health.cropHealth != null) hBits.push(`crops ${Math.round(health.cropHealth)}/100`);
         if (health.livestockHealth != null) hBits.push(`livestock ${Math.round(health.livestockHealth)}/100`);
+        if (health.soilHealth != null) hBits.push(`soil ${Math.round(health.soilHealth)}/100`);
         if (health.weatherRisk != null) hBits.push(`weather risk ${health.weatherRisk}/100`);
+        if (health.financialHealth != null) hBits.push(`financial ${Math.round(health.financialHealth)}/100`);
         if (health.vaccinationRate != null) hBits.push(`vaccination ${health.vaccinationRate}%`);
-        farmLines.push(`  Farm health: ${hBits.join(", ")}`);
+        farmLines.push(`  Health score: ${hBits.join(", ")}`);
       }
     } catch {
-      // Health score unavailable
+      // unavailable
     }
 
     parts.push(farmLines.join("\n"));
@@ -515,7 +500,7 @@ async function buildFarmContext(ctx: ActionCtx): Promise<string> {
     parts.push(`(${farms.length - 3} more farms not detailed)`);
   }
 
-  // ── Financial summary ────────────────────────────────────────
+  // Financial summary
   try {
     const fin = await ctx.runQuery(api.transactions.getFinancialSummary, {});
     const cur = user?.currency ?? "KES";
@@ -530,31 +515,29 @@ async function buildFarmContext(ctx: ActionCtx): Promise<string> {
     fBits.push(`this month: income ${Math.round(fin.thisMonthIncome)}, expenses ${Math.round(fin.thisMonthExpenses)}, profit ${Math.round(fin.thisMonthProfit)}`);
     parts.push(`Finances (${cur}): ${fBits.join(", ")}`);
   } catch {
-    // Financial data unavailable
+    // unavailable
   }
 
-  // ── Market reference prices ──────────────────────────────────
+  // Market reference prices
   try {
     const market = await ctx.runQuery(api.marketIntelligence.getMarketPrices, {});
     if (Array.isArray(market) && market.length > 0) {
       const priceBits = market.slice(0, 6).map((p: any) => {
-        const bits = [`${p.crop}: ${p.currentPrice} ${p.currency}/${p.unit}`, `trend: ${p.trend}`];
-        return bits.join(", ");
+        return `${p.crop}: ${p.currentPrice} ${p.currency}/${p.unit} (${p.trend})`;
       });
-      parts.push(`Market (reference data, NOT live prices): ${priceBits.join(" | ")}`);
+      parts.push(`Market (reference benchmarks — NOT live prices): ${priceBits.join(" | ")}`);
     }
   } catch {
-    // Market data unavailable
+    // unavailable
   }
 
   return parts.join("\n");
 }
 
-/**
- * Send a message to the AI farming assistant via Groq
- * Free tier: 14,400 requests/day (llama-3.1-8b-instant)
- * or 1,000 requests/day (llama-3.3-70b-versatile)
- */
+// ============================================================
+// Exported actions
+// ============================================================
+
 export const chatWithAI = action({
   args: {
     message: v.string(),
@@ -575,16 +558,6 @@ export const chatWithAI = action({
   },
 });
 
-/**
- * Farm-aware chat: injects the farmer's REAL FarmBond context (farms,
- * crops, livestock, weather, irrigation, soil, finances, market prices,
- * farm health) into the system prompt so the assistant can answer
- * farm-specific questions using actual data — and honestly state when
- * data is missing.
- *
- * All data is fetched server-side through auth-guarded queries scoped to
- * the authenticated user, so one farmer can never see another farmer's data.
- */
 export const chatWithFarmContext = action({
   args: {
     message: v.string(),
@@ -608,15 +581,15 @@ export const chatWithFarmContext = action({
 ${farmContext}
 
 ===== CRITICAL RULES =====
-1. The data above is REAL. Use it when answering farm-specific questions.
+1. The data above is REAL. Use it directly when answering.
 2. NEVER invent farm statistics, weather, prices, yields, health scores, or financial figures.
-3. If data needed is missing, say so explicitly (e.g. "I don't have recorded data for that yet").
-4. Always distinguish actual FarmBond data (reference "Your data shows..." or "Based on your FarmBond data...") from general recommendations ("Based on general agricultural practice...").
-5. For disease or health questions: give general guidance but do NOT claim a definitive diagnosis. Recommend a local agronomist or veterinarian.
-6. Weather is labeled "(cached)" — it is the last cached forecast, not a live reading.
-7. Market prices are labeled "reference data" — they are benchmarks, not live exchange data.
-8. Respect the farmer's currency, units, language, and timezone preferences stated in their profile.
-9. When giving financial advice, use the farmer's display currency shown in the Finances line.`;
+3. If needed data is missing, say: "I don't have that data in your FarmBond account yet."
+4. Distinguish FarmBond data ("Your data shows...") from general knowledge ("Based on general agricultural practice...").
+5. Disease/health questions: general guidance only. Never diagnose. Recommend a local expert.
+6. Weather is cached — not live. Market prices are reference benchmarks — not live.
+7. Respect the farmer's currency, units, language, and timezone preferences.
+8. Financial advice uses the display currency shown in the Finances line.
+9. Adapt your response to the question: concise for simple questions, structured for complex ones.`;
 
     const text = await runChatCompletion(systemPrompt, args.message, args.history);
     await logChatUsage(ctx, quota.userId);
@@ -624,9 +597,10 @@ ${farmContext}
   },
 });
 
-/**
- * Gemini fallback for text chat (when Groq is unavailable)
- */
+// ============================================================
+// Gemini fallback
+// ============================================================
+
 async function chatWithGeminiFallback(
   message: string,
   history?: Array<{ role: string; parts: Array<{ text: string }> }>,
@@ -676,10 +650,10 @@ async function chatWithGeminiFallback(
   return { response: text };
 }
 
-/**
- * Detect plant disease from image (multimodal — uses Gemini)
- * Groq doesn't support image analysis, so Gemini is used for vision tasks
- */
+// ============================================================
+// Disease detection (Gemini multimodal)
+// ============================================================
+
 export const detectDisease = action({
   args: {
     imageBase64: v.string(),
@@ -694,8 +668,6 @@ export const detectDisease = action({
       );
     }
 
-    // Auth + daily usage quota (image analysis is more expensive — tighter
-    // free allowance). Enforced server-side.
     const quota = await getAiQuota(ctx, "ai_disease");
     const used = await ctx.runQuery(internal.aiAssistant.getAiUsageCount, {
       userId: quota.userId,
@@ -771,7 +743,6 @@ ${args.additionalInfo ? `Additional context from farmer: ${args.additionalInfo}`
         throw new Error("No analysis generated");
       }
 
-      // Record usage only after a successful analysis
       await ctx.runMutation(internal.aiAssistant.logAiUsage, {
         userId: quota.userId,
         usageAction: "ai_disease",
