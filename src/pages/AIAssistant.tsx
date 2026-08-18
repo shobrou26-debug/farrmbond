@@ -23,6 +23,9 @@ import {
   TrendingUp,
   Droplets,
   AlertTriangle,
+  Beef,
+  BarChart3,
+  ThermometerSun,
 } from "lucide-react";
 
 // ============================================================
@@ -52,8 +55,6 @@ function loadStoredMessages(): Message[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    // Validate every entry so malformed/legacy storage can never crash the
-    // page (e.g. a missing `content` would throw in the renderer).
     return parsed.filter(
       (m): m is Message =>
         !!m &&
@@ -73,7 +74,7 @@ function saveMessages(messages: Message[]) {
     const trimmed = messages.slice(-MAX_STORED_MESSAGES);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
   } catch {
-    // Storage unavailable (private mode / quota) — chat still works in memory
+    // Storage unavailable (private mode / quota)
   }
 }
 
@@ -86,17 +87,30 @@ function clearStoredMessages() {
 }
 
 // ============================================================
-// Suggestion Chips (honest questions — the AI answers from real
-// data or explicitly says what information is missing)
+// Context-aware suggestion chips
+// Each suggestion adapts to the farmer's available data.
 // ============================================================
 
-const suggestions = [
+interface SuggestionDef {
+  icon: typeof Sprout;
+  label: string;
+  prompt: string;
+  needsData?: "farms" | "crops" | "livestock" | "weather";
+}
+
+const BASE_SUGGESTIONS: SuggestionDef[] = [
   { icon: Sprout, label: "My farms", prompt: "How are my farms doing?" },
   { icon: Cloud, label: "This week's weather", prompt: "What does this week's weather mean for my crops?" },
   { icon: Droplets, label: "Irrigation", prompt: "Should I irrigate today?" },
   { icon: TrendingUp, label: "Profit", prompt: "How can I reduce my farm expenses?" },
   { icon: AlertTriangle, label: "Risks", prompt: "What risks should I watch this week?" },
   { icon: Leaf, label: "Crop attention", prompt: "Which crop needs the most attention?" },
+];
+
+const CONTEXTUAL_SUGGESTIONS: SuggestionDef[] = [
+  { icon: Beef, label: "Livestock", prompt: "How is my livestock doing? Are any vaccinations overdue?", needsData: "livestock" },
+  { icon: BarChart3, label: "Weekly plan", prompt: "Give me a prioritized action plan for this week based on my farm data.", needsData: "farms" },
+  { icon: ThermometerSun, label: "Soil health", prompt: "How is my soil health? What should I improve?", needsData: "farms" },
 ];
 
 // ============================================================
@@ -113,13 +127,15 @@ function useEntranceVariants() {
 }
 
 // ============================================================
-// Lightweight message formatter: **bold headers** and • bullets
+// Lightweight message formatter:
+// **bold headers**, • bullets, numbered lists, > blockquotes
 // ============================================================
 
 function MessageContent({ content }: { content: string }) {
   return (
     <div className="text-sm leading-relaxed break-words">
       {content.split("\n").map((line, i) => {
+        // Bold section headers: **Header text**
         if (line.startsWith("**") && line.endsWith("**")) {
           return (
             <h3 key={i} className="text-sm font-bold mt-3 mb-1">
@@ -127,6 +143,7 @@ function MessageContent({ content }: { content: string }) {
             </h3>
           );
         }
+        // Bullet points: • item
         if (line.startsWith("• ")) {
           return (
             <div key={i} className="flex items-start gap-2 ml-2">
@@ -135,9 +152,31 @@ function MessageContent({ content }: { content: string }) {
             </div>
           );
         }
-        if (line.trim() === "") {
-          return <div key={i} className="h-2" />;
+        // Numbered lists: 1. item, 2. item, etc.
+        const numMatch = line.match(/^(\d+)\.\s+(.+)/);
+        if (numMatch) {
+          return (
+            <div key={i} className="flex items-start gap-2 ml-2">
+              <span className="text-primary font-semibold mt-0.5 shrink-0 text-xs">
+                {numMatch[1]}.
+              </span>
+              <span>{numMatch[2]}</span>
+            </div>
+          );
         }
+        // Blockquotes / source labels: > text
+        if (line.startsWith("> ")) {
+          return (
+            <div key={i} className="ml-3 pl-3 border-l-2 border-border/60 text-muted-foreground text-xs italic">
+              {line.slice(2)}
+            </div>
+          );
+        }
+        // Empty lines → spacing
+        if (line.trim() === "") {
+          return <div key={i} className="h-1.5" />;
+        }
+        // Regular text
         return (
           <p key={i} className="leading-relaxed">
             {line}
@@ -165,8 +204,7 @@ function ChatMessage({ message }: { message: Message }) {
         setTimeout(() => setCopied(false), 2000);
       })
       .catch(() => {
-        // Clipboard unavailable (permissions/secure-context) — leave the
-        // button unchanged rather than falsely claiming success.
+        // Clipboard unavailable — leave button unchanged
       });
   }, [message.content, haptic]);
 
@@ -238,18 +276,31 @@ function CheckIcon() {
 
 // ============================================================
 // Empty State — shown for a brand-new conversation
+// Adapts suggestions based on the farmer's available data.
 // ============================================================
 
 function EmptyState({
   onPick,
   farmCount,
   cropCount,
+  livestockCount,
 }: {
   onPick: (prompt: string) => void;
   farmCount: number | undefined;
   cropCount: number | undefined;
+  livestockCount: number | undefined;
 }) {
   const variants = useEntranceVariants();
+
+  // Build adaptive suggestion list
+  const allSuggestions = [...BASE_SUGGESTIONS];
+  if (livestockCount && livestockCount > 0) {
+    allSuggestions.push(CONTEXTUAL_SUGGESTIONS[0]); // Livestock
+  }
+  if (farmCount && farmCount > 0) {
+    allSuggestions.push(CONTEXTUAL_SUGGESTIONS[1]); // Weekly plan
+    allSuggestions.push(CONTEXTUAL_SUGGESTIONS[2]); // Soil health
+  }
 
   return (
     <motion.div
@@ -275,8 +326,8 @@ function EmptyState({
         className="text-sm text-muted-foreground text-center max-w-md mt-2 leading-relaxed"
       >
         FarmBond AI answers using your actual farm data — crops, livestock,
-        weather and finances. If something isn&apos;t recorded yet, it will tell
-        you honestly instead of guessing.
+        weather, soil, irrigation, and finances. If something isn&apos;t
+        recorded yet, it will tell you honestly instead of guessing.
       </motion.p>
 
       {farmCount === 0 && (
@@ -293,7 +344,7 @@ function EmptyState({
         variants={variants}
         className="flex flex-wrap justify-center gap-2 mt-6 max-w-lg"
       >
-        {suggestions.map((s, i) => {
+        {allSuggestions.map((s, i) => {
           const Icon = s.icon;
           return (
             <motion.button
@@ -322,7 +373,7 @@ const WELCOME_MESSAGE: Message = {
   id: "welcome",
   role: "assistant",
   content:
-    "Hello! I'm your FarmBond farming assistant 🌱\n\nI can help you with:\n• Farm health and performance — using your real FarmBond data\n• Crop management and pest control\n• Weather-based decisions and irrigation timing\n• Livestock care and vaccination planning\n• Farm budgeting and cost reduction\n\nAsk me about your farms, crops, or this week's weather — I'll use your recorded data and tell you honestly when information is missing.",
+    "Hello! I'm your FarmBond farming assistant 🌱\n\nI can help you with:\n• Farm health and performance — using your real FarmBond data\n• Crop management and pest control\n• Weather-based decisions and irrigation timing\n• Livestock care and vaccination planning\n• Soil health and fertility management\n• Farm budgeting and cost reduction\n• Weekly action plans based on your farm data\n\nAsk me about your farms, crops, or this week's weather — I'll use your recorded data and tell you honestly when information is missing.",
   timestamp: Date.now(),
 };
 
@@ -342,6 +393,14 @@ export default function AIAssistant() {
   const cropsRes = useQuery(api.crops.listUserCrops, {});
   const farmCount = farmsRes?.page?.length;
   const cropCount = cropsRes?.page?.length;
+
+  // Count livestock across all farms for context-aware suggestions
+  const firstFarmId = farmsRes?.page?.[0]?._id;
+  const livestockRes = useQuery(
+    api.livestock.listFarmLivestock,
+    firstFarmId ? { farmId: firstFarmId } : "skip"
+  );
+  const livestockCount = livestockRes?.page?.length;
 
   const chatWithFarmContext = useAction(api.aiAssistant.chatWithFarmContext);
 
@@ -401,8 +460,6 @@ export default function AIAssistant() {
         console.error("AI chat error:", error);
         const msg =
           error instanceof Error ? error.message : "Something went wrong";
-        // Show the server's honest message (quota / auth / provider errors),
-        // but never a fabricated AI answer.
         const assistantMessage: Message = {
           id: `e-${Date.now()}`,
           role: "assistant",
@@ -453,7 +510,7 @@ export default function AIAssistant() {
                     {farmCount === undefined
                       ? "Connecting to your farm data…"
                       : farmCount > 0
-                        ? `${farmCount} farm${farmCount === 1 ? "" : "s"} · ${cropCount ?? 0} crop${cropCount === 1 ? "" : "s"} connected`
+                        ? `${farmCount} farm${farmCount === 1 ? "" : "s"} · ${cropCount ?? 0} crop${cropCount === 1 ? "" : "s"}${livestockCount ? ` · ${livestockCount} livestock` : ""} connected`
                         : "No farm data connected yet"}
                   </span>
                 </div>
@@ -486,8 +543,6 @@ export default function AIAssistant() {
           aria-label="AI assistant conversation"
         >
           <div className="max-w-5xl mx-auto space-y-5">
-            {/* When the EmptyState is shown it replaces the welcome bubble, so
-                the intro is not duplicated. */}
             {messages
               .filter((m) => hasRealMessages || m.id !== "welcome")
               .map((message) => (
@@ -524,6 +579,7 @@ export default function AIAssistant() {
                 onPick={(prompt) => handleSend(prompt)}
                 farmCount={farmCount}
                 cropCount={cropCount}
+                livestockCount={livestockCount}
               />
             )}
 
