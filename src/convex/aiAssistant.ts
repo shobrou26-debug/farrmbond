@@ -338,7 +338,6 @@ async function buildFarmContext(ctx: ActionCtx): Promise<string> {
   const farms = farmsRes?.page ?? [];
   if (farms.length === 0) {
     parts.push("Farms: none registered yet.");
-    return parts.join("\n");
   }
 
   for (const farm of farms.slice(0, 3)) {
