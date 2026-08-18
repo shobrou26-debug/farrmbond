@@ -192,13 +192,13 @@ function EmptyState({ onPick, farmCount, cropCount, livestockCount }: {
   const variants = useEntranceVariants();
   const visible = [...PRIMARY_SUGGESTIONS];
 
-  if (cropCount && cropCount > 0) visible.push(CONTEXTUAL_SUGGESTIONS[3]); // Crop priorities
-  visible.push(CONTEXTUAL_SUGGESTIONS[3]); // Weather
-  visible.push(CONTEXTUAL_SUGGESTIONS[4]); // Irrigation
-  if (livestockCount && livestockCount > 0) visible.push(CONTEXTUAL_SUGGESTIONS[6]); // Livestock
+  if (cropCount && cropCount > 0) visible.push(CONTEXTUAL_SUGGESTIONS[1]); // Crop priorities
+  visible.push(CONTEXTUAL_SUGGESTIONS[2]); // Weather impact
+  visible.push(CONTEXTUAL_SUGGESTIONS[3]); // Irrigation
+  if (livestockCount && livestockCount > 0) visible.push(CONTEXTUAL_SUGGESTIONS[5]); // Livestock
   if (farmCount && farmCount > 0) {
-    visible.push(CONTEXTUAL_SUGGESTIONS[7]); // Soil
-    visible.push(CONTEXTUAL_SUGGESTIONS[8]); // Finances
+    visible.push(CONTEXTUAL_SUGGESTIONS[4]); // Soil health
+    visible.push(CONTEXTUAL_SUGGESTIONS[6]); // Finances
   }
 
   return (
