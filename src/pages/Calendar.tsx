@@ -1,10 +1,11 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { motion } from "framer-motion";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { api } from "@/convex/_generated/api";
 import { useTimezone } from "@/hooks/use-timezone";
+import { useMotion } from "@/hooks/use-motion";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -99,12 +100,6 @@ function getFirstDayOfMonth(year: number, month: number) {
   return new Date(year, month, 1).getDay();
 }
 
-function getWeatherCondition(tempHigh: number, humidity: number): "sunny" | "cloudy" | "rainy" | "stormy" {
-  if (humidity > 80) return "rainy";
-  if (humidity > 60) return "cloudy";
-  if (tempHigh > 35) return "stormy";
-  return "sunny";
-}
 
 // ============================================================
 // Mini Calendar Component
@@ -131,7 +126,7 @@ function MiniCalendar({
   const firstDay = getFirstDayOfMonth(year, month);
   const today = new Date();
 
-  const monthName = new Date(year, month).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const monthName = new Date(year, month).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
   const getEventsForDay = (day: number) => {
     return events.filter((e) => {
@@ -144,11 +139,11 @@ function MiniCalendar({
     <Card className="border-border/50">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <Button variant="ghost" size="icon" onClick={onPrevMonth}>
+          <Button variant="ghost" size="icon" onClick={onPrevMonth} aria-label="Previous month" className="min-h-[44px] min-w-[44px]">
             <ChevronLeft className="w-4 h-4" />
           </Button>
           <CardTitle className="text-base">{monthName}</CardTitle>
-          <Button variant="ghost" size="icon" onClick={onNextMonth}>
+          <Button variant="ghost" size="icon" onClick={onNextMonth} aria-label="Next month" className="min-h-[44px] min-w-[44px]">
             <ChevronRight className="w-4 h-4" />
           </Button>
         </div>
@@ -235,6 +230,7 @@ function EventList({
   onDelete: (id: string, title: string) => void;
   timezone: string;
 }) {
+  const prefersReducedMotion = useMotion();
   const filteredEvents = selectedDate
     ? events.filter((e) => new Date(e.startDate).toDateString() === selectedDate.toDateString())
     : events.filter((e) => !e.isCompleted).sort((a, b) => a.startDate - b.startDate);
@@ -244,7 +240,7 @@ function EventList({
       <CardHeader className="pb-3">
         <CardTitle className="text-base">
           {selectedDate
-            ? `Events for ${selectedDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+            ? `Events for ${selectedDate.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
             : "Upcoming Events"}
         </CardTitle>
       </CardHeader>
@@ -264,7 +260,7 @@ function EventList({
             return (
               <motion.div
                 key={event._id}
-                initial={{ opacity: 0, x: -10 }}
+                initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 className={`flex items-start gap-3 p-3 rounded-xl border transition-colors ${
                   event.isCompleted
@@ -285,7 +281,7 @@ function EventList({
                   </div>
                   <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                     <Clock className="w-3 h-3" />
-                    {new Date(event.startDate).toLocaleString("en-US", { timeZone: timezone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}
+                    {new Date(event.startDate).toLocaleString(undefined, { timeZone: timezone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                   </div>
                   {isOverdue && (
                     <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
@@ -299,7 +295,7 @@ function EventList({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7"
+                      className="min-h-[44px] min-w-[44px]"
                       onClick={() => onComplete(event._id)}
                       aria-label="Mark event complete"
                     >
@@ -309,7 +305,7 @@ function EventList({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7"
+                    className="min-h-[44px] min-w-[44px]"
                     onClick={() => onDelete(event._id, event.title)}
                     aria-label={`Delete event ${event.title}`}
                   >
@@ -329,15 +325,26 @@ function EventList({
 // Weather Recommendations
 // ============================================================
 
-function WeatherRecommendations({ weather }: { weather: ReturnType<typeof useWeather> }) {
-  const forecast = (weather.data?.daily || []).map((d) => ({ date: d.date, tempHigh: d.tempMax, humidity: 50, precipitation: d.precipitationSum }));
+function WeatherRecommendations({ weather, timezone }: { weather: ReturnType<typeof useWeather>; timezone: string }) {
+  const forecast = (weather.data?.daily || []).slice(0, 7).map((d) => ({
+    date: d.date,
+    tempMax: d.tempMax,
+    tempMin: d.tempMin,
+    precipitation: d.precipitationSum,
+    precipProbability: d.precipitationProbabilityMax,
+    windSpeed: d.windSpeedMax,
+    uvIndex: d.uvIndexMax,
+    weatherCode: d.weatherCode,
+  }));
   const today = new Date();
 
-  const upcomingForecast = forecast;
-
-  const goodPlantingDays = upcomingForecast.filter((w: { tempHigh: number; humidity: number }) => w.humidity < 70 && w.tempHigh > 18);
-  const goodHarvestDays = upcomingForecast.filter((w: { humidity: number }) => w.humidity < 60);
-  const rainyDays = upcomingForecast.filter((w: { humidity: number }) => w.humidity > 75);
+  // Recommendations based on ACTUAL forecast data — not fabricated humidity.
+  // Planting: warm enough (tempMax > 18°C) + low rain probability (< 40%)
+  const goodPlantingDays = forecast.filter((w) => w.tempMax > 18 && w.precipProbability < 40);
+  // Harvesting: dry conditions (precipitation < 1mm + probability < 30%)
+  const goodHarvestDays = forecast.filter((w) => w.precipitation < 1 && w.precipProbability < 30);
+  // Rain expected: meaningful precipitation or high probability
+  const rainyDays = forecast.filter((w) => w.precipitation > 2 || w.precipProbability > 60);
 
   return (
     <Card className="border-border/50">
@@ -355,9 +362,9 @@ function WeatherRecommendations({ weather }: { weather: ReturnType<typeof useWea
           </div>
           {goodPlantingDays.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {goodPlantingDays.map((_: unknown, i: number) => (
+              {goodPlantingDays.map((w, i) => (
                 <Badge key={i} variant="secondary" className="bg-green-500/10 text-green-700">
-                  {new Date(today.getTime() + (i + 1) * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", { weekday: "short", day: "numeric" })}
+                  {new Date(w.date).toLocaleDateString(undefined, { weekday: "short", day: "numeric" })}
                 </Badge>
               ))}
             </div>
@@ -373,9 +380,9 @@ function WeatherRecommendations({ weather }: { weather: ReturnType<typeof useWea
           </div>
           {goodHarvestDays.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {goodHarvestDays.map((_: unknown, i: number) => (
+              {goodHarvestDays.map((w, i) => (
                 <Badge key={i} variant="secondary" className="bg-amber-500/10 text-amber-700">
-                  {new Date(today.getTime() + (i + 1) * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", { weekday: "short", day: "numeric" })}
+                  {new Date(w.date).toLocaleDateString(undefined, { weekday: "short", day: "numeric" })}
                 </Badge>
               ))}
             </div>
@@ -396,21 +403,21 @@ function WeatherRecommendations({ weather }: { weather: ReturnType<typeof useWea
           </div>
         )}
 
-        {upcomingForecast.length > 0 && (
+        {forecast.length > 0 && (
           <div>
             <h4 className="text-sm font-semibold mb-2">7-Day Forecast</h4>
             <div className="grid grid-cols-7 gap-1">
-              {upcomingForecast.map((w: { humidity: number; tempHigh: number }, i: number) => {
-                const condition = getWeatherCondition(w.tempHigh, w.humidity);
+              {forecast.map((w, i) => {
+                const condition = w.precipitation > 5 ? "rainy" : w.precipProbability > 50 ? "cloudy" : w.tempMax > 35 ? "stormy" : "sunny";
                 return (
                   <div key={i} className="text-center p-1 rounded-lg bg-muted/30">
                     <p className="text-[10px] text-muted-foreground">
-                      {new Date(today.getTime() + (i + 1) * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", { weekday: "short" })}
+                      {new Date(w.date).toLocaleDateString(undefined, { weekday: "short" })}
                     </p>
                     <p className="text-sm my-0.5">
                       {condition === "sunny" ? "☀️" : condition === "rainy" ? "🌧️" : condition === "cloudy" ? "☁️" : "⛈️"}
                     </p>
-                    <p className="text-[10px] font-medium">{Math.round(w.tempHigh)}°</p>
+                    <p className="text-[10px] font-medium">{Math.round(w.tempMax)}°</p>
                   </div>
                 );
               })}
@@ -454,6 +461,7 @@ export default function Calendar() {
     reminderDaysBefore: "",
   });
   const [eventFormError, setEventFormError] = useState<string | null>(null);
+  const prefersReducedMotion = useMotion();
 
   // Real weather data
   const weather = useWeather();
@@ -544,32 +552,46 @@ export default function Calendar() {
     <AppLayout>
       <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
         {/* Header */}
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">Farm Calendar</h1>
-              <p className="text-muted-foreground mt-1">Plan and track your farming activities with weather insights</p>
+        <motion.div
+          initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5 }}
+          className="mb-8"
+        >
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-900 via-emerald-800 to-green-900 p-6 md:p-8 text-white">
+            <div className="absolute inset-0 opacity-10">
+              <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-emerald-400 blur-3xl" />
+              <div className="absolute -bottom-8 -left-8 w-36 h-36 rounded-full bg-lime-400 blur-3xl" />
             </div>
-            <Button
-              className="gradient-primary"
-              onClick={() => {
-                setEventForm((f) => ({ ...f, farmId: farms?.[0]?._id ?? "" }));
-                setShowAddModal(true);
-              }}
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Add Event
-            </Button>
+            <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h1 className="text-3xl font-bold tracking-tight">Farm Calendar</h1>
+                <p className="text-emerald-100/80 mt-1">Plan and track your farming activities with weather insights</p>
+              </div>
+              <Button
+                className="gradient-primary min-h-[44px]"
+                onClick={() => {
+                  setEventForm((f) => ({ ...f, farmId: farms?.[0]?._id ?? "" }));
+                  setShowAddModal(true);
+                }}
+                aria-label="Add new calendar event"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add Event
+              </Button>
+            </div>
           </div>
         </motion.div>
 
         {/* Event Type Filters */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }} className="mb-6">
+        <motion.div initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5, delay: 0.1 }} className="mb-6">
           <div className="flex flex-wrap gap-2">
             <Button
               variant={filterType === "all" ? "default" : "outline"}
               size="sm"
               onClick={() => setFilterType("all")}
+              aria-pressed={filterType === "all"}
+              className="min-h-[44px]"
             >
               All Events
             </Button>
@@ -582,7 +604,8 @@ export default function Calendar() {
                   variant={filterType === type ? "default" : "outline"}
                   size="sm"
                   onClick={() => setFilterType(type)}
-                  className="gap-1.5"
+                  aria-pressed={filterType === type}
+                  className="gap-1.5 min-h-[44px]"
                 >
                   <Icon className="w-3.5 h-3.5" />
                   {config.label}
@@ -595,7 +618,7 @@ export default function Calendar() {
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.2 }}>
+            <motion.div initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5, delay: 0.2 }}>
               {isLoading ? (
                 <Card className="border-border/50">
                   <CardContent className="p-6 space-y-4">
@@ -620,7 +643,7 @@ export default function Calendar() {
               )}
             </motion.div>
 
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.3 }}>
+            <motion.div initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5, delay: 0.3 }}>
               {isLoading ? (
                 <Card className="border-border/50">
                   <CardContent className="p-6 space-y-3">
@@ -642,11 +665,11 @@ export default function Calendar() {
           </div>
 
           <div className="space-y-6">
-            <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.4 }}>
-              <WeatherRecommendations weather={weather} />
+            <motion.div initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5, delay: 0.4 }}>
+              <WeatherRecommendations weather={weather} timezone={timezone} />
             </motion.div>
 
-            <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.5 }}>
+            <motion.div initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5, delay: 0.5 }}>
               <Card className="border-border/50">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">Quick Stats</CardTitle>
