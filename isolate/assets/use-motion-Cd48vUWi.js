@@ -1,0 +1,1 @@
+import{r}from"./framer-motion-C9bEhpGk.js";const n="(prefers-reduced-motion: reduce)";function a(){const[s,o]=r.useState(()=>typeof window>"u"?!1:window.matchMedia(n).matches);return r.useEffect(()=>{const e=window.matchMedia(n),t=c=>o(c.matches);return e.addEventListener("change",t),()=>e.removeEventListener("change",t)},[]),s}export{a as u};
