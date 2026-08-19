@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
@@ -6,6 +6,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { api } from "@/convex/_generated/api";
 import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { useAuth } from "@/hooks/use-auth";
+import { useMotion } from "@/hooks/use-motion";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,7 @@ type Post = {
   likes: number;
   comments: number;
   shares: number;
+  authorId: string;
   authorName: string;
   authorRole: string;
   authorImage?: string;
@@ -120,6 +122,9 @@ export default function Community() {
   const [reportReason, setReportReason] = useState(REPORT_REASONS[0]);
   const [reportCustom, setReportCustom] = useState("");
   const [reportBusy, setReportBusy] = useState(false);
+  const [deleteCommentId, setDeleteCommentId] = useState<string | null>(null);
+  const deleteComment = useMutation(api.community.deleteComment);
+  const prefersReducedMotion = useMotion();
 
   const filteredPosts = useMemo(
     () =>
@@ -160,6 +165,17 @@ export default function Community() {
       toast.error(err instanceof Error ? err.message : "Failed to post");
     }
   };
+
+  const handleDeleteComment = useCallback(async (commentId: string) => {
+    if (!window.confirm("Delete this comment?")) return;
+    try {
+      await deleteComment({ commentId: commentId as Id<"communityComments"> });
+      toast.success("Comment deleted");
+      setDeleteCommentId(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete comment");
+    }
+  }, [deleteComment]);
 
   const handleLike = async (post: Post) => {
     try {
@@ -234,9 +250,22 @@ export default function Community() {
   return (
     <AppLayout>
       <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto">
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">Community</h1>
-          <p className="text-muted-foreground mt-1">Connect with farmers and agricultural experts</p>
+        <motion.div
+          initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5 }}
+          className="mb-8"
+        >
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-900 via-emerald-800 to-green-900 p-6 md:p-8 text-white">
+            <div className="absolute inset-0 opacity-10">
+              <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-emerald-400 blur-3xl" />
+              <div className="absolute -bottom-8 -left-8 w-36 h-36 rounded-full bg-lime-400 blur-3xl" />
+            </div>
+            <div className="relative">
+              <h1 className="text-3xl font-bold tracking-tight">Community</h1>
+              <p className="text-emerald-100/80 mt-1">Connect with farmers and agricultural experts</p>
+            </div>
+          </div>
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -251,7 +280,8 @@ export default function Community() {
                       <button
                         key={cat.value}
                         onClick={() => setActiveCategory(cat.value)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                        aria-pressed={activeCategory === cat.value}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-xl text-sm font-medium transition-colors ${
                           activeCategory === cat.value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
                         }`}
                       >
@@ -349,14 +379,14 @@ export default function Community() {
                 ))}
               </div>
             ) : filteredPosts.length === 0 ? (
-              <div className="text-center py-16">
+              <div className="text-center py-16" role="status">
                 <MessageSquare className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
                 <h3 className="text-lg font-medium">No posts yet</h3>
                 <p className="text-muted-foreground mt-1">Be the first to start a discussion in this category</p>
               </div>
             ) : (
               filteredPosts.map((post) => (
-                <motion.div key={post._id} variants={itemVariants}>
+                <motion.div key={post._id} variants={prefersReducedMotion ? undefined : itemVariants}>
                   <Card className="border-border/50 card-hover">
                     <CardContent className="p-5">
                       <div className="flex items-start gap-3 mb-4">
@@ -371,8 +401,8 @@ export default function Community() {
                           </div>
                           <p className="text-xs text-muted-foreground">{timeAgo(post.createdAt)}</p>
                         </div>
-                        {post.authorName === (user?.name || "Farmer") && (
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-500" onClick={() => handleDeletePost(post)}>
+                        {post.authorId === user?._id && (
+                          <Button variant="ghost" size="icon" className="min-h-[44px] min-w-[44px] text-muted-foreground hover:text-red-500" onClick={() => handleDeletePost(post)} aria-label="Delete this post">
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         )}
@@ -390,8 +420,9 @@ export default function Community() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className={`${post.likedByMe ? "text-red-500" : "text-muted-foreground hover:text-red-500"}`}
+                          className={`min-h-[44px] ${post.likedByMe ? "text-red-500" : "text-muted-foreground hover:text-red-500"}`}
                           onClick={() => handleLike(post)}
+                          aria-label={post.likedByMe ? `Unlike (${post.likes} likes)` : `Like (${post.likes} likes)`}
                         >
                           <Heart className={`w-4 h-4 mr-1 ${post.likedByMe ? "fill-current" : ""}`} />
                           {post.likes}
@@ -399,21 +430,23 @@ export default function Community() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="text-muted-foreground"
+                          className="min-h-[44px] text-muted-foreground"
                           onClick={() => setExpandedPost(expandedPost === post._id ? null : post._id)}
+                          aria-expanded={expandedPost === post._id}
+                          aria-label={`${post.comments} comments`}
                         >
                           <MessageCircle className="w-4 h-4 mr-1" />
                           {post.comments}
                         </Button>
-                        <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => handleShare(post)}>
+                        <Button variant="ghost" size="sm" className="min-h-[44px] text-muted-foreground" onClick={() => handleShare(post)} aria-label="Share this post">
                           <Share2 className="w-4 h-4 mr-1" />Share
                         </Button>
-                        {post.authorName !== (user?.name || "Farmer") && (
+                        {post.authorId !== user?._id && (
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="text-muted-foreground hover:text-amber-600 ml-auto"
-                            title="Report this post"
+                            className="min-h-[44px] text-muted-foreground hover:text-amber-600 ml-auto"
+                            aria-label="Report this post"
                             onClick={() => openReport(post)}
                           >
                             <Flag className="w-4 h-4 mr-1" />Report
@@ -423,7 +456,7 @@ export default function Community() {
 
                       {/* Comments */}
                       {expandedPost === post._id && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="mt-4 pt-4 border-t border-border/50 space-y-3">
+                        <motion.div initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} transition={prefersReducedMotion ? { duration: 0 } : undefined} className="mt-4 pt-4 border-t border-border/50 space-y-3">
                           {(comments ?? []).length === 0 ? (
                             <p className="text-xs text-muted-foreground">No comments yet</p>
                           ) : (
@@ -434,7 +467,18 @@ export default function Community() {
                                   <AvatarFallback className="bg-muted text-xs">{comment.authorName.charAt(0)}</AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1 rounded-xl bg-muted/40 p-3">
-                                  <p className="text-xs font-medium">{comment.authorName}</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-xs font-medium">{comment.authorName}</p>
+                                    {comment.authorId === user?._id && (
+                                      <button
+                                        onClick={() => handleDeleteComment(comment._id)}
+                                        className="text-xs text-muted-foreground hover:text-red-500 min-h-[44px] min-w-[44px] flex items-center justify-center -m-2"
+                                        aria-label="Delete this comment"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </div>
                                   <p className="text-sm mt-0.5">{comment.content}</p>
                                 </div>
                               </div>
@@ -446,7 +490,7 @@ export default function Community() {
                               value={commentText[post._id] || ""}
                               onChange={(e) => setCommentText((prev) => ({ ...prev, [post._id]: e.target.value }))}
                             />
-                            <Button size="sm" className="gradient-primary" onClick={() => handleAddComment(post._id)}>Send</Button>
+                            <Button size="sm" className="gradient-primary min-h-[44px]" onClick={() => handleAddComment(post._id)} aria-label="Submit comment">Send</Button>
                           </div>
                         </motion.div>
                       )}
@@ -458,7 +502,7 @@ export default function Community() {
 
             {canLoadMore && (
               <div ref={sentinelRef} className="h-10 flex items-center justify-center">
-                <Button variant="ghost" size="sm" onClick={loadMore}>Load more posts</Button>
+                <Button variant="ghost" size="sm" className="min-h-[44px]" onClick={loadMore}>Load more posts</Button>
               </div>
             )}
           </motion.div>

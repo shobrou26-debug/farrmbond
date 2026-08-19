@@ -91,6 +91,7 @@ export const listPosts = query({
           .first();
         return {
           ...post,
+          authorId: post.userId,
           authorName: author?.name ?? "Farmer",
           authorRole: author?.role ?? "farmer",
           authorImage: author?.image,
@@ -277,6 +278,7 @@ export const listComments = query({
         const author = comment.userId ? await ctx.db.get(comment.userId) : null;
         return {
           ...comment,
+          authorId: comment.userId,
           authorName: author?.name ?? "Farmer",
           authorImage: author?.image,
           authorRole: author?.role ?? "farmer",
@@ -289,6 +291,42 @@ export const listComments = query({
 });
 
 /** Share count increment (Web Share API / copy link) */
+/** Delete a comment (owner only, or any admin) */
+export const deleteComment = mutation({
+  args: { commentId: v.id("communityComments") },
+  handler: async (ctx, args) => {
+    const { userId } = await requireAuth(ctx);
+    const user = await ctx.db.get(userId);
+    const comment = await ctx.db.get(args.commentId);
+    if (!comment) throw new Error("Comment not found");
+
+    const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+    if (comment.userId !== userId && !isAdmin) {
+      throw new Error("You can only delete your own comments");
+    }
+
+    // Decrement comment count on the parent post
+    const post = await ctx.db.get(comment.postId);
+    if (post) {
+      await ctx.db.patch(comment.postId, {
+        comments: Math.max(0, post.comments - 1),
+      });
+    }
+
+    await ctx.db.delete(args.commentId);
+
+    await createAuditLog(ctx, {
+      userId,
+      action: "comment_deleted",
+      resource: "communityComments",
+      resourceId: args.commentId,
+      changes: { postId: comment.postId },
+    });
+
+    return true;
+  },
+});
+
 export const incrementShareCount = mutation({
   args: { postId: v.id("communityPosts") },
   handler: async (ctx, args) => {
