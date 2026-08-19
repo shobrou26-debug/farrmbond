@@ -20,7 +20,6 @@ import {
   Award,
   Lightbulb,
   Download,
-  RefreshCw,
   X,
   Plus,
   Sprout,
@@ -107,7 +106,19 @@ function ComparisonSkeleton() {
 // ============================================================
 
 export default function FarmComparison() {
-  const { format } = useCurrency();
+  const { format, currency } = useCurrency();
+
+// ============================================================
+// CSV escaping utility (RFC 4180)
+// ============================================================
+
+function escapeCSV(value: string | number | null | undefined): string {
+  const str = String(value ?? "N/A");
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
   const prefersReducedMotion = useMotion();
   const rawData = useQuery(api.farms.getFarmComparisonData);
   const [selectedFarms, setSelectedFarms] = useState<string[]>([]);
@@ -218,20 +229,34 @@ export default function FarmComparison() {
     if (selectedData.length === 0 || isExporting) return;
     setIsExporting(true);
     try {
-      const headers = ["Farm", "Revenue", "Expenses", "Profit", "Profit Margin %", "Revenue/Ha", "Active Crops", "Crop Health %", "Livestock", "Livestock Health %", "Soil Health", "NDVI"];
+      const cur = currency ?? "KES";
+      const headers = [
+        "Farm",
+        `Revenue (${cur})`,
+        `Expenses (${cur})`,
+        `Profit (${cur})`,
+        "Profit Margin %",
+        `Revenue/Ha (${cur})`,
+        "Active Crops",
+        "Crop Health %",
+        "Livestock",
+        "Livestock Health %",
+        "Soil Health",
+        "NDVI",
+      ];
       const rows = selectedData.map(({ farm, metrics }) => [
-        farm.name,
-        metrics.revenue,
-        metrics.expenses,
-        metrics.profit,
-        metrics.profitMargin.toFixed(1),
-        metrics.revenuePerHectare.toFixed(2),
-        metrics.activeCrops,
-        metrics.cropHealth ?? "N/A",
-        metrics.livestockCount,
-        metrics.livestockHealth,
-        metrics.soilHealth ?? "N/A",
-        metrics.ndvi ?? "N/A",
+        escapeCSV(farm.name),
+        escapeCSV(metrics.revenue),
+        escapeCSV(metrics.expenses),
+        escapeCSV(metrics.profit),
+        escapeCSV(metrics.profitMargin.toFixed(1)),
+        escapeCSV(metrics.revenuePerHectare.toFixed(2)),
+        escapeCSV(metrics.activeCrops),
+        escapeCSV(metrics.cropHealth ?? "N/A"),
+        escapeCSV(metrics.livestockCount),
+        escapeCSV(metrics.livestockHealth),
+        escapeCSV(metrics.soilHealth ?? "N/A"),
+        escapeCSV(metrics.ndvi ?? "N/A"),
       ]);
       const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
       const blob = new Blob([csv], { type: "text/csv" });
@@ -246,11 +271,7 @@ export default function FarmComparison() {
     }
   }, [selectedData, isExporting]);
 
-  // Refresh — re-fetch the Convex query (invalidate cache)
-  const handleRefresh = useCallback(() => {
-    // Convex queries are reactive; toggling a dummy state forces re-render
-    setSelectedFarms((prev) => [...prev]);
-  }, []);
+
 
   const MetricBar = ({
     label,
@@ -353,16 +374,7 @@ export default function FarmComparison() {
                   <Download className="w-4 h-4 mr-2" />
                   {isExporting ? "Exporting…" : "Export"}
                 </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleRefresh}
-                  aria-label="Refresh comparison data"
-                  className="min-h-[44px] bg-white/15 hover:bg-white/25 text-white border-white/20"
-                >
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Refresh
-                </Button>
+                <span className="text-xs text-emerald-100/60 self-center">Live data</span>
               </div>
             </div>
           </div>
