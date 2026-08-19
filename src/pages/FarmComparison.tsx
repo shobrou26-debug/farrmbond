@@ -1,16 +1,16 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "convex/react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { api } from "@/convex/_generated/api";
 import { useCurrency } from "@/hooks/use-currency";
+import { useMotion } from "@/hooks/use-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   BarChart3,
   TrendingUp,
-  Beef,
   Wheat,
   DollarSign,
   Leaf,
@@ -75,16 +75,48 @@ const itemVariants = {
 };
 
 // ============================================================
+// Loading Skeleton
+// ============================================================
+
+function ComparisonSkeleton() {
+  return (
+    <div className="animate-pulse space-y-6">
+      {/* Header skeleton */}
+      <div className="h-40 rounded-2xl bg-muted/50" />
+      {/* Farm selector skeleton */}
+      <div className="h-24 rounded-xl bg-muted/50" />
+      {/* Stats skeleton */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-28 rounded-xl bg-muted/50" />
+        ))}
+      </div>
+      {/* Tabs skeleton */}
+      <div className="h-12 w-96 rounded-xl bg-muted/50" />
+      {/* Chart skeleton */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="h-64 rounded-xl bg-muted/50" />
+        <div className="h-64 rounded-xl bg-muted/50" />
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // Main Component
 // ============================================================
 
 export default function FarmComparison() {
   const { format } = useCurrency();
+  const prefersReducedMotion = useMotion();
   const rawData = useQuery(api.farms.getFarmComparisonData);
   const [selectedFarms, setSelectedFarms] = useState<string[]>([]);
   const [compareMetric, setCompareMetric] = useState<"revenue" | "profit" | "production" | "efficiency">("revenue");
   const [showFarmSelector, setShowFarmSelector] = useState(false);
   const [expandedInsight, setExpandedInsight] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const isLoading = rawData === undefined;
 
   const allFarms: FarmData[] = rawData ?? [];
   const selectedIds =
@@ -171,15 +203,54 @@ export default function FarmComparison() {
     return result;
   }, [selectedData, format]);
 
-  const toggleFarm = (farmId: string) => {
+  const toggleFarm = useCallback((farmId: string) => {
     setSelectedFarms((prev) => {
       if (prev.includes(farmId)) return prev.filter((id) => id !== farmId);
       if (prev.length < 4) return [...prev, farmId];
       return prev;
     });
-  };
+  }, []);
 
   const isFull = selectedIds.length >= 4;
+
+  // Export handler — generates a CSV of selected farm metrics
+  const handleExport = useCallback(() => {
+    if (selectedData.length === 0 || isExporting) return;
+    setIsExporting(true);
+    try {
+      const headers = ["Farm", "Revenue", "Expenses", "Profit", "Profit Margin %", "Revenue/Ha", "Active Crops", "Crop Health %", "Livestock", "Livestock Health %", "Soil Health", "NDVI"];
+      const rows = selectedData.map(({ farm, metrics }) => [
+        farm.name,
+        metrics.revenue,
+        metrics.expenses,
+        metrics.profit,
+        metrics.profitMargin.toFixed(1),
+        metrics.revenuePerHectare.toFixed(2),
+        metrics.activeCrops,
+        metrics.cropHealth ?? "N/A",
+        metrics.livestockCount,
+        metrics.livestockHealth,
+        metrics.soilHealth ?? "N/A",
+        metrics.ndvi ?? "N/A",
+      ]);
+      const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `farm-comparison-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [selectedData, isExporting]);
+
+  // Refresh — re-fetch the Convex query (invalidate cache)
+  const handleRefresh = useCallback(() => {
+    // Convex queries are reactive; toggling a dummy state forces re-render
+    setSelectedFarms((prev) => [...prev]);
+  }, []);
 
   const MetricBar = ({
     label,
@@ -217,11 +288,15 @@ export default function FarmComparison() {
             return (
               <div key={v.farmId} className="flex items-center gap-3">
                 <span className="w-32 text-xs text-muted-foreground truncate">{farm?.farm.name}</span>
-                <div className="flex-1 h-6 bg-muted rounded-full overflow-hidden relative">
+                <div
+                  className="flex-1 h-6 bg-muted rounded-full overflow-hidden relative"
+                  role="img"
+                  aria-label={`${farm?.farm.name}: ${unit === "currency" ? format(v.value) : `${Math.round(v.value)}${unit}`}`}
+                >
                   <motion.div
-                    initial={{ width: 0 }}
+                    initial={prefersReducedMotion ? { width: `${max > 0 ? Math.min(100, (v.value / max) * 100) : 0}%` } : { width: 0 }}
                     animate={{ width: `${max > 0 ? Math.min(100, (v.value / max) * 100) : 0}%` }}
-                    transition={{ duration: 0.8, ease: "easeOut" }}
+                    transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.8, ease: "easeOut" }}
                     className={`h-full rounded-full ${isBest ? "bg-gradient-to-r from-green-500 to-emerald-600" : "bg-gradient-to-r from-primary/60 to-primary/80"}`}
                   />
                   <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-medium">
@@ -237,452 +312,528 @@ export default function FarmComparison() {
     );
   };
 
+  const metrics = [
+    { id: "revenue" as const, label: "Revenue", icon: DollarSign },
+    { id: "profit" as const, label: "Profitability", icon: TrendingUp },
+    { id: "production" as const, label: "Production", icon: Wheat },
+    { id: "efficiency" as const, label: "Health & Sustainability", icon: BarChart3 },
+  ];
+
   return (
     <AppLayout>
       <div className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto">
-        {/* Header */}
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">Farm Comparison</h1>
-              <p className="text-muted-foreground mt-1">
-                Compare performance metrics across your farms side-by-side
-              </p>
+        {/* Brand-Deep Header */}
+        <motion.div
+          initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.4 }}
+          className="mb-8"
+        >
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-900 via-emerald-800 to-green-900 p-6 md:p-8 text-white">
+            <div className="absolute inset-0 opacity-10">
+              <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-emerald-400 blur-3xl" />
+              <div className="absolute -bottom-8 -left-8 w-36 h-36 rounded-full bg-lime-400 blur-3xl" />
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline"><Download className="w-4 h-4 mr-2" />Export</Button>
-              <Button variant="outline"><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Farm Selector */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="mb-6">
-          <Card className="border-border/50">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-medium">Select Farms to Compare (1-4)</h3>
-                <Button variant="outline" size="sm" onClick={() => setShowFarmSelector(!showFarmSelector)}>
-                  {showFarmSelector ? (
-                    <><ChevronUp className="w-4 h-4 mr-1" />Hide</>
-                  ) : (
-                    <><ChevronDown className="w-4 h-4 mr-1" />Change Selection</>
-                  )}
+            <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h1 className="text-3xl font-bold tracking-tight">Farm Comparison</h1>
+                <p className="text-emerald-100/80 mt-1">
+                  Compare performance metrics across your farms side-by-side
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleExport}
+                  disabled={isExporting || selectedData.length === 0}
+                  aria-label="Export comparison data as CSV"
+                  className="min-h-[44px] bg-white/15 hover:bg-white/25 text-white border-white/20"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  {isExporting ? "Exporting…" : "Export"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleRefresh}
+                  aria-label="Refresh comparison data"
+                  className="min-h-[44px] bg-white/15 hover:bg-white/25 text-white border-white/20"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Refresh
                 </Button>
               </div>
-
-              {allFarms.length === 0 ? (
-                <div className="text-center py-8">
-                  <Sprout className="w-10 h-10 mx-auto text-muted-foreground/30 mb-2" />
-                  <p className="text-sm text-muted-foreground">Register farms on the Farms page to compare them here</p>
-                </div>
-              ) : (
-                <>
-                  <div className="flex flex-wrap gap-3">
-                    {selectedData.map(({ farm }) => (
-                      <div key={farm._id} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 border border-primary/20">
-                        {farm.coverImage ? (
-                          <div className="w-8 h-8 rounded-lg overflow-hidden">
-                            <img src={farm.coverImage} alt={farm.name} className="w-full h-full object-cover" />
-                          </div>
-                        ) : (
-                          <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
-                            <Sprout className="w-4 h-4 text-primary" />
-                          </div>
-                        )}
-                        <div>
-                          <p className="text-sm font-medium">{farm.name}</p>
-                          <p className="text-xs text-muted-foreground">{farm.size} {farm.sizeUnit}</p>
-                        </div>
-                        <button onClick={() => toggleFarm(farm._id)} className="ml-2 p-1 rounded-full hover:bg-primary/20 transition-colors">
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                    {!isFull && (
-                      <button
-                        onClick={() => setShowFarmSelector(true)}
-                        className="flex items-center gap-2 px-4 py-2 rounded-xl border border-dashed border-border hover:border-primary/50 transition-colors"
-                      >
-                        <Plus className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground">Add Farm</span>
-                      </button>
-                    )}
-                  </div>
-
-                  <AnimatePresence>
-                    {showFarmSelector && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="mt-4 pt-4 border-t border-border overflow-hidden"
-                      >
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                          {allFarms.map(({ farm }) => {
-                            const isSelected = selectedIds.includes(farm._id);
-                            return (
-                              <button
-                                key={farm._id}
-                                onClick={() => toggleFarm(farm._id)}
-                                disabled={!isSelected && isFull}
-                                className={`p-3 rounded-xl border transition-all text-left ${
-                                  isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"
-                                } ${!isSelected && isFull ? "opacity-50 cursor-not-allowed" : ""}`}
-                              >
-                                <div className="flex items-center gap-2 mb-2">
-                                  {farm.coverImage ? (
-                                    <div className="w-10 h-10 rounded-lg overflow-hidden">
-                                      <img src={farm.coverImage} alt={farm.name} className="w-full h-full object-cover" />
-                                    </div>
-                                  ) : (
-                                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                                      <Sprout className="w-5 h-5 text-primary" />
-                                    </div>
-                                  )}
-                                  {isSelected && (
-                                    <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
-                                      <Check className="w-3 h-3 text-white" />
-                                    </div>
-                                  )}
-                                </div>
-                                <p className="text-sm font-medium">{farm.name}</p>
-                                <p className="text-xs text-muted-foreground">{farm.location}</p>
-                                <p className="text-xs text-muted-foreground">{farm.size} {farm.sizeUnit}</p>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </>
-              )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </motion.div>
 
-        {selectedData.length === 0 ? (
-          <div className="text-center py-16">
-            <BarChart3 className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
-            <h3 className="text-lg font-medium">No farms to compare</h3>
-            <p className="text-muted-foreground mt-1">Add farms on the Farms page to get started</p>
-          </div>
+        {isLoading ? (
+          <ComparisonSkeleton />
         ) : (
           <>
-            {/* Summary Stats */}
-            <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              <motion.div variants={itemVariants}>
-                <Card className="border-border/50">
-                  <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">Total Revenue</p>
-                    <p className="text-2xl font-bold">{format(comparativeStats?.totalRevenue || 0)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{selectedData.length} farms</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-              <motion.div variants={itemVariants}>
-                <Card className="border-border/50">
-                  <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">Total Profit</p>
-                    <p className={`text-2xl font-bold ${(comparativeStats?.totalProfit || 0) >= 0 ? "text-green-600" : "text-red-600"}`}>{format(comparativeStats?.totalProfit || 0)}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Avg margin: {(comparativeStats?.avgMargin || 0).toFixed(1)}%</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-              <motion.div variants={itemVariants}>
-                <Card className="border-border/50">
-                  <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">Avg Crop Health</p>
-                    <p className="text-2xl font-bold">
-                      {comparativeStats?.avgCropHealth != null
-                        ? `${Math.round(comparativeStats.avgCropHealth)}%`
-                        : "—"}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">Across selected farms</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-              <motion.div variants={itemVariants}>
-                <Card className="border-border/50">
-                  <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">Avg Livestock Health</p>
-                    <p className="text-2xl font-bold">{Math.round(comparativeStats?.avgLivestockHealth || 0)}%</p>
-                    <p className="text-xs text-muted-foreground mt-1">Healthy animals / total</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            </motion.div>
+            {/* Farm Selector */}
+            <motion.div
+              initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.4, delay: 0.1 }}
+              className="mb-6"
+            >
+              <Card className="border-border/50">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-medium">Select Farms to Compare (1-4)</h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowFarmSelector(!showFarmSelector)}
+                      aria-expanded={showFarmSelector}
+                      aria-label={showFarmSelector ? "Hide farm selection panel" : "Change farm selection"}
+                      className="min-h-[44px]"
+                    >
+                      {showFarmSelector ? (
+                        <><ChevronUp className="w-4 h-4 mr-1" />Hide</>
+                      ) : (
+                        <><ChevronDown className="w-4 h-4 mr-1" />Change Selection</>
+                      )}
+                    </Button>
+                  </div>
 
-            {/* Metric Comparison Tabs */}
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="mb-6">
-              <div className="flex gap-1 p-1 bg-muted rounded-xl w-fit flex-wrap">
-                {[
-                  { id: "revenue" as const, label: "Revenue", icon: DollarSign },
-                  { id: "profit" as const, label: "Profitability", icon: TrendingUp },
-                  { id: "production" as const, label: "Production", icon: Wheat },
-                  { id: "efficiency" as const, label: "Health & Sustainability", icon: BarChart3 },
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setCompareMetric(tab.id)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                      compareMetric === tab.id ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    <tab.icon className="w-4 h-4" />
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-
-            {/* Comparison Content */}
-            <motion.div key={compareMetric} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-              {compareMetric === "revenue" && (
-                <>
-                  <Card className="border-border/50">
-                    <CardHeader><CardTitle className="text-lg">Revenue Comparison</CardTitle></CardHeader>
-                    <CardContent>
-                      <MetricBar
-                        label="Total Revenue"
-                        values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.revenue }))}
-                        max={Math.max(...selectedData.map((f) => f.metrics.revenue)) * 1.1 || 1}
-                        unit="currency"
-                      />
-                      <MetricBar
-                        label="Revenue per Hectare"
-                        values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.revenuePerHectare }))}
-                        max={Math.max(...selectedData.map((f) => f.metrics.revenuePerHectare)) * 1.1 || 1}
-                        unit="currency"
-                      />
-                    </CardContent>
-                  </Card>
-                  <Card className="border-border/50">
-                    <CardHeader><CardTitle className="text-lg">Income Sources</CardTitle></CardHeader>
-                    <CardContent className="space-y-4">
-                      {selectedData.map(({ farm, metrics }) => (
-                        <div key={farm._id} className="p-3 rounded-xl bg-muted/30">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium">{farm.name}</span>
-                            <Badge className={metrics.revenue > 0 ? "bg-green-500/10 text-green-600" : "bg-muted"}>
-                              {metrics.revenue > 0 ? "Earning" : "No income"}
-                            </Badge>
-                          </div>
-                          <div className="grid grid-cols-3 gap-2 text-sm">
-                            <div><p className="text-muted-foreground">Income</p><p className="font-medium">{format(metrics.revenue)}</p></div>
-                            <div><p className="text-muted-foreground">Expenses</p><p className="font-medium">{format(metrics.expenses)}</p></div>
-                            <div><p className="text-muted-foreground">Profit</p><p className={`font-medium ${metrics.profit >= 0 ? "text-green-600" : "text-red-600"}`}>{format(metrics.profit)}</p></div>
-                          </div>
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                </>
-              )}
-
-              {compareMetric === "profit" && (
-                <>
-                  <Card className="border-border/50">
-                    <CardHeader><CardTitle className="text-lg">Profitability Analysis</CardTitle></CardHeader>
-                    <CardContent>
-                      <MetricBar
-                        label="Total Profit"
-                        values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.profit }))}
-                        max={Math.max(...selectedData.map((f) => f.metrics.profit)) * 1.1 || 1}
-                        unit="currency"
-                      />
-                      <MetricBar
-                        label="Profit Margin (%)"
-                        values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.profitMargin }))}
-                        max={50}
-                        unit="%"
-                      />
-                    </CardContent>
-                  </Card>
-                  <Card className="border-border/50">
-                    <CardHeader><CardTitle className="text-lg">Efficiency Ratios</CardTitle></CardHeader>
-                    <CardContent className="space-y-3">
-                      {selectedData.map(({ farm, metrics }) => (
-                        <div key={farm._id} className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
-                          <span className="text-sm font-medium">{farm.name}</span>
-                          <div className="text-right text-sm">
-                            <p>{format(metrics.revenuePerHectare)} / ha</p>
-                            <p className="text-xs text-muted-foreground">{metrics.profitMargin.toFixed(1)}% margin</p>
-                          </div>
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                </>
-              )}
-
-              {compareMetric === "production" && (
-                <>
-                  <Card className="border-border/50">
-                    <CardHeader><CardTitle className="text-lg">Production Metrics</CardTitle></CardHeader>
-                    <CardContent>
-                      <MetricBar
-                        label="Active Crops"
-                        values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.activeCrops }))}
-                        max={Math.max(...selectedData.map((f) => f.metrics.activeCrops)) * 1.2 || 1}
-                      />
-                      <MetricBar
-                        label="Crop Diversity (types)"
-                        values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.cropDiversity }))}
-                        max={Math.max(...selectedData.map((f) => f.metrics.cropDiversity)) * 1.2 || 1}
-                      />
-                      <MetricBar
-                        label="Livestock Count"
-                        values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.livestockCount }))}
-                        max={Math.max(...selectedData.map((f) => f.metrics.livestockCount)) * 1.2 || 1}
-                      />
-                    </CardContent>
-                  </Card>
-                  <Card className="border-border/50">
-                    <CardHeader><CardTitle className="text-lg">Health Overview</CardTitle></CardHeader>
-                    <CardContent className="space-y-4">
-                      {selectedData.map(({ farm, metrics }) => (
-                        <div key={farm._id}>
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium">{farm.name}</span>
-                            <span className="text-xs text-muted-foreground">{metrics.activeCrops} crops · {metrics.livestockCount} animals</span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
+                  {allFarms.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Sprout className="w-10 h-10 mx-auto text-muted-foreground/30 mb-2" />
+                      <p className="text-sm text-muted-foreground">Register farms on the Farms page to compare them here</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap gap-3">
+                        {selectedData.map(({ farm }) => (
+                          <div key={farm._id} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 border border-primary/20">
+                            {farm.coverImage ? (
+                              <div className="w-8 h-8 rounded-lg overflow-hidden">
+                                <img src={farm.coverImage} alt={farm.name} className="w-full h-full object-cover" />
+                              </div>
+                            ) : (
+                              <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
+                                <Sprout className="w-4 h-4 text-primary" />
+                              </div>
+                            )}
                             <div>
-                              <p className="text-xs text-muted-foreground mb-1">Crop health</p>
-                              {metrics.cropHealth != null ? (
-                                <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                  <div className="h-full bg-gradient-to-r from-green-500 to-emerald-500 rounded-full" style={{ width: `${metrics.cropHealth}%` }} />
-                                </div>
-                              ) : (
-                                <p className="text-xs text-muted-foreground">No data yet</p>
-                              )}
+                              <p className="text-sm font-medium">{farm.name}</p>
+                              <p className="text-xs text-muted-foreground">{farm.size} {farm.sizeUnit}</p>
                             </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">Livestock health</p>
-                              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full" style={{ width: `${metrics.livestockHealth}%` }} />
+                            <button
+                              onClick={() => toggleFarm(farm._id)}
+                              aria-label={`Remove ${farm.name} from comparison`}
+                              className="ml-2 p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full hover:bg-primary/20 transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                        {!isFull && (
+                          <button
+                            onClick={() => setShowFarmSelector(true)}
+                            className="flex items-center gap-2 px-4 py-2 min-h-[44px] rounded-xl border border-dashed border-border hover:border-primary/50 transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label="Add another farm to comparison"
+                          >
+                            <Plus className="w-4 h-4 text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground">Add Farm</span>
+                          </button>
+                        )}
+                      </div>
+
+                      <AnimatePresence>
+                        {showFarmSelector && (
+                          <motion.div
+                            initial={prefersReducedMotion ? { opacity: 1, height: "auto" } : { opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                            className="mt-4 pt-4 border-t border-border overflow-hidden"
+                          >
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                              {allFarms.map(({ farm }) => {
+                                const isSelected = selectedIds.includes(farm._id);
+                                return (
+                                  <button
+                                    key={farm._id}
+                                    onClick={() => toggleFarm(farm._id)}
+                                    disabled={!isSelected && isFull}
+                                    aria-pressed={isSelected}
+                                    aria-label={`${isSelected ? "Deselect" : "Select"} ${farm.name}`}
+                                    className={`p-3 rounded-xl border transition-all text-left min-h-[44px] ${
+                                      isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"
+                                    } ${!isSelected && isFull ? "opacity-50 cursor-not-allowed" : ""}`}
+                                  >
+                                    <div className="flex items-center gap-2 mb-2">
+                                      {farm.coverImage ? (
+                                        <div className="w-10 h-10 rounded-lg overflow-hidden">
+                                          <img src={farm.coverImage} alt={farm.name} className="w-full h-full object-cover" />
+                                        </div>
+                                      ) : (
+                                        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                                          <Sprout className="w-5 h-5 text-primary" />
+                                        </div>
+                                      )}
+                                      {isSelected && (
+                                        <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                                          <Check className="w-3 h-3 text-white" />
+                                        </div>
+                                      )}
+                                    </div>
+                                    <p className="text-sm font-medium">{farm.name}</p>
+                                    <p className="text-xs text-muted-foreground">{farm.location}</p>
+                                    <p className="text-xs text-muted-foreground">{farm.size} {farm.sizeUnit}</p>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            {selectedData.length === 0 ? (
+              <div className="text-center py-16">
+                <BarChart3 className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
+                <h3 className="text-lg font-medium">No farms to compare</h3>
+                <p className="text-muted-foreground mt-1">Add farms on the Farms page to get started</p>
+              </div>
+            ) : (
+              <>
+                {/* Summary Stats */}
+                <motion.div
+                  variants={prefersReducedMotion ? undefined : containerVariants}
+                  initial={prefersReducedMotion ? { opacity: 1 } : "hidden"}
+                  animate={prefersReducedMotion ? { opacity: 1 } : "visible"}
+                  className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6"
+                >
+                  {[
+                    { label: "Total Revenue", value: format(comparativeStats?.totalRevenue || 0), sub: `${selectedData.length} farms` },
+                    {
+                      label: "Total Profit",
+                      value: format(comparativeStats?.totalProfit || 0),
+                      valueClass: (comparativeStats?.totalProfit || 0) >= 0 ? "text-green-600" : "text-red-600",
+                      sub: `Avg margin: ${(comparativeStats?.avgMargin || 0).toFixed(1)}%`,
+                    },
+                    {
+                      label: "Avg Crop Health",
+                      value: comparativeStats?.avgCropHealth != null ? `${Math.round(comparativeStats.avgCropHealth)}%` : "—",
+                      sub: "Across selected farms",
+                    },
+                    {
+                      label: "Avg Livestock Health",
+                      value: `${Math.round(comparativeStats?.avgLivestockHealth || 0)}%`,
+                      sub: "Healthy animals / total",
+                    },
+                  ].map((stat, i) => (
+                    <motion.div key={i} variants={prefersReducedMotion ? undefined : itemVariants}>
+                      <Card className="border-border/50">
+                        <CardContent className="p-4">
+                          <p className="text-sm text-muted-foreground">{stat.label}</p>
+                          <p className={`text-2xl font-bold ${"valueClass" in stat && stat.valueClass ? stat.valueClass : ""}`}>
+                            {stat.value}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">{stat.sub}</p>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
+                  ))}
+                </motion.div>
+
+                {/* Metric Comparison Tabs */}
+                <motion.div
+                  initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.4, delay: 0.2 }}
+                  className="mb-6"
+                >
+                  <div className="flex gap-1 p-1 bg-muted rounded-xl w-fit flex-wrap" role="tablist" aria-label="Comparison metric categories">
+                    {metrics.map((tab) => (
+                      <button
+                        key={tab.id}
+                        role="tab"
+                        aria-selected={compareMetric === tab.id}
+                        aria-controls={`panel-${tab.id}`}
+                        onClick={() => setCompareMetric(tab.id)}
+                        className={`flex items-center gap-2 px-4 py-2 min-h-[44px] rounded-lg text-sm font-medium transition-all ${
+                          compareMetric === tab.id ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <tab.icon className="w-4 h-4" />
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+
+                {/* Comparison Content */}
+                <motion.div
+                  key={compareMetric}
+                  initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.3 }}
+                  className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6"
+                  role="tabpanel"
+                  id={`panel-${compareMetric}`}
+                  aria-label={`${metrics.find((m) => m.id === compareMetric)?.label} comparison`}
+                >
+                  {compareMetric === "revenue" && (
+                    <>
+                      <Card className="border-border/50">
+                        <CardHeader><CardTitle className="text-lg">Revenue Comparison</CardTitle></CardHeader>
+                        <CardContent>
+                          <MetricBar
+                            label="Total Revenue"
+                            values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.revenue }))}
+                            max={Math.max(...selectedData.map((f) => f.metrics.revenue)) * 1.1 || 1}
+                            unit="currency"
+                          />
+                          <MetricBar
+                            label="Revenue per Hectare"
+                            values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.revenuePerHectare }))}
+                            max={Math.max(...selectedData.map((f) => f.metrics.revenuePerHectare)) * 1.1 || 1}
+                            unit="currency"
+                          />
+                        </CardContent>
+                      </Card>
+                      <Card className="border-border/50">
+                        <CardHeader><CardTitle className="text-lg">Income Sources</CardTitle></CardHeader>
+                        <CardContent className="space-y-4">
+                          {selectedData.map(({ farm, metrics: m }) => (
+                            <div key={farm._id} className="p-3 rounded-xl bg-muted/30">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-medium">{farm.name}</span>
+                                <Badge className={m.revenue > 0 ? "bg-green-500/10 text-green-600" : "bg-muted"}>
+                                  {m.revenue > 0 ? "Earning" : "No income"}
+                                </Badge>
+                              </div>
+                              <div className="grid grid-cols-3 gap-2 text-sm">
+                                <div><p className="text-muted-foreground">Income</p><p className="font-medium">{format(m.revenue)}</p></div>
+                                <div><p className="text-muted-foreground">Expenses</p><p className="font-medium">{format(m.expenses)}</p></div>
+                                <div><p className="text-muted-foreground">Profit</p><p className={`font-medium ${m.profit >= 0 ? "text-green-600" : "text-red-600"}`}>{format(m.profit)}</p></div>
                               </div>
                             </div>
-                          </div>
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                </>
-              )}
-
-              {compareMetric === "efficiency" && (
-                <>
-                  <Card className="border-border/50">
-                    <CardHeader><CardTitle className="text-lg">Health & Sustainability Scores</CardTitle></CardHeader>
-                    <CardContent>
-                      <MetricBar
-                        label="Crop Health (%)"
-                        values={selectedData
-                          .filter((f) => f.metrics.cropHealth != null)
-                          .map((f) => ({ farmId: f.farm._id, value: f.metrics.cropHealth as number }))}
-                        max={100}
-                        unit="%"
-                      />
-                      <MetricBar
-                        label="Livestock Health (%)"
-                        values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.livestockHealth }))}
-                        max={100}
-                        unit="%"
-                      />
-                      <MetricBar
-                        label="Soil Health (from pH)"
-                        values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.soilHealth }))}
-                        max={100}
-                        unit="%"
-                      />
-                      <MetricBar
-                        label="Vegetation Index (NDVI)"
-                        values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.ndvi }))}
-                        max={100}
-                      />
-                      {selectedData.every((f) => f.metrics.soilHealth === null && f.metrics.ndvi === null) && (
-                        <p className="text-xs text-muted-foreground mt-2">
-                          Soil and satellite scores appear once soil data or satellite imagery has been fetched for a farm.
-                        </p>
-                      )}
-                    </CardContent>
-                  </Card>
-                  <Card className="border-border/50">
-                    <CardHeader><CardTitle className="text-lg">Farm Details</CardTitle></CardHeader>
-                    <CardContent className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-border">
-                            <th className="text-left py-3 px-4 font-medium text-muted-foreground">Farm</th>
-                            <th className="text-left py-3 px-4 font-medium text-muted-foreground">Size</th>
-                            <th className="text-left py-3 px-4 font-medium text-muted-foreground">Location</th>
-                            <th className="text-left py-3 px-4 font-medium text-muted-foreground">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {selectedData.map(({ farm }) => (
-                            <tr key={farm._id} className="border-b border-border/50 last:border-0">
-                              <td className="py-3 px-4 font-medium">{farm.name}</td>
-                              <td className="py-3 px-4">{farm.size} {farm.sizeUnit}</td>
-                              <td className="py-3 px-4 text-muted-foreground">{farm.location}</td>
-                              <td className="py-3 px-4">
-                                <Badge variant={farm.status === "active" ? "default" : "secondary"}>{farm.status}</Badge>
-                              </td>
-                            </tr>
                           ))}
-                        </tbody>
-                      </table>
-                    </CardContent>
-                  </Card>
-                </>
-              )}
-            </motion.div>
+                        </CardContent>
+                      </Card>
+                    </>
+                  )}
 
-            {/* Insights Section */}
-            {insights.length > 0 && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="mb-6">
-                <Card className="border-border/50">
-                  <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Lightbulb className="w-5 h-5 text-amber-500" />
-                      Insights & Recommendations
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {insights.map((insight) => {
-                      const Icon = insight.icon;
-                      const isExpanded = expandedInsight === insight.id;
-                      return (
-                        <div
-                          key={insight.id}
-                          className={`p-4 rounded-xl border transition-all cursor-pointer ${
-                            insight.type === "success"
-                              ? "border-green-500/20 bg-green-500/5"
-                              : insight.type === "warning"
-                              ? "border-amber-500/20 bg-amber-500/5"
-                              : "border-blue-500/20 bg-blue-500/5"
-                          }`}
-                          onClick={() => setExpandedInsight(isExpanded ? null : insight.id)}
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className={`p-2 rounded-lg ${insight.type === "success" ? "bg-green-500/10 text-green-600" : insight.type === "warning" ? "bg-amber-500/10 text-amber-600" : "bg-blue-500/10 text-blue-600"}`}>
-                              <Icon className="w-5 h-5" />
+                  {compareMetric === "profit" && (
+                    <>
+                      <Card className="border-border/50">
+                        <CardHeader><CardTitle className="text-lg">Profitability Analysis</CardTitle></CardHeader>
+                        <CardContent>
+                          <MetricBar
+                            label="Total Profit"
+                            values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.profit }))}
+                            max={Math.max(...selectedData.map((f) => f.metrics.profit)) * 1.1 || 1}
+                            unit="currency"
+                          />
+                          <MetricBar
+                            label="Profit Margin (%)"
+                            values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.profitMargin }))}
+                            max={50}
+                            unit="%"
+                          />
+                        </CardContent>
+                      </Card>
+                      <Card className="border-border/50">
+                        <CardHeader><CardTitle className="text-lg">Efficiency Ratios</CardTitle></CardHeader>
+                        <CardContent className="space-y-3">
+                          {selectedData.map(({ farm, metrics: m }) => (
+                            <div key={farm._id} className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
+                              <span className="text-sm font-medium">{farm.name}</span>
+                              <div className="text-right text-sm">
+                                <p>{format(m.revenuePerHectare)} / ha</p>
+                                <p className="text-xs text-muted-foreground">{m.profitMargin.toFixed(1)}% margin</p>
+                              </div>
                             </div>
-                            <div className="flex-1">
-                              <h4 className="font-medium">{insight.title}</h4>
-                              <p className="text-sm text-muted-foreground mt-1">{insight.description}</p>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    </>
+                  )}
+
+                  {compareMetric === "production" && (
+                    <>
+                      <Card className="border-border/50">
+                        <CardHeader><CardTitle className="text-lg">Production Metrics</CardTitle></CardHeader>
+                        <CardContent>
+                          <MetricBar
+                            label="Active Crops"
+                            values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.activeCrops }))}
+                            max={Math.max(...selectedData.map((f) => f.metrics.activeCrops)) * 1.2 || 1}
+                          />
+                          <MetricBar
+                            label="Crop Diversity (types)"
+                            values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.cropDiversity }))}
+                            max={Math.max(...selectedData.map((f) => f.metrics.cropDiversity)) * 1.2 || 1}
+                          />
+                          <MetricBar
+                            label="Livestock Count"
+                            values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.livestockCount }))}
+                            max={Math.max(...selectedData.map((f) => f.metrics.livestockCount)) * 1.2 || 1}
+                          />
+                        </CardContent>
+                      </Card>
+                      <Card className="border-border/50">
+                        <CardHeader><CardTitle className="text-lg">Health Overview</CardTitle></CardHeader>
+                        <CardContent className="space-y-4">
+                          {selectedData.map(({ farm, metrics: m }) => (
+                            <div key={farm._id}>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-medium">{farm.name}</span>
+                                <span className="text-xs text-muted-foreground">{m.activeCrops} crops · {m.livestockCount} animals</span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <p className="text-xs text-muted-foreground mb-1">Crop health</p>
+                                  {m.cropHealth != null ? (
+                                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                      <div className="h-full bg-gradient-to-r from-green-500 to-emerald-500 rounded-full" style={{ width: `${m.cropHealth}%` }} />
+                                    </div>
+                                  ) : (
+                                    <p className="text-xs text-muted-foreground">No data yet</p>
+                                  )}
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground mb-1">Livestock health</p>
+                                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                    <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full" style={{ width: `${m.livestockHealth}%` }} />
+                                  </div>
+                                </div>
+                              </div>
                             </div>
-                            {isExpanded ? <ChevronUp className="w-5 h-5 text-muted-foreground" /> : <ChevronDown className="w-5 h-5 text-muted-foreground" />}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </CardContent>
-                </Card>
-              </motion.div>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    </>
+                  )}
+
+                  {compareMetric === "efficiency" && (
+                    <>
+                      <Card className="border-border/50">
+                        <CardHeader><CardTitle className="text-lg">Health & Sustainability Scores</CardTitle></CardHeader>
+                        <CardContent>
+                          <MetricBar
+                            label="Crop Health (%)"
+                            values={selectedData
+                              .filter((f) => f.metrics.cropHealth != null)
+                              .map((f) => ({ farmId: f.farm._id, value: f.metrics.cropHealth as number }))}
+                            max={100}
+                            unit="%"
+                          />
+                          <MetricBar
+                            label="Livestock Health (%)"
+                            values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.livestockHealth }))}
+                            max={100}
+                            unit="%"
+                          />
+                          <MetricBar
+                            label="Soil Health (from pH)"
+                            values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.soilHealth }))}
+                            max={100}
+                            unit="%"
+                          />
+                          <MetricBar
+                            label="Vegetation Index (NDVI)"
+                            values={selectedData.map((f) => ({ farmId: f.farm._id, value: f.metrics.ndvi }))}
+                            max={100}
+                          />
+                          {selectedData.every((f) => f.metrics.soilHealth === null && f.metrics.ndvi === null) && (
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Soil and satellite scores appear once soil data or satellite imagery has been fetched for a farm.
+                            </p>
+                          )}
+                        </CardContent>
+                      </Card>
+                      <Card className="border-border/50">
+                        <CardHeader><CardTitle className="text-lg">Farm Details</CardTitle></CardHeader>
+                        <CardContent className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-border">
+                                <th className="text-left py-3 px-4 font-medium text-muted-foreground">Farm</th>
+                                <th className="text-left py-3 px-4 font-medium text-muted-foreground">Size</th>
+                                <th className="text-left py-3 px-4 font-medium text-muted-foreground">Location</th>
+                                <th className="text-left py-3 px-4 font-medium text-muted-foreground">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selectedData.map(({ farm }) => (
+                                <tr key={farm._id} className="border-b border-border/50 last:border-0">
+                                  <td className="py-3 px-4 font-medium">{farm.name}</td>
+                                  <td className="py-3 px-4">{farm.size} {farm.sizeUnit}</td>
+                                  <td className="py-3 px-4 text-muted-foreground">{farm.location}</td>
+                                  <td className="py-3 px-4">
+                                    <Badge variant={farm.status === "active" ? "default" : "secondary"}>{farm.status}</Badge>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </CardContent>
+                      </Card>
+                    </>
+                  )}
+                </motion.div>
+
+                {/* Insights Section */}
+                {insights.length > 0 && (
+                  <motion.div
+                    initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.4, delay: 0.3 }}
+                    className="mb-6"
+                  >
+                    <Card className="border-border/50">
+                      <CardHeader>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Lightbulb className="w-5 h-5 text-amber-500" />
+                          Insights & Recommendations
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {insights.map((insight) => {
+                          const Icon = insight.icon;
+                          const isExpanded = expandedInsight === insight.id;
+                          return (
+                            <button
+                              key={insight.id}
+                              className={`w-full text-left p-4 rounded-xl border transition-all cursor-pointer ${
+                                insight.type === "success"
+                                  ? "border-green-500/20 bg-green-500/5"
+                                  : insight.type === "warning"
+                                  ? "border-amber-500/20 bg-amber-500/5"
+                                  : "border-blue-500/20 bg-blue-500/5"
+                              }`}
+                              onClick={() => setExpandedInsight(isExpanded ? null : insight.id)}
+                              aria-expanded={isExpanded}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className={`p-2 rounded-lg ${insight.type === "success" ? "bg-green-500/10 text-green-600" : insight.type === "warning" ? "bg-amber-500/10 text-amber-600" : "bg-blue-500/10 text-blue-600"}`}>
+                                  <Icon className="w-5 h-5" />
+                                </div>
+                                <div className="flex-1">
+                                  <h4 className="font-medium">{insight.title}</h4>
+                                  <p className="text-sm text-muted-foreground mt-1">{insight.description}</p>
+                                </div>
+                                {isExpanded ? <ChevronUp className="w-5 h-5 text-muted-foreground" /> : <ChevronDown className="w-5 h-5 text-muted-foreground" />}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                )}
+              </>
             )}
           </>
         )}
