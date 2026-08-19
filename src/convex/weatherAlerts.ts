@@ -407,6 +407,58 @@ export function evaluateWeatherAlerts(
     });
   }
 
+  // Thunderstorm (weather code 95-99 in forecast)
+  if (isEnabled("thunderstorm")) {
+    const stormDay = snapshot.forecast.find((d) => {
+      // WMO codes 95-99 = thunderstorm (with/without hail)
+      // We use precipitation > 15 as a proxy since forecast doesn't include weather codes
+      return d.precipitation > 15 && d.windSpeed > 20;
+    });
+    if (stormDay) {
+      push({
+        type: "thunderstorm",
+        severity: "high",
+        title: "Thunderstorm Warning",
+        message: `Thunderstorm conditions expected with ${stormDay.precipitation.toFixed(1)}mm rain and ${stormDay.windSpeed.toFixed(0)} km/h winds.`,
+        recommendations: [
+          "Seek shelter immediately when thunder is heard",
+          "Disconnect sensitive electrical equipment",
+          "Delay all field operations until the storm passes",
+          "Check livestock shelters are secure",
+          "Avoid open fields and tall isolated trees",
+        ],
+        expiresAt: stormDay.date + day,
+        affectedCrops: ["All exposed crops", "Livestock"],
+        estimatedImpact: "Hail and lightning damage possible; crop flattening from wind",
+      });
+    }
+  }
+
+  // Hail (high precipitation with significant wind — proxy for hail conditions)
+  if (isEnabled("hail")) {
+    const hailDay = snapshot.forecast.find(
+      (d) => d.precipitation > 25 && d.windSpeed > 30
+    );
+    if (hailDay) {
+      push({
+        type: "hail",
+        severity: "critical",
+        title: "Hail Warning",
+        message: `Severe conditions with ${hailDay.precipitation.toFixed(1)}mm precipitation and ${hailDay.windSpeed.toFixed(0)} km/h winds suggest hail risk.`,
+        recommendations: [
+          "Cover vulnerable crops with protective netting if available",
+          "Move livestock to sturdy shelter",
+          "Document field conditions before the event for insurance",
+          "Avoid being outdoors during the storm",
+          "Inspect crops for damage immediately after the storm passes",
+        ],
+        expiresAt: hailDay.date + day,
+        affectedCrops: ["All crops — especially fruit and vegetable crops"],
+        estimatedImpact: "Severe physical damage to crops; potential total loss of exposed produce",
+      });
+    }
+  }
+
   // Optimal spraying window (low wind, no rain within 2 days)
   if (isEnabled("optimal_spraying")) {
     const sprayDay = snapshot.forecast.find(
