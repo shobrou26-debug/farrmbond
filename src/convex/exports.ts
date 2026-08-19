@@ -105,6 +105,7 @@ export const getExportData = action({
           expenses: d.expenses,
           profit: d.profit,
         }));
+        // Note: frontend exportAnalyticsData uses 'revenue' key — mapped above.
         return {
           resource: args.resource,
           generatedAt: now,
