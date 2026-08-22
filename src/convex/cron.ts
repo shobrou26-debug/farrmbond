@@ -156,4 +156,16 @@ crons.interval(
   { cursor: null }
 );
 
+/**
+ * Send calendar event reminders daily.
+ * Checks upcoming events with reminderDaysBefore and creates
+ * notifications for the authenticated user.
+ */
+crons.interval(
+  "calendar_reminders",
+  { hours: 24 },
+  internal.farmCalendar.sendCalendarReminders,
+  {}
+);
+
 export default crons;

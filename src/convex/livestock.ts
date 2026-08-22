@@ -226,6 +226,23 @@ export const createLivestock = mutation({
       changes: { name, type, quantity: args.quantity, farmId: args.farmId },
     });
 
+    // Auto-create calendar event for next vaccination if scheduled
+    if (args.nextVaccination) {
+      const nowCal = Date.now();
+      await ctx.db.insert("farmCalendar", {
+        userId,
+        farmId: args.farmId,
+        title: `Vaccinate ${name} (${type})`,
+        description: `Scheduled vaccination for ${args.quantity} ${args.unit} of ${type}`,
+        eventType: "vaccination",
+        startDate: args.nextVaccination,
+        isRecurring: false,
+        isCompleted: false,
+        createdAt: nowCal,
+        updatedAt: nowCal,
+      });
+    }
+
     return livestockId;
   },
 });

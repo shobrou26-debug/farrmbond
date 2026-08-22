@@ -962,6 +962,9 @@ const schema = defineSchema(
       // Reminders
       reminderDaysBefore: v.optional(v.number()),
       
+      // Recurring event linkage
+      parentEventId: v.optional(v.id("farmCalendar")),
+      
       // Metadata
       createdAt: v.number(),
       updatedAt: v.number(),

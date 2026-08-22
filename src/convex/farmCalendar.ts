@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import {
   requireAuth,
   verifyFarmOwnership,
@@ -130,12 +131,64 @@ export const createEvent = mutation({
       updatedAt: now,
     });
 
+    // If recurring, generate future occurrences within a 3-month window
+    if (args.isRecurring && args.recurringPattern) {
+      const pattern = args.recurringPattern; // "daily" | "weekly" | "monthly"
+      const windowMs = 90 * 24 * 60 * 60 * 1000; // 3 months
+      const windowEnd = args.startDate + windowMs;
+
+      // Determine step interval in ms
+      let stepMs = 0;
+      if (pattern === "daily") stepMs = 24 * 60 * 60 * 1000;
+      else if (pattern === "weekly") stepMs = 7 * 24 * 60 * 60 * 1000;
+      else if (pattern === "monthly") stepMs = 30 * 24 * 60 * 60 * 1000;
+
+      if (stepMs > 0) {
+        // Fetch existing events to prevent duplicates
+        const existingEvents = await ctx.db
+          .query("farmCalendar")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .collect();
+
+        const existingDates = new Set(
+          existingEvents
+            .filter((e) => e.title === title && e.farmId === args.farmId)
+            .map((e) => e.startDate)
+        );
+
+        let nextDate = args.startDate + stepMs;
+        while (nextDate < windowEnd) {
+          // Skip if this date already has an event with the same title + farm
+          if (!existingDates.has(nextDate)) {
+            await ctx.db.insert("farmCalendar", {
+              userId,
+              farmId: args.farmId,
+              cropId: args.cropId,
+              title,
+              description: args.description ? sanitizeInput(args.description) : undefined,
+              eventType: args.eventType,
+              startDate: nextDate,
+              endDate: args.endDate ? nextDate + (args.endDate - args.startDate) : undefined,
+              isRecurring: false, // individual instances are not themselves recurring
+              recurringPattern: undefined,
+              isCompleted: false,
+              reminderDaysBefore: args.reminderDaysBefore,
+              parentEventId: eventId,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+          nextDate += stepMs;
+        }
+      }
+    }
+
     await createAuditLog(ctx, {
       userId,
       action: "calendar_event_created",
       resource: "farmCalendar",
       resourceId: eventId,
-      changes: { title, eventType: args.eventType, farmId: args.farmId },
+      changes: { title, eventType: args.eventType, farmId: args.farmId, isRecurring: args.isRecurring, pattern: args.recurringPattern },
     });
 
     return eventId;
@@ -182,5 +235,107 @@ export const deleteEvent = mutation({
     });
 
     return true;
+  },
+});
+
+// ============================================================
+// Calendar Reminders (cron)
+// ============================================================
+
+/**
+ * Process upcoming calendar events and send reminder notifications.
+ * Runs daily via cron. Deduplicates by checking for an existing
+ * notification with the same title + userId created within the
+ * last 24 hours.
+ */
+export const sendCalendarReminders = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    const lookAheadMs = 7 * oneDayMs; // look 7 days ahead
+
+    // Get all calendar events with active reminders
+    const allEvents = await ctx.db
+      .query("farmCalendar")
+      .collect();
+
+    // Group events by userId (typed as Id<"users">)
+    const eventsByUser = new Map<string, { userId: string; events: typeof allEvents }>();
+    for (const event of allEvents) {
+      if (event.isCompleted || event.reminderDaysBefore === undefined || event.reminderDaysBefore === null) continue;
+      const entry = eventsByUser.get(event.userId);
+      if (entry) {
+        entry.events.push(event);
+      } else {
+        eventsByUser.set(event.userId, { userId: event.userId, events: [event] });
+      }
+    }
+
+    let sent = 0;
+    let skipped = 0;
+
+    for (const [, group] of eventsByUser) {
+      const userId = group.userId as import("./_generated/dataModel").Id<"users">;
+
+      for (const event of group.events) {
+        const daysBefore = event.reminderDaysBefore!;
+        const reminderTime = event.startDate - daysBefore * oneDayMs;
+
+        // Only send if the reminder window is active now:
+        // reminderTime must be in the past (or very close to now)
+        // but the event itself must still be in the future
+        if (reminderTime > now || event.startDate < now) continue;
+
+        // Avoid duplicates: check for an existing notification with
+        // the same title created within the last 24 hours for this user.
+        const recentNotifications = await ctx.db
+          .query("notifications")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .collect();
+
+        const isDuplicate = recentNotifications.some(
+          (n) =>
+            n.title === event.title &&
+            n.type === "calendar_reminder" &&
+            now - n.createdAt < lookAheadMs
+        );
+
+        if (isDuplicate) {
+          skipped++;
+          continue;
+        }
+
+        // Resolve the farm name for a human-friendly message
+        const farm = await ctx.db.get(event.farmId);
+        const farmName = farm?.name ?? "your farm";
+
+        const daysUntil = Math.max(
+          0,
+          Math.round((event.startDate - now) / oneDayMs)
+        );
+        const timeLabel =
+          daysUntil === 0
+            ? "today"
+            : daysUntil === 1
+            ? "tomorrow"
+            : `in ${daysUntil} days`;
+
+        await ctx.db.insert("notifications", {
+          userId,
+          title: `Reminder: ${event.title}`,
+          message: `${event.title} is scheduled ${timeLabel} on ${farmName}.`,
+          type: "calendar_reminder",
+          isRead: false,
+          actionUrl: "/calendar",
+          actionLabel: "View Calendar",
+          createdAt: now,
+        });
+
+        sent++;
+      }
+    }
+
+    return { sent, skipped };
   },
 });

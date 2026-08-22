@@ -786,6 +786,30 @@ export const generateWeatherAlerts = mutation({
         createdAt: now,
       });
       created++;
+
+      // For critical/high alerts, also create a calendar event so the
+      // farmer sees it in their farm calendar.
+      if (alert.severity === "critical" || alert.severity === "high") {
+        // Find the user's primary farm for the calendar event
+        const userFarms = await ctx.db
+          .query("farms")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .collect();
+        if (userFarms.length > 0) {
+          await ctx.db.insert("farmCalendar", {
+            userId,
+            farmId: userFarms[0]._id,
+            title: alert.title,
+            description: alert.message,
+            eventType: "other",
+            startDate: now,
+            isRecurring: false,
+            isCompleted: false,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
     }
 
     // Record the check time on the config (upsert if needed)

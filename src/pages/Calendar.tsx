@@ -283,6 +283,11 @@ function EventList({
                     <Clock className="w-3 h-3" />
                     {new Date(event.startDate).toLocaleString(undefined, { timeZone: timezone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                   </div>
+                  {event.farmName && (
+                    <Badge variant="secondary" className="mt-1 text-[10px]">
+                      {event.farmName}
+                    </Badge>
+                  )}
                   {isOverdue && (
                     <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" />
@@ -408,14 +413,14 @@ function WeatherRecommendations({ weather, timezone }: { weather: ReturnType<typ
             <h4 className="text-sm font-semibold mb-2">7-Day Forecast</h4>
             <div className="grid grid-cols-7 gap-1">
               {forecast.map((w, i) => {
-                const condition = w.precipitation > 5 ? "rainy" : w.precipProbability > 50 ? "cloudy" : w.tempMax > 35 ? "stormy" : "sunny";
+                const condition = w.precipitation > 5 ? "rainy" : w.precipProbability > 50 ? "cloudy" : w.tempMax > 35 ? "hot" : "sunny";
                 return (
                   <div key={i} className="text-center p-1 rounded-lg bg-muted/30">
                     <p className="text-[10px] text-muted-foreground">
                       {new Date(w.date).toLocaleDateString(undefined, { weekday: "short" })}
                     </p>
                     <p className="text-sm my-0.5">
-                      {condition === "sunny" ? "☀️" : condition === "rainy" ? "🌧️" : condition === "cloudy" ? "☁️" : "⛈️"}
+                      {condition === "sunny" ? "☀️" : condition === "rainy" ? "🌧️" : condition === "cloudy" ? "☁️" : condition === "hot" ? "🌡️" : "☀️"}
                     </p>
                     <p className="text-[10px] font-medium">{Math.round(w.tempMax)}°</p>
                   </div>
@@ -437,6 +442,7 @@ export default function Calendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [filterType, setFilterType] = useState<EventType | "all">("all");
+  const [farmFilter, setFarmFilter] = useState<string>("all");
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -459,12 +465,21 @@ export default function Calendar() {
     farmId: "",
     date: "",
     reminderDaysBefore: "",
+    isRecurring: false,
+    recurringPattern: "weekly" as "daily" | "weekly" | "monthly",
   });
   const [eventFormError, setEventFormError] = useState<string | null>(null);
   const prefersReducedMotion = useMotion();
 
   // Real weather data
   const weather = useWeather();
+
+  // Build a farmId → name map for populating farmName on events
+  const farmNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (farms ?? []).forEach((f) => map.set(f._id, f.name));
+    return map;
+  }, [farms]);
 
   // Map Convex events to local format
   const events: CalendarEvent[] = useMemo(() => {
@@ -477,14 +492,19 @@ export default function Calendar() {
       eventType: e.eventType as EventType,
       description: e.description,
       farmId: e.farmId,
+      farmName: farmNameMap.get(e.farmId),
       cropId: e.cropId,
       priority: e.eventType === "pest_control" ? "high" : e.eventType === "planting" ? "high" : "medium",
       isCompleted: e.isCompleted,
       reminderDaysBefore: e.reminderDaysBefore,
     }));
-  }, [calendarEvents]);
+  }, [calendarEvents, farmNameMap]);
 
-  const filteredEvents = filterType === "all" ? events : events.filter((e) => e.eventType === filterType);
+  const filteredEvents = events.filter((e) => {
+    if (filterType !== "all" && e.eventType !== filterType) return false;
+    if (farmFilter !== "all" && e.farmId !== farmFilter) return false;
+    return true;
+  });
 
   const handlePrevMonth = () => {
     setCurrentDate(new Date(year, month - 1));
@@ -530,15 +550,16 @@ export default function Calendar() {
         description: eventForm.description.trim() || undefined,
         eventType: eventForm.eventType,
         startDate: startDate.getTime(),
-        isRecurring: false,
+        isRecurring: eventForm.isRecurring,
+        recurringPattern: eventForm.isRecurring ? eventForm.recurringPattern : undefined,
         reminderDaysBefore:
           eventForm.reminderDaysBefore === ""
             ? undefined
             : Math.max(0, Math.min(30, Number(eventForm.reminderDaysBefore))),
       });
-      toast.success("Calendar event created");
+      toast.success(eventForm.isRecurring ? "Recurring calendar events created" : "Calendar event created");
       setShowAddModal(false);
-      setEventForm({ title: "", description: "", eventType: "planting", farmId: "", date: "", reminderDaysBefore: "" });
+      setEventForm({ title: "", description: "", eventType: "planting", farmId: "", date: "", reminderDaysBefore: "", isRecurring: false, recurringPattern: "weekly" });
     } catch (error) {
       setEventFormError(error instanceof Error ? error.message : "Failed to create event");
     } finally {
@@ -582,6 +603,28 @@ export default function Calendar() {
             </div>
           </div>
         </motion.div>
+
+        {/* Farm Filter */}
+        {(farms ?? []).length > 1 && (
+          <motion.div initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5, delay: 0.05 }} className="mb-4">
+            <div className="flex items-center gap-3">
+              <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
+              <Select value={farmFilter} onValueChange={setFarmFilter}>
+                <SelectTrigger className="w-[200px] min-h-[44px]" aria-label="Filter events by farm">
+                  <SelectValue placeholder="All Farms" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Farms</SelectItem>
+                  {(farms ?? []).map((farm: { _id: string; name: string }) => (
+                    <SelectItem key={farm._id} value={farm._id}>
+                      {farm.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </motion.div>
+        )}
 
         {/* Event Type Filters */}
         <motion.div initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.5, delay: 0.1 }} className="mb-6">
@@ -784,6 +827,33 @@ export default function Calendar() {
                   onChange={(e) => setEventForm((f) => ({ ...f, reminderDaysBefore: e.target.value }))}
                 />
               </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="ev-recurring"
+                  checked={eventForm.isRecurring}
+                  onChange={(e) => setEventForm((f) => ({ ...f, isRecurring: e.target.checked }))}
+                  className="h-4 w-4 rounded"
+                />
+                <Label htmlFor="ev-recurring" className="cursor-pointer">Recurring event</Label>
+              </div>
+              {eventForm.isRecurring && (
+                <Select
+                  value={eventForm.recurringPattern}
+                  onValueChange={(v) => setEventForm((f) => ({ ...f, recurringPattern: v as "daily" | "weekly" | "monthly" }))}
+                >
+                  <SelectTrigger className="min-h-[44px]" aria-label="Recurrence pattern">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="daily">Repeat daily</SelectItem>
+                    <SelectItem value="weekly">Repeat weekly</SelectItem>
+                    <SelectItem value="monthly">Repeat monthly</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             {eventFormError && (
               <p className="text-sm text-red-600 flex items-center gap-1.5">

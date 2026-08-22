@@ -468,6 +468,27 @@ export const createSchedule = mutation({
       },
     });
 
+    // Auto-create calendar event for the next irrigation run
+    const nextRunAt = computeNextRunAt(
+      args.frequency as IrrigationFrequency,
+      args.startTime,
+      args.customDays,
+      now
+    );
+    await ctx.db.insert("farmCalendar", {
+      userId,
+      farmId: args.farmId,
+      cropId: args.cropId,
+      title: `Irrigate: ${name}`,
+      description: `Scheduled irrigation — ${args.waterAmount}L via ${args.frequency}`,
+      eventType: "irrigation",
+      startDate: nextRunAt,
+      isRecurring: false,
+      isCompleted: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+
     return scheduleId;
   },
 });

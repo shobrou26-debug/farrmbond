@@ -174,6 +174,37 @@ export const createCrop = mutation({
       changes: { name, type, farmId: args.farmId },
     });
 
+    // Auto-create calendar events for planting and expected harvest
+    const nowCal = Date.now();
+    await ctx.db.insert("farmCalendar", {
+      userId,
+      farmId: args.farmId,
+      cropId,
+      title: `Plant ${name}`,
+      description: `Scheduled planting for ${name} (${type})`,
+      eventType: "planting",
+      startDate: args.plantingDate,
+      isRecurring: false,
+      isCompleted: false,
+      createdAt: nowCal,
+      updatedAt: nowCal,
+    });
+    if (args.expectedHarvestDate) {
+      await ctx.db.insert("farmCalendar", {
+        userId,
+        farmId: args.farmId,
+        cropId,
+        title: `Harvest ${name}`,
+        description: `Expected harvest for ${name}`,
+        eventType: "harvesting",
+        startDate: args.expectedHarvestDate,
+        isRecurring: false,
+        isCompleted: false,
+        createdAt: nowCal,
+        updatedAt: nowCal,
+      });
+    }
+
     return cropId;
   },
 });
