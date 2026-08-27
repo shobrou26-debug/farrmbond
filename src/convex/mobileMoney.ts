@@ -8,12 +8,17 @@ import { internal } from "./_generated/api";
 // For African farmers to pay subscriptions via mobile money
 // ============================================================
 
-// Environment variables for MTN MoMo API
-const MTN_MOMO_API_URL = process.env.MTN_MOMO_API_URL || "https://sandbox.momodeveloper.mtn.com";
+// Environment variables for MTN Payments V1 API
+// Consumer Key (from MTN Developer Portal → Applications → API Credentials)
 const MTN_MOMO_API_KEY = process.env.MTN_MOMO_API_KEY;
-const MTN_MOMO_API_USER = process.env.MTN_MOMO_API_USER;
+// Consumer Secret (from MTN Developer Portal → Applications → API Credentials)
+const MTN_MOMO_API_SECRET = process.env.MTN_MOMO_API_SECRET;
+// Subscription key is optional in Payments V1 — include only when configured
 const MTN_MOMO_SUBSCRIPTION_KEY = process.env.MTN_MOMO_SUBSCRIPTION_KEY;
-const MTN_MOMO_ENVIRONMENT = process.env.MTN_MOMO_ENVIRONMENT || "sandbox"; // sandbox or production
+// Base URL: sandbox = https://sandbox.momodeveloper.mtn.com, production = https://proxy.momoapi.mtn.com
+const MTN_MOMO_API_URL = process.env.MTN_MOMO_API_URL || "https://sandbox.momodeveloper.mtn.com";
+// Environment selector: sandbox or production
+const MTN_MOMO_ENVIRONMENT = process.env.MTN_MOMO_ENVIRONMENT || "sandbox";
 
 // Environment variables for Airtel Money API
 const AIRTEL_MONEY_API_URL = process.env.AIRTEL_MONEY_API_URL || "https://openapi.airtel.africa";
@@ -55,26 +60,48 @@ export function isFullPricedSubscriptionPayment(
 // ============================================================
 
 /**
- * Generate MTN MoMo API access token
+ * Generate MTN Payments V1 OAuth2 access token.
+ *
+ * Uses the standard OAuth 2.0 client_credentials grant with Consumer Key
+ * and Consumer Secret obtained from the MTN Developer Portal.
+ *
+ * Token endpoint: POST {base}/collection/token/
+ * Authentication: client_id + client_secret in form-encoded body
+ * Grant type: client_credentials
+ * Response: { access_token, token_type, expires_in }
  */
 async function getMtnAccessToken(): Promise<string> {
-  if (!MTN_MOMO_API_KEY || !MTN_MOMO_API_USER) {
-    throw new Error("MTN MoMo API credentials not configured");
+  if (!MTN_MOMO_API_KEY || !MTN_MOMO_API_SECRET) {
+    throw new Error(
+      "MTN MoMo API credentials not configured. " +
+      "Set MTN_MOMO_API_KEY (Consumer Key) and MTN_MOMO_API_SECRET (Consumer Secret) " +
+      "in the Keys/API keys tab."
+    );
   }
 
-  const response = await fetch(
-    `${MTN_MOMO_API_URL}/collection/token/`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${Buffer.from(`${MTN_MOMO_API_USER}:${MTN_MOMO_API_KEY}`).toString("base64")}`,
-        "Ocp-Apim-Subscription-Key": MTN_MOMO_SUBSCRIPTION_KEY || "",
-      },
-    }
-  );
+  const tokenUrl = `${MTN_MOMO_API_URL}/collection/token/`;
+
+  const response = await fetch(tokenUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: MTN_MOMO_API_KEY,
+      client_secret: MTN_MOMO_API_SECRET,
+    }).toString(),
+  });
 
   if (!response.ok) {
-    throw new Error("Failed to get MTN MoMo access token");
+    const errorBody = await response.text().catch(() => "unknown");
+    console.error(
+      `MTN token request failed (${response.status}):`,
+      errorBody
+    );
+    throw new Error(
+      `Failed to get MTN MoMo access token. Provider returned ${response.status}.`
+    );
   }
 
   const data = await response.json();
@@ -118,9 +145,10 @@ export const initiateMtnPayment = action({
             Authorization: `Bearer ${accessToken}`,
             "X-Reference-Id": referenceId,
             "X-Target-Environment": MTN_MOMO_ENVIRONMENT,
-            "Ocp-Apim-Subscription-Key": MTN_MOMO_SUBSCRIPTION_KEY || "",
+            ...(MTN_MOMO_SUBSCRIPTION_KEY
+              ? { "Ocp-Apim-Subscription-Key": MTN_MOMO_SUBSCRIPTION_KEY }
+              : {}),
             "X-Callback-Url": `${APP_URL}/api/momo/webhook`,
-            "X-Callback-Host": APP_URL,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -190,7 +218,9 @@ export const checkMtnPaymentStatus = action({
           headers: {
             Authorization: `Bearer ${accessToken}`,
             "X-Target-Environment": MTN_MOMO_ENVIRONMENT,
-            "Ocp-Apim-Subscription-Key": MTN_MOMO_SUBSCRIPTION_KEY || "",
+            ...(MTN_MOMO_SUBSCRIPTION_KEY
+              ? { "Ocp-Apim-Subscription-Key": MTN_MOMO_SUBSCRIPTION_KEY }
+              : {}),
           },
         }
       );
@@ -856,9 +886,10 @@ export const initiateConsultationPayment = action({
             Authorization: `Bearer ${accessToken}`,
             "X-Reference-Id": referenceId,
             "X-Target-Environment": MTN_MOMO_ENVIRONMENT,
-            "Ocp-Apim-Subscription-Key": MTN_MOMO_SUBSCRIPTION_KEY || "",
+            ...(MTN_MOMO_SUBSCRIPTION_KEY
+              ? { "Ocp-Apim-Subscription-Key": MTN_MOMO_SUBSCRIPTION_KEY }
+              : {}),
             "X-Callback-Url": `${APP_URL}/api/momo/webhook`,
-            "X-Callback-Host": APP_URL,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
