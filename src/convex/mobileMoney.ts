@@ -13,11 +13,10 @@ import { internal } from "./_generated/api";
 const MTN_MOMO_API_KEY = process.env.MTN_MOMO_API_KEY;
 // Consumer Secret (from MTN Developer Portal → Applications → API Credentials)
 const MTN_MOMO_API_SECRET = process.env.MTN_MOMO_API_SECRET;
-// Subscription key — Payments V1 may not require it; include only when configured
-const MTN_MOMO_SUBSCRIPTION_KEY = process.env.MTN_MOMO_SUBSCRIPTION_KEY;
 // MTN Payments V1 base URL (production: https://api.mtn.com/v1)
+// Sandbox URL is NOT established by the supplied spec — configure via env var if needed.
 const MTN_MOMO_API_URL = process.env.MTN_MOMO_API_URL || "https://api.mtn.com/v1";
-// Default country code for MTN Payments V1 (required header)
+// Default country code for MTN Payments V1 (required header on POST /payments)
 const MTN_DEFAULT_COUNTRY = process.env.MTN_DEFAULT_COUNTRY || "ZM";
 
 // Environment variables for Airtel Money API
@@ -144,9 +143,6 @@ export const initiateMtnPayment = action({
           headers: {
             Authorization: `Bearer ${accessToken}`,
             countryCode: MTN_DEFAULT_COUNTRY,
-            ...(MTN_MOMO_SUBSCRIPTION_KEY
-              ? { "Ocp-Apim-Subscription-Key": MTN_MOMO_SUBSCRIPTION_KEY }
-              : {}),
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -155,13 +151,20 @@ export const initiateMtnPayment = action({
               units: args.currency,
             },
             payer: {
-              partyIdType: "MSISDN",
-              partyId: cleanPhone,
+              payerIdType: "MSISDN",
+              payerId: cleanPhone,
+              payerName: args.name,
+              payerNote: args.description || "FarmBond Pro Subscription",
             },
-            payee: {
-              partyIdType: "MSISDN",
-              partyId: cleanPhone,
-            },
+            payee: [
+              {
+                payeeIdType: "MSISDN",
+                payeeId: cleanPhone,
+                payeeName: "FarmBond",
+                amount: args.amount.toFixed(2),
+                payeeNote: `Payment from ${args.name} for FarmBond subscription`,
+              },
+            ],
             callbackURL: `${APP_URL}/api/momo/webhook`,
             externalTransactionId: externalId,
             transactionId: referenceId,
@@ -225,9 +228,6 @@ export const checkMtnPaymentStatus = action({
             Authorization: `Bearer ${accessToken}`,
             transactionId: args.referenceId,
             countryCode: MTN_DEFAULT_COUNTRY,
-            ...(MTN_MOMO_SUBSCRIPTION_KEY
-              ? { "Ocp-Apim-Subscription-Key": MTN_MOMO_SUBSCRIPTION_KEY }
-              : {}),
           },
         }
       );
@@ -902,9 +902,6 @@ export const initiateConsultationPayment = action({
           headers: {
             Authorization: `Bearer ${accessToken}`,
             countryCode: args.countryCode || MTN_DEFAULT_COUNTRY,
-            ...(MTN_MOMO_SUBSCRIPTION_KEY
-              ? { "Ocp-Apim-Subscription-Key": MTN_MOMO_SUBSCRIPTION_KEY }
-              : {}),
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -913,13 +910,19 @@ export const initiateConsultationPayment = action({
               units: consultation.currency,
             },
             payer: {
-              partyIdType: "MSISDN",
-              partyId: cleanPhone,
+              payerIdType: "MSISDN",
+              payerId: cleanPhone,
+              payerNote: description,
             },
-            payee: {
-              partyIdType: "MSISDN",
-              partyId: cleanPhone,
-            },
+            payee: [
+              {
+                payeeIdType: "MSISDN",
+                payeeId: cleanPhone,
+                payeeName: "FarmBond",
+                amount: consultation.amount.toFixed(2),
+                payeeNote: `Payment from FarmBond user for consultation`,
+              },
+            ],
             callbackURL: `${APP_URL}/api/momo/webhook`,
             externalTransactionId: referenceId,
             transactionId: referenceId,
