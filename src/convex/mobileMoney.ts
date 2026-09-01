@@ -13,12 +13,12 @@ import { internal } from "./_generated/api";
 const MTN_MOMO_API_KEY = process.env.MTN_MOMO_API_KEY;
 // Consumer Secret (from MTN Developer Portal → Applications → API Credentials)
 const MTN_MOMO_API_SECRET = process.env.MTN_MOMO_API_SECRET;
-// Subscription key is optional in Payments V1 — include only when configured
+// Subscription key — Payments V1 may not require it; include only when configured
 const MTN_MOMO_SUBSCRIPTION_KEY = process.env.MTN_MOMO_SUBSCRIPTION_KEY;
-// Base URL: sandbox = https://sandbox.momodeveloper.mtn.com, production = https://proxy.momoapi.mtn.com
-const MTN_MOMO_API_URL = process.env.MTN_MOMO_API_URL || "https://sandbox.momodeveloper.mtn.com";
-// Environment selector: sandbox or production
-const MTN_MOMO_ENVIRONMENT = process.env.MTN_MOMO_ENVIRONMENT || "sandbox";
+// MTN Payments V1 base URL (production: https://api.mtn.com/v1)
+const MTN_MOMO_API_URL = process.env.MTN_MOMO_API_URL || "https://api.mtn.com/v1";
+// Default country code for MTN Payments V1 (required header)
+const MTN_DEFAULT_COUNTRY = process.env.MTN_DEFAULT_COUNTRY || "ZM";
 
 // Environment variables for Airtel Money API
 const AIRTEL_MONEY_API_URL = process.env.AIRTEL_MONEY_API_URL || "https://openapi.airtel.africa";
@@ -65,7 +65,7 @@ export function isFullPricedSubscriptionPayment(
  * Uses the standard OAuth 2.0 client_credentials grant with Consumer Key
  * and Consumer Secret obtained from the MTN Developer Portal.
  *
- * Token endpoint: POST {base}/collection/token/
+ * Token endpoint: POST {base}/oauth/access_token
  * Authentication: client_id + client_secret in form-encoded body
  * Grant type: client_credentials
  * Response: { access_token, token_type, expires_in }
@@ -79,7 +79,7 @@ async function getMtnAccessToken(): Promise<string> {
     );
   }
 
-  const tokenUrl = `${MTN_MOMO_API_URL}/collection/token/`;
+  const tokenUrl = `${MTN_MOMO_API_URL}/oauth/access_token`;
 
   const response = await fetch(tokenUrl, {
     method: "POST",
@@ -138,29 +138,35 @@ export const initiateMtnPayment = action({
       const accessToken = await getMtnAccessToken();
 
       const response = await fetch(
-        `${MTN_MOMO_API_URL}/collection/v1_0/requesttopay`,
+        `${MTN_MOMO_API_URL}/payments`,
         {
           method: "POST",
           headers: {
             Authorization: `Bearer ${accessToken}`,
-            "X-Reference-Id": referenceId,
-            "X-Target-Environment": MTN_MOMO_ENVIRONMENT,
+            countryCode: MTN_DEFAULT_COUNTRY,
             ...(MTN_MOMO_SUBSCRIPTION_KEY
               ? { "Ocp-Apim-Subscription-Key": MTN_MOMO_SUBSCRIPTION_KEY }
               : {}),
-            "X-Callback-Url": `${APP_URL}/api/momo/webhook`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            amount: args.amount.toString(),
-            currency: args.currency,
-            externalId: externalId,
+            amount: {
+              amount: args.amount.toFixed(2),
+              units: args.currency,
+            },
             payer: {
               partyIdType: "MSISDN",
               partyId: cleanPhone,
             },
-            payerMessage: args.description || "FarmBond Pro Subscription",
-            payeeNote: `Payment from ${args.name} for FarmBond subscription`,
+            payee: {
+              partyIdType: "MSISDN",
+              partyId: cleanPhone,
+            },
+            callbackURL: `${APP_URL}/api/momo/webhook`,
+            externalTransactionId: externalId,
+            transactionId: referenceId,
+            correlatorId: referenceId,
+            paymentMethod: "mobile_money",
           }),
         }
       );
@@ -213,11 +219,12 @@ export const checkMtnPaymentStatus = action({
       const accessToken = await getMtnAccessToken();
 
       const response = await fetch(
-        `${MTN_MOMO_API_URL}/collection/v1_0/requesttopay/${args.referenceId}`,
+        `${MTN_MOMO_API_URL}/${args.referenceId}/transactionStatus`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
-            "X-Target-Environment": MTN_MOMO_ENVIRONMENT,
+            transactionId: args.referenceId,
+            countryCode: MTN_DEFAULT_COUNTRY,
             ...(MTN_MOMO_SUBSCRIPTION_KEY
               ? { "Ocp-Apim-Subscription-Key": MTN_MOMO_SUBSCRIPTION_KEY }
               : {}),
@@ -231,8 +238,18 @@ export const checkMtnPaymentStatus = action({
 
       const data = await response.json();
 
+      // Map V1 status values to internal status
+      const statusMap: Record<string, string> = {
+        SUCCESSFUL: "completed",
+        FAILED: "failed",
+        REJECTED: "failed",
+        TIMEOUT: "expired",
+        PENDING: "pending",
+      };
+      const mappedStatus = statusMap[data.status] || data.status;
+
       // Update transaction status
-      if (data.status === "SUCCESSFUL" || data.status === "FAILED") {
+      if (mappedStatus === "completed" || mappedStatus === "failed" || mappedStatus === "expired") {
         // Ownership check: only the user who initiated the transaction may
         // poll and settle it. Prevents settling another user's transaction.
         const txn = await ctx.runQuery(internal.mobileMoney.getTransactionByReference, {
@@ -243,16 +260,16 @@ export const checkMtnPaymentStatus = action({
         }
         await ctx.runMutation(internal.mobileMoney.updateTransactionStatus, {
           referenceId: args.referenceId,
-          status: data.status === "SUCCESSFUL" ? "completed" : "failed",
+          status: mappedStatus,
           providerResponse: data,
         });
       }
 
       return {
         status: data.status,
-        amount: data.amount,
-        currency: data.currency,
-        externalId: data.externalId,
+        amount: data.amount?.amount,
+        currency: data.amount?.units,
+        externalId: data.externalTransactionId,
         reason: data.reason,
       };
     } catch (error) {
@@ -879,26 +896,35 @@ export const initiateConsultationPayment = action({
     try {
       const accessToken = await getMtnAccessToken();
       const response = await fetch(
-        `${MTN_MOMO_API_URL}/collection/v1_0/requesttopay`,
+        `${MTN_MOMO_API_URL}/payments`,
         {
           method: "POST",
           headers: {
             Authorization: `Bearer ${accessToken}`,
-            "X-Reference-Id": referenceId,
-            "X-Target-Environment": MTN_MOMO_ENVIRONMENT,
+            countryCode: args.countryCode || MTN_DEFAULT_COUNTRY,
             ...(MTN_MOMO_SUBSCRIPTION_KEY
               ? { "Ocp-Apim-Subscription-Key": MTN_MOMO_SUBSCRIPTION_KEY }
               : {}),
-            "X-Callback-Url": `${APP_URL}/api/momo/webhook`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            amount: consultation.amount.toString(),
-            currency: consultation.currency,
-            externalId: referenceId,
-            payer: { partyIdType: "MSISDN", partyId: cleanPhone },
-            payerMessage: description,
-            payeeNote: `Payment from FarmBond user for consultation`,
+            amount: {
+              amount: consultation.amount.toFixed(2),
+              units: consultation.currency,
+            },
+            payer: {
+              partyIdType: "MSISDN",
+              partyId: cleanPhone,
+            },
+            payee: {
+              partyIdType: "MSISDN",
+              partyId: cleanPhone,
+            },
+            callbackURL: `${APP_URL}/api/momo/webhook`,
+            externalTransactionId: referenceId,
+            transactionId: referenceId,
+            correlatorId: referenceId,
+            paymentMethod: "mobile_money",
           }),
         }
       );
