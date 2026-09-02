@@ -37,7 +37,8 @@ export const emailOtp = Email({
         },
       );
     } catch (error) {
-      throw new Error(JSON.stringify(error));
+      if (error instanceof Error) throw error;
+      throw new Error("Email verification service is currently unavailable. Please try again later.");
     }
   },
 });

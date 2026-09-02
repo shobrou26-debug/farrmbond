@@ -18,7 +18,6 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import logo from "@/assets/logo.svg";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
@@ -28,7 +27,7 @@ import {
   Sprout,
   UserX,
 } from "lucide-react";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
 interface AuthProps {
@@ -45,13 +44,30 @@ function resolveRedirectAfterAuth(
   return fallback;
 }
 
-// Honest capability highlights shown on the visual panel. Each maps to a
-// feature that actually exists in FarmBond — no invented claims.
+// Honest capability highlights — each maps to a real FarmBond feature
 const capabilityHighlights = [
   "AI-powered crop & livestock guidance",
-  "Satellite monitoring and weather intelligence",
-  "Finances, calendars, and market insights in one place",
+  "Satellite monitoring & weather intelligence",
+  "Finances, calendars & market insights",
+  "All-in-one platform for modern farmers",
 ];
+
+function friendlyAuthError(error: unknown): string {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (msg.includes("not configured") || msg.includes("unavailable")) {
+    return "Email service is temporarily unavailable. Please try again in a moment.";
+  }
+  if (msg.includes("network") || msg.includes("fetch")) {
+    return "Could not connect to the server. Please check your connection and try again.";
+  }
+  if (msg.includes("rate") || msg.includes("limit")) {
+    return "Too many attempts. Please wait a minute and try again.";
+  }
+  if (msg.includes("invalid") || msg.includes("expired")) {
+    return "The code is invalid or has expired. Please request a new one.";
+  }
+  return "Something went wrong. Please try again.";
+}
 
 function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const { isLoading: authLoading, isAuthenticated, user, signIn } = useAuth();
@@ -73,28 +89,19 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
   }, [authLoading, isAuthenticated, navigate, redirect]);
 
-  // ============================================================
   // Automatic 7-day Pro trial
-  // New accounts get the trial started on first sign-in (once only).
-  // startTrial is server-side single-use; repeated attempts are ignored.
-  // ============================================================
   const trialStatus = useQuery(api.trials.getTrialStatus, isAuthenticated ? {} : "skip");
   const startTrial = useMutation(api.trials.startTrial);
   useEffect(() => {
     if (!isAuthenticated || !user || trialStatus === undefined) return;
-    // Admins don't need a trial; everyone else gets the 7-day Pro trial.
     if (user.role === "admin" || user.role === "super_admin") return;
-    // Only attempt when the server says a trial is available. This
-    // excludes guest/anonymous accounts, users who already used a trial,
-    // and users who have ever paid (paid-then-cancelled users must
-    // re-subscribe, not re-trial). The mutation re-checks server-side.
     if (!trialStatus.canStartTrial) return;
     startTrial().catch((err) => {
-      // Ignore — the trial is single-use; a second attempt is expected.
       console.warn("[Trial] Could not auto-start trial:", err instanceof Error ? err.message : err);
     });
   }, [isAuthenticated, user, trialStatus, startTrial]);
-  const handleEmailSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+
+  const handleEmailSubmit = useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsLoading(true);
     setError(null);
@@ -102,49 +109,41 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       const formData = new FormData(event.currentTarget);
       await signIn("email-otp", formData);
       setStep({ email: formData.get("email") as string });
-      setIsLoading(false);
     } catch (error) {
-      console.error("Email sign-in error:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Failed to send verification code. Please try again.",
-      );
+      setError(friendlyAuthError(error));
+    } finally {
       setIsLoading(false);
     }
-  };
+  }, [signIn]);
 
-  const handleOtpSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleOtpSubmit = useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsLoading(true);
     setError(null);
     try {
       const formData = new FormData(event.currentTarget);
       await signIn("email-otp", formData);
-
       navigate(redirect);
     } catch (error) {
-      console.error("OTP verification error:", error);
-
-      setError("The verification code you entered is incorrect.");
-      setIsLoading(false);
-
+      setError(friendlyAuthError(error));
       setOtp("");
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, [signIn, navigate, redirect]);
 
-  const handleGuestLogin = async () => {
+  const handleGuestLogin = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       await signIn("anonymous");
       navigate(redirect);
     } catch (error) {
-      console.error("Guest login error:", error);
-      setError(`Failed to sign in as guest: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setError(friendlyAuthError(error));
+    } finally {
       setIsLoading(false);
     }
-  };
+  }, [signIn, navigate, redirect]);
 
   const entrance = shouldReduceMotion
     ? {}
@@ -153,12 +152,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-2">
       {/* ============================================================
-          Left visual panel — agricultural photography (desktop only)
+          Left visual panel — agricultural branding (desktop only)
           ============================================================ */}
       <div className="relative hidden overflow-hidden lg:flex lg:flex-col">
         <img
           src="https://images.unsplash.com/photo-1500937386664-56d1dfef3854?q=80&w=1920&auto=format&fit=crop"
-          alt="Golden wheat field ready for harvest"
+          alt="Lush green farmland stretching to the horizon"
           className="absolute inset-0 h-full w-full object-cover"
         />
         <div className="absolute inset-0 bg-gradient-to-br from-brand-deep/95 via-black/50 to-black/70" />
@@ -167,10 +166,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
           {/* Brand */}
           <a
             href="/"
-            onClick={(e) => {
-              e.preventDefault();
-              navigate("/");
-            }}
+            onClick={(e) => { e.preventDefault(); navigate("/"); }}
             className="flex w-fit items-center gap-3"
             aria-label="FarmBond home"
           >
@@ -187,10 +183,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
 
           {/* Value proposition */}
           <div className="flex flex-1 flex-col justify-center">
-            <motion.div
-              {...entrance}
-              transition={{ duration: 0.5, delay: 0.1 }}
-            >
+            <motion.div {...entrance} transition={{ duration: 0.5, delay: 0.1 }}>
               <p className="mb-4 inline-flex w-fit items-center gap-2 rounded-full border border-brand/50 bg-black/25 px-4 py-1.5 text-sm font-medium text-brand backdrop-blur-sm">
                 <span aria-hidden>◆</span>
                 Future-Ready Farming
@@ -228,17 +221,19 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
         {/* Mobile brand */}
         <a
           href="/"
-          onClick={(e) => {
-            e.preventDefault();
-            navigate("/");
-          }}
+          onClick={(e) => { e.preventDefault(); navigate("/"); }}
           className="mb-8 flex flex-col items-center gap-3 lg:hidden"
           aria-label="FarmBond home"
         >
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand shadow-md">
             <Sprout className="h-7 w-7 text-brand-foreground" />
           </div>
-          <span className="text-xl font-bold tracking-tight text-foreground">FarmBond</span>
+          <div className="flex flex-col items-center">
+            <span className="text-xl font-bold tracking-tight text-foreground">FarmBond</span>
+            <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              Smart Farming
+            </span>
+          </div>
         </a>
 
         <motion.div
@@ -249,26 +244,21 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
           <Card className="w-full rounded-3xl border border-border/60 bg-card p-0 shadow-xl shadow-black/5">
             {step === "signIn" ? (
               <>
-                <CardHeader className="text-center pt-8">
-                  <div className="flex justify-center">
-                    <img
-                      src={logo}
-                      alt="FarmBond"
-                      width={56}
-                      height={56}
-                      className="mb-4 cursor-pointer rounded-xl"
-                      onClick={() => navigate("/")}
-                    />
+                <CardHeader className="text-center pt-8 pb-2">
+                  <div className="flex justify-center mb-2">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand shadow-md">
+                      <Sprout className="h-7 w-7 text-brand-foreground" />
+                    </div>
                   </div>
                   <CardTitle className="text-2xl tracking-tight">
                     Welcome to FarmBond
                   </CardTitle>
                   <CardDescription className="mx-auto max-w-xs text-sm leading-relaxed">
-                    Enter your email to log in or sign up
+                    Enter your email to get started. We'll send you a verification code.
                   </CardDescription>
                 </CardHeader>
                 <form onSubmit={handleEmailSubmit}>
-                  <CardContent className="pt-2">
+                  <CardContent className="pt-2 pb-4">
                     <div className="space-y-2">
                       <Label htmlFor="auth-email" className="text-sm font-medium">
                         Email address
@@ -278,7 +268,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         <Input
                           id="auth-email"
                           name="email"
-                          placeholder="name@example.com"
+                          placeholder="you@example.com"
                           type="email"
                           autoComplete="email"
                           className="h-12 rounded-xl pl-10"
@@ -305,7 +295,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       {isLoading ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Sending code...
+                          Processing...
                         </>
                       ) : (
                         <>
@@ -341,20 +331,16 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
               </>
             ) : (
               <>
-                <CardHeader className="text-center pt-8">
-                  <div className="flex justify-center">
-                    <img
-                      src={logo}
-                      alt="FarmBond"
-                      width={56}
-                      height={56}
-                      className="mb-4 cursor-pointer rounded-xl"
-                      onClick={() => navigate("/")}
-                    />
+                <CardHeader className="text-center pt-8 pb-2">
+                  <div className="flex justify-center mb-2">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand shadow-md">
+                      <Sprout className="h-7 w-7 text-brand-foreground" />
+                    </div>
                   </div>
                   <CardTitle className="text-2xl tracking-tight">Check your email</CardTitle>
                   <CardDescription className="mx-auto max-w-xs text-sm leading-relaxed">
-                    We've sent a code to {step.email}
+                    We've sent a 6-digit code to<br />
+                    <span className="font-medium text-foreground">{step.email}</span>
                   </CardDescription>
                 </CardHeader>
                 <form onSubmit={handleOtpSubmit}>
@@ -370,11 +356,8 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         disabled={isLoading}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && otp.length === 6 && !isLoading) {
-                            // Find the closest form and submit it
                             const form = (e.target as HTMLElement).closest("form");
-                            if (form) {
-                              form.requestSubmit();
-                            }
+                            if (form) form.requestSubmit();
                           }
                         }}
                       >
@@ -413,7 +396,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       {isLoading ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Verifying...
+                          Processing...
                         </>
                       ) : (
                         <>
@@ -435,18 +418,6 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 </form>
               </>
             )}
-
-            <div className="rounded-b-3xl border-t border-border bg-muted/50 px-6 py-4 text-center text-xs text-muted-foreground">
-              Secured by{" "}
-              <a
-                href="https://freebuff.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline transition-colors hover:text-primary"
-              >
-                freebuff.com
-              </a>
-            </div>
           </Card>
         </motion.div>
 
