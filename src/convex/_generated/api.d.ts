@@ -48,6 +48,7 @@ import type * as stripe from "../stripe.js";
 import type * as stripeWebhook from "../stripeWebhook.js";
 import type * as subscriptions from "../subscriptions.js";
 import type * as supportTickets from "../supportTickets.js";
+import type * as testMtnOAuth from "../testMtnOAuth.js";
 import type * as transactions from "../transactions.js";
 import type * as trials from "../trials.js";
 import type * as users from "../users.js";
@@ -103,6 +104,7 @@ declare const fullApi: ApiFromModules<{
   stripeWebhook: typeof stripeWebhook;
   subscriptions: typeof subscriptions;
   supportTickets: typeof supportTickets;
+  testMtnOAuth: typeof testMtnOAuth;
   transactions: typeof transactions;
   trials: typeof trials;
   users: typeof users;
