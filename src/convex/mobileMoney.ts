@@ -221,10 +221,14 @@ export const initiateMtnPayment = action({
             // Payee — YAML payee is an array
             payee: [
               {
-                payeeIdType: "MSISDN",
+                payeeIdType: "MSISDN", // [NEEDS MTN CONFIRMATION] value
                 payeeId: cleanPhone,
                 payeeName: "FarmBond",
-                amount: args.amount.toFixed(2),
+                // payee.amount is a MoneyType per YAML, same as top-level amount
+                amount: {
+                  amount: args.amount.toFixed(2),
+                  units: args.currency,
+                },
                 payeeNote: `Payment from ${args.name} for FarmBond subscription`,
               },
             ],
@@ -703,10 +707,13 @@ export const initiateConsultationPayment = action({
             },
             payee: [
               {
-                payeeIdType: "MSISDN",
+                payeeIdType: "MSISDN", // [NEEDS MTN CONFIRMATION] value
                 payeeId: cleanPhone,
                 payeeName: "FarmBond",
-                amount: consultation.amount.toFixed(2),
+                amount: {
+                  amount: consultation.amount.toFixed(2),
+                  units: consultation.currency,
+                },
                 payeeNote: `Payment from FarmBond user for consultation`,
               },
             ],
