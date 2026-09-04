@@ -107,7 +107,7 @@ export type MobileMoneyStatus = "pending" | "completed" | "failed" | "expired";
 //   - sandbox URL
 //   - callback signing/verification behavior
 //   - exact callback payload format
-//   - exact paymentMethod enum values
+//   - exact paymentMethod.name enum values
 //   - exact transaction status enum values
 // Items marked [NEEDS MTN CONFIRMATION] below require sandbox testing.
 
@@ -170,7 +170,7 @@ async function getMtnAccessToken(): Promise<string> {
  * IMPORTANT per the YAML:
  *   - amount is a MoneyType: { amount: "string", units: "string" }
  *   - callbackURL is in the REQUEST BODY (not the X-Callback-Url header)
- *   - paymentMethod is defined as part of PaymentRequest — see [NEEDS MTN CONFIRMATION]
+ *   - paymentMethod is an object { name: "..." } per the YAML schema
  */
 export const initiateMtnPayment = action({
   args: {
@@ -233,10 +233,10 @@ export const initiateMtnPayment = action({
             externalTransactionId: externalId,
             transactionId: referenceId,
             correlatorId: referenceId,
-            // [NEEDS MTN CONFIRMATION] paymentMethod structure per YAML
-            // The YAML defines paymentMethod in PaymentRequest. The exact
-            // format (string vs object) should be verified in sandbox.
-            paymentMethod: "mobile_money",
+            // paymentMethod is an object per YAML: { name: "..." }
+            // [NEEDS MTN CONFIRMATION] value of name — "mobile_money" is assumed;
+            // verify the correct enum value in MTN sandbox.
+            paymentMethod: { name: "mobile_money" },
           }),
         }
       );
@@ -714,8 +714,9 @@ export const initiateConsultationPayment = action({
             externalTransactionId: referenceId,
             transactionId: referenceId,
             correlatorId: referenceId,
-            // [NEEDS MTN CONFIRMATION] paymentMethod per YAML
-            paymentMethod: "mobile_money",
+            // paymentMethod is an object per YAML: { name: "..." }
+            // [NEEDS MTN CONFIRMATION] value of name
+            paymentMethod: { name: "mobile_money" },
           }),
         }
       );
