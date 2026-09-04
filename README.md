@@ -301,9 +301,9 @@ Server-side (Convex env / Keys tab):
 - `GOOGLE_GEMINI_API_KEY` — AI image analysis + chat fallback
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID` — billing
   (checkout refuses to run without a real price ID — no placeholder)
-- `MTN_MOMO_API_KEY`, `MTN_MOMO_API_USER`, `MTN_MOMO_SUBSCRIPTION_KEY`,
-  `MTN_MOMO_ENVIRONMENT`, `AIRTEL_MONEY_CLIENT_ID`,
-  `AIRTEL_MONEY_CLIENT_SECRET`, `MOBILE_MONEY_WEBHOOK_SECRET` — mobile money
+- `MTN_MOMO_API_KEY`, `MTN_MOMO_API_SECRET`, `MTN_MOMO_API_URL`, `MTN_DEFAULT_COUNTRY`,
+  `AIRTEL_MONEY_CLIENT_ID`, `AIRTEL_MONEY_CLIENT_SECRET`,
+  `MOBILE_MONEY_WEBHOOK_SECRET` — mobile money
 - `COPERNICUS_CLIENT_ID`, `COPERNICUS_CLIENT_SECRET` — Sentinel-2 satellite
 - `BREVO_API_KEY` — transactional email (degrades gracefully)
 - `APP_URL` — your production origin (webhook/checkout URLs are built from it)

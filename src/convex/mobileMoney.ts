@@ -4,35 +4,45 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
 
 // ============================================================
-// Mobile Money Integration (MTN MoMo & Airtel Money)
-// For African farmers to pay subscriptions via mobile money
+// SECTION 1 — Environment Configuration
 // ============================================================
 
-// Environment variables for MTN Payments V1 API
-// Consumer Key (from MTN Developer Portal → Applications → API Credentials)
+// MTN Payments V1 (source of truth: MTN Payments V1 OpenAPI YAML)
 const MTN_MOMO_API_KEY = process.env.MTN_MOMO_API_KEY;
-// Consumer Secret (from MTN Developer Portal → Applications → API Credentials)
 const MTN_MOMO_API_SECRET = process.env.MTN_MOMO_API_SECRET;
-// MTN Payments V1 base URL (production: https://api.mtn.com/v1)
-// Sandbox URL is NOT established by the supplied spec — configure via env var if needed.
 const MTN_MOMO_API_URL = process.env.MTN_MOMO_API_URL || "https://api.mtn.com/v1";
-// Default country code for MTN Payments V1 (required header on POST /payments)
 const MTN_DEFAULT_COUNTRY = process.env.MTN_DEFAULT_COUNTRY || "ZM";
 
-// Environment variables for Airtel Money API
+// Airtel Money — NOT YET VERIFIED against an authoritative Airtel specification.
+// Endpoints below are from the existing implementation and require separate
+// Airtel API spec confirmation before production use.
 const AIRTEL_MONEY_API_URL = process.env.AIRTEL_MONEY_API_URL || "https://openapi.airtel.africa";
 const AIRTEL_MONEY_CLIENT_ID = process.env.AIRTEL_MONEY_CLIENT_ID;
 const AIRTEL_MONEY_CLIENT_SECRET = process.env.AIRTEL_MONEY_CLIENT_SECRET;
 
 const APP_URL = process.env.APP_URL || "https://farmbond.com";
 
-// A Pro subscription month is $5 — enforced at grant time so an underpriced
-// or tampered payment can never activate Pro.
+// ============================================================
+// SECTION 2 — Shared Validation & Helpers
+// ============================================================
+
+/** Subscription price guard: $5 USD — enforced server-side so an underpriced
+ *  or tampered payment can never activate Pro. */
 export const SUB_PRICE_USD = 5;
 
+/** Clean a phone number: strip whitespace and leading +. */
+function cleanPhoneNumber(phone: string): string {
+  return phone.replace(/\s/g, "").replace(/^\+/, "");
+}
+
+/** Validate phone number length (10-15 digits). */
+function isValidPhoneNumber(cleaned: string): boolean {
+  return cleaned.length >= 10 && cleaned.length <= 15;
+}
+
 /**
- * Extract the provider-confirmed amount from a provider response if present
- * (MTN returns `amount` at top level; Airtel nests it under `data`).
+ * Extract the provider-confirmed amount from a provider response if present.
+ * MTN returns `amount` at top level; Airtel nests it under `data`.
  * Returns null when the provider didn't echo an amount.
  */
 export function extractConfirmedAmount(providerResponse: unknown): number | null {
@@ -44,30 +54,73 @@ export function extractConfirmedAmount(providerResponse: unknown): number | null
   return isNaN(n) ? null : n;
 }
 
-/**
- * True only when the confirmed payment amount covers the full subscription
- * price. Missing/unparseable amounts fail closed (never grant Pro).
- */
+/** True only when the confirmed payment amount covers the full subscription
+ *  price. Missing/unparseable amounts fail closed (never grant Pro). */
 export function isFullPricedSubscriptionPayment(
   amount: number | null | undefined
 ): boolean {
   return typeof amount === "number" && !isNaN(amount) && amount >= SUB_PRICE_USD;
 }
 
+/** Pure: true only when the provider-confirmed amount fully covers the
+ *  expected consultation price. Missing/unparseable amounts fail closed. */
+export function isFullConsultationPayment(
+  confirmedAmount: number | null | undefined,
+  expectedAmount: number
+): boolean {
+  return (
+    typeof confirmedAmount === "number" &&
+    !isNaN(confirmedAmount) &&
+    expectedAmount > 0 &&
+    confirmedAmount >= expectedAmount
+  );
+}
+
+/** Pure idempotency rule for a status transition.
+ * - Re-applying the same terminal status is a no-op (duplicate webhook).
+ * - A completed transaction is never altered (no downgrade/refund via replay). */
+export function shouldApplyStatusUpdate(
+  currentStatus: string | undefined,
+  incomingStatus: string
+): boolean {
+  if (currentStatus === incomingStatus) return false;
+  if (currentStatus === "completed") return false;
+  return true;
+}
+
+export type MobileMoneyStatus = "pending" | "completed" | "failed" | "expired";
+
 // ============================================================
-// MTN MoMo Integration
+// SECTION 3 — MTN Payments V1 Provider Functions
 // ============================================================
+//
+// Source of truth: MTN Payments V1 OpenAPI 3.0.1 specification.
+//
+// Authenticated endpoints:
+//   POST /oauth/access_token   — OAuth 2.0 client_credentials
+//   POST /payments              — initiate payment
+//   GET  /{correlatorId}/transactionStatus — check status
+//
+// Base URL: https://api.mtn.com/v1
+//
+// IMPORTANT: The YAML does NOT define:
+//   - sandbox URL
+//   - callback signing/verification behavior
+//   - exact callback payload format
+//   - exact paymentMethod enum values
+//   - exact transaction status enum values
+// Items marked [NEEDS MTN CONFIRMATION] below require sandbox testing.
 
 /**
  * Generate MTN Payments V1 OAuth2 access token.
  *
- * Uses the standard OAuth 2.0 client_credentials grant with Consumer Key
- * and Consumer Secret obtained from the MTN Developer Portal.
+ * Per MTN documentation:
+ *   POST /oauth/access_token?grant_type=client_credentials
+ *   Content-Type: application/x-www-form-urlencoded
+ *   Body: client_id={consumer-key}&client_secret={consumer-secret}
  *
- * Token endpoint: POST {base}/oauth/access_token
- * Authentication: client_id + client_secret in form-encoded body
- * Grant type: client_credentials
- * Response: { access_token, token_type, expires_in }
+ * NOTE: grant_type goes in the QUERY PARAMETER, not the body.
+ * The previous implementation placed grant_type in the body which caused HTTP 400.
  */
 async function getMtnAccessToken(): Promise<string> {
   if (!MTN_MOMO_API_KEY || !MTN_MOMO_API_SECRET) {
@@ -78,7 +131,8 @@ async function getMtnAccessToken(): Promise<string> {
     );
   }
 
-  const tokenUrl = `${MTN_MOMO_API_URL}/oauth/access_token`;
+  // MTN Payments V1 OAuth: grant_type in query parameter, credentials in body
+  const tokenUrl = `${MTN_MOMO_API_URL}/oauth/access_token?grant_type=client_credentials`;
 
   const response = await fetch(tokenUrl, {
     method: "POST",
@@ -86,7 +140,6 @@ async function getMtnAccessToken(): Promise<string> {
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: new URLSearchParams({
-      grant_type: "client_credentials",
       client_id: MTN_MOMO_API_KEY,
       client_secret: MTN_MOMO_API_SECRET,
     }).toString(),
@@ -95,8 +148,8 @@ async function getMtnAccessToken(): Promise<string> {
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "unknown");
     console.error(
-      `MTN token request failed (${response.status}):`,
-      errorBody
+      `MTN OAuth failed — provider: mtn_momo, http_status: ${response.status}, ` +
+      `endpoint: POST /oauth/access_token, error: ${errorBody.substring(0, 200)}`
     );
     throw new Error(
       `Failed to get MTN MoMo access token. Provider returned ${response.status}.`
@@ -108,7 +161,16 @@ async function getMtnAccessToken(): Promise<string> {
 }
 
 /**
- * Initiate MTN MoMo Collection (Request to Pay)
+ * Initiate an MTN Payments V1 payment.
+ *
+ * Endpoint: POST /payments
+ * Required header: countryCode
+ * Body follows the PaymentRequest schema from the YAML.
+ *
+ * IMPORTANT per the YAML:
+ *   - amount is a MoneyType: { amount: "string", units: "string" }
+ *   - callbackURL is in the REQUEST BODY (not the X-Callback-Url header)
+ *   - paymentMethod is defined as part of PaymentRequest — see [NEEDS MTN CONFIRMATION]
  */
 export const initiateMtnPayment = action({
   args: {
@@ -123,13 +185,11 @@ export const initiateMtnPayment = action({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Authentication required");
 
-    // Validate phone number format (MTN MoMo requires international format)
-    const cleanPhone = args.phoneNumber.replace(/\s/g, "").replace(/^\+/, "");
-    if (cleanPhone.length < 10 || cleanPhone.length > 15) {
+    const cleanPhone = cleanPhoneNumber(args.phoneNumber);
+    if (!isValidPhoneNumber(cleanPhone)) {
       throw new Error("Invalid phone number format");
     }
 
-    // Generate reference ID
     const referenceId = `FARMBOND-${userId}-${Date.now()}`;
     const externalId = `SUB-${Date.now()}`;
 
@@ -146,16 +206,19 @@ export const initiateMtnPayment = action({
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
+            // MoneyType per YAML: { amount: "string", units: "string" }
             amount: {
               amount: args.amount.toFixed(2),
               units: args.currency,
             },
+            // Payer — YAML PaymentRequest payer schema
             payer: {
               payerIdType: "MSISDN",
               payerId: cleanPhone,
               payerName: args.name,
               payerNote: args.description || "FarmBond Pro Subscription",
             },
+            // Payee — YAML payee is an array
             payee: [
               {
                 payeeIdType: "MSISDN",
@@ -165,24 +228,29 @@ export const initiateMtnPayment = action({
                 payeeNote: `Payment from ${args.name} for FarmBond subscription`,
               },
             ],
+            // callbackURL is in the body per V1 YAML (NOT the X-Callback-Url header)
             callbackURL: `${APP_URL}/api/momo/webhook`,
             externalTransactionId: externalId,
             transactionId: referenceId,
             correlatorId: referenceId,
+            // [NEEDS MTN CONFIRMATION] paymentMethod structure per YAML
+            // The YAML defines paymentMethod in PaymentRequest. The exact
+            // format (string vs object) should be verified in sandbox.
             paymentMethod: "mobile_money",
           }),
         }
       );
 
       if (!response.ok && response.status !== 202) {
-        const error = await response.text();
-        console.error("MTN MoMo request failed:", error);
+        const errorBody = await response.text().catch(() => "unknown");
+        console.error(
+          `MTN payment initiation failed — provider: mtn_momo, ` +
+          `http_status: ${response.status}, endpoint: POST /payments, ` +
+          `operation: initiate_subscription_payment, error: ${errorBody.substring(0, 200)}`
+        );
         throw new Error("Failed to initiate mobile money payment");
       }
 
-      // Log the transaction attempt (internal mutation — the caller's
-      // identity is resolved from the authenticated action session, never
-      // from client-supplied userId)
       await ctx.runMutation(internal.mobileMoney.logTransaction, {
         userId: userId as any,
         provider: "mtn_momo",
@@ -201,14 +269,20 @@ export const initiateMtnPayment = action({
         message: "Payment request sent. Please check your phone to approve the payment.",
       };
     } catch (error) {
-      console.error("MTN MoMo error:", error);
+      console.error(
+        `MTN payment error — provider: mtn_momo, operation: initiate_subscription_payment, ` +
+        `error: ${error instanceof Error ? error.message : String(error)}`
+      );
       throw error;
     }
   },
 });
 
 /**
- * Check MTN MoMo payment status
+ * Check MTN Payments V1 transaction status.
+ *
+ * Endpoint: GET /{correlatorId}/transactionStatus
+ * Required headers: transactionId, countryCode
  */
 export const checkMtnPaymentStatus = action({
   args: {
@@ -233,12 +307,20 @@ export const checkMtnPaymentStatus = action({
       );
 
       if (!response.ok) {
+        const errorBody = await response.text().catch(() => "unknown");
+        console.error(
+          `MTN status check failed — provider: mtn_momo, ` +
+          `http_status: ${response.status}, endpoint: GET /{correlatorId}/transactionStatus, ` +
+          `operation: check_transaction_status, error: ${errorBody.substring(0, 200)}`
+        );
         throw new Error("Failed to check payment status");
       }
 
       const data = await response.json();
 
-      // Map V1 status values to internal status
+      // [NEEDS MTN CONFIRMATION] Status values: these are inferred from the
+      // legacy Collection API and common MTN patterns. The Payments V1 YAML
+      // does not explicitly define an enum of status values.
       const statusMap: Record<string, string> = {
         SUCCESSFUL: "completed",
         FAILED: "failed",
@@ -248,10 +330,9 @@ export const checkMtnPaymentStatus = action({
       };
       const mappedStatus = statusMap[data.status] || data.status;
 
-      // Update transaction status
       if (mappedStatus === "completed" || mappedStatus === "failed" || mappedStatus === "expired") {
         // Ownership check: only the user who initiated the transaction may
-        // poll and settle it. Prevents settling another user's transaction.
+        // poll and settle it.
         const txn = await ctx.runQuery(internal.mobileMoney.getTransactionByReference, {
           referenceId: args.referenceId,
         });
@@ -273,19 +354,28 @@ export const checkMtnPaymentStatus = action({
         reason: data.reason,
       };
     } catch (error) {
-      console.error("MTN status check error:", error);
+      console.error(
+        `MTN status error — provider: mtn_momo, operation: check_transaction_status, ` +
+        `error: ${error instanceof Error ? error.message : String(error)}`
+      );
       throw error;
     }
   },
 });
 
 // ============================================================
-// Airtel Money Integration
+// SECTION 4 — Airtel Money Provider Functions
 // ============================================================
+//
+// WARNING: The following Airtel endpoints are from the EXISTING implementation
+// and have NOT been verified against an authoritative Airtel API specification.
+// They require separate Airtel spec confirmation before production use.
+//
+// Current Airtel endpoints (UNVERIFIED):
+//   POST /auth/v1/oauth/token
+//   POST /merchant/v1/payments/
+//   GET  /standard/v1/payments/{transactionId}
 
-/**
- * Get Airtel Money access token
- */
 async function getAirtelAccessToken(): Promise<string> {
   if (!AIRTEL_MONEY_CLIENT_ID || !AIRTEL_MONEY_CLIENT_SECRET) {
     throw new Error("Airtel Money API credentials not configured");
@@ -307,6 +397,12 @@ async function getAirtelAccessToken(): Promise<string> {
   );
 
   if (!response.ok) {
+    const errorBody = await response.text().catch(() => "unknown");
+    console.error(
+      `Airtel OAuth failed — provider: airtel_money, ` +
+      `http_status: ${response.status}, endpoint: POST /auth/v1/oauth/token, ` +
+      `error: ${errorBody.substring(0, 200)}`
+    );
     throw new Error("Failed to get Airtel Money access token");
   }
 
@@ -314,9 +410,6 @@ async function getAirtelAccessToken(): Promise<string> {
   return data.access_token;
 }
 
-/**
- * Initiate Airtel Money Collection (Customer Push)
- */
 export const initiateAirtelPayment = action({
   args: {
     amount: v.number(),
@@ -324,20 +417,18 @@ export const initiateAirtelPayment = action({
     phoneNumber: v.string(),
     email: v.string(),
     name: v.string(),
-    countryCode: v.string(), // e.g., "KE", "UG", "TZ", "NG"
+    countryCode: v.string(),
     description: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Authentication required");
 
-    // Validate phone number format
-    const cleanPhone = args.phoneNumber.replace(/\s/g, "").replace(/^\+/, "");
-    if (cleanPhone.length < 10 || cleanPhone.length > 15) {
+    const cleanPhone = cleanPhoneNumber(args.phoneNumber);
+    if (!isValidPhoneNumber(cleanPhone)) {
       throw new Error("Invalid phone number format");
     }
 
-    // Generate transaction reference
     const transactionId = `FB-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const externalId = `SUB-${Date.now()}`;
 
@@ -370,15 +461,17 @@ export const initiateAirtelPayment = action({
       );
 
       if (!response.ok) {
-        const error = await response.text();
-        console.error("Airtel Money request failed:", error);
+        const errorBody = await response.text().catch(() => "unknown");
+        console.error(
+          `Airtel payment initiation failed — provider: airtel_money, ` +
+          `http_status: ${response.status}, endpoint: POST /merchant/v1/payments/, ` +
+          `operation: initiate_subscription_payment, error: ${errorBody.substring(0, 200)}`
+        );
         throw new Error("Failed to initiate Airtel Money payment");
       }
 
       const data = await response.json();
 
-      // Log the transaction attempt (internal mutation — caller identity is
-      // resolved from the authenticated action session)
       await ctx.runMutation(internal.mobileMoney.logTransaction, {
         userId: userId as any,
         provider: "airtel_money",
@@ -399,15 +492,16 @@ export const initiateAirtelPayment = action({
         data: data,
       };
     } catch (error) {
-      console.error("Airtel Money error:", error);
+      console.error(
+        `Airtel payment error — provider: airtel_money, ` +
+        `operation: initiate_subscription_payment, ` +
+        `error: ${error instanceof Error ? error.message : String(error)}`
+      );
       throw error;
     }
   },
 });
 
-/**
- * Check Airtel Money payment status
- */
 export const checkAirtelPaymentStatus = action({
   args: {
     transactionId: v.string(),
@@ -431,14 +525,18 @@ export const checkAirtelPaymentStatus = action({
       );
 
       if (!response.ok) {
+        const errorBody = await response.text().catch(() => "unknown");
+        console.error(
+          `Airtel status check failed — provider: airtel_money, ` +
+          `http_status: ${response.status}, endpoint: GET /standard/v1/payments/{id}, ` +
+          `operation: check_transaction_status, error: ${errorBody.substring(0, 200)}`
+        );
         throw new Error("Failed to check payment status");
       }
 
       const data = await response.json();
 
-      // Update transaction status
       if (data.data?.status === "SUCCESS" || data.data?.status === "FAILED") {
-        // Ownership check: only the initiator may settle their transaction.
         const txn = await ctx.runQuery(internal.mobileMoney.getTransactionByReference, {
           referenceId: args.transactionId,
         });
@@ -459,21 +557,211 @@ export const checkAirtelPaymentStatus = action({
         currency: data.data?.currency,
       };
     } catch (error) {
-      console.error("Airtel status check error:", error);
+      console.error(
+        `Airtel status error — provider: airtel_money, ` +
+        `operation: check_transaction_status, ` +
+        `error: ${error instanceof Error ? error.message : String(error)}`
+      );
       throw error;
     }
   },
 });
 
 // ============================================================
-// Common Queries & Mutations
+// SECTION 5 — Consultation Payment Orchestration
 // ============================================================
 
-/**
- * Internal: look up a transaction by provider reference ID.
- * Used by the authenticated status-check actions to verify the caller owns
- * the transaction before settling it. Not exposed to the client.
- */
+export const initiateConsultationPayment = action({
+  args: {
+    consultationId: v.id("consultations"),
+    provider: v.union(v.literal("mtn_momo"), v.literal("airtel_money")),
+    phoneNumber: v.string(),
+    countryCode: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Authentication required");
+
+    // Server-side ownership + state checks
+    const consultation = await ctx.runQuery(internal.marketplace.getConsultationByIdInternal, {
+      consultationId: args.consultationId,
+    });
+    if (!consultation) throw new Error("Consultation not found");
+    if (consultation.farmerId !== userId) {
+      throw new Error("Authorization denied: this consultation does not belong to your account");
+    }
+    if (consultation.paymentStatus === "paid") {
+      throw new Error("This consultation has already been paid");
+    }
+    if (consultation.status === "cancelled" || consultation.status === "completed") {
+      throw new Error("This consultation can no longer be paid");
+    }
+    if (typeof consultation.amount !== "number" || consultation.amount <= 0) {
+      throw new Error("This consultation has no payable amount");
+    }
+
+    const cleanPhone = cleanPhoneNumber(args.phoneNumber);
+    if (!isValidPhoneNumber(cleanPhone)) {
+      throw new Error("Invalid phone number format");
+    }
+
+    const referenceId = `FBC-${args.consultationId}-${Date.now()}`;
+    const description = `FarmBond consultation: ${consultation.serviceType}`;
+
+    // ---- Airtel Money consultation payment ----
+    if (args.provider === "airtel_money") {
+      if (!args.countryCode) {
+        throw new Error("Country code is required for Airtel Money");
+      }
+      const transactionId = referenceId;
+      try {
+        const accessToken = await getAirtelAccessToken();
+        const response = await fetch(
+          `${AIRTEL_MONEY_API_URL}/merchant/v1/payments/`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "X-Country": args.countryCode,
+              "X-Currency": consultation.currency,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              reference: transactionId,
+              subscriber: {
+                country: args.countryCode,
+                currency: consultation.currency,
+                msisdn: cleanPhone,
+              },
+              amount: consultation.amount.toString(),
+              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+              transactionStatusUrl: `${APP_URL}/api/airtel/webhook`,
+              description,
+            }),
+          }
+        );
+        if (!response.ok) {
+          const errorBody = await response.text().catch(() => "unknown");
+          console.error(
+            `Airtel consultation payment failed — provider: airtel_money, ` +
+            `http_status: ${response.status}, endpoint: POST /merchant/v1/payments/, ` +
+            `operation: initiate_consultation_payment, error: ${errorBody.substring(0, 200)}`
+          );
+          throw new Error("Failed to initiate Airtel Money payment");
+        }
+        await ctx.runMutation(internal.mobileMoney.logTransaction, {
+          userId: userId as any,
+          provider: "airtel_money",
+          referenceId: transactionId,
+          externalId: `CONS-${Date.now()}`,
+          amount: consultation.amount,
+          currency: consultation.currency,
+          phoneNumber: cleanPhone,
+          countryCode: args.countryCode,
+          status: "pending",
+          description,
+          purpose: "consultation",
+          consultationId: args.consultationId,
+        });
+        return {
+          transactionId,
+          referenceId: transactionId,
+          status: "pending",
+          message: "Payment request sent. Please check your phone to approve the payment.",
+        };
+      } catch (error) {
+        console.error(
+          `Airtel consultation error — provider: airtel_money, ` +
+          `operation: initiate_consultation_payment, ` +
+          `error: ${error instanceof Error ? error.message : String(error)}`
+        );
+        throw error;
+      }
+    }
+
+    // ---- MTN Payments V1 consultation payment ----
+    try {
+      const accessToken = await getMtnAccessToken();
+      const response = await fetch(
+        `${MTN_MOMO_API_URL}/payments`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            countryCode: args.countryCode || MTN_DEFAULT_COUNTRY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            amount: {
+              amount: consultation.amount.toFixed(2),
+              units: consultation.currency,
+            },
+            payer: {
+              payerIdType: "MSISDN",
+              payerId: cleanPhone,
+              payerNote: description,
+            },
+            payee: [
+              {
+                payeeIdType: "MSISDN",
+                payeeId: cleanPhone,
+                payeeName: "FarmBond",
+                amount: consultation.amount.toFixed(2),
+                payeeNote: `Payment from FarmBond user for consultation`,
+              },
+            ],
+            callbackURL: `${APP_URL}/api/momo/webhook`,
+            externalTransactionId: referenceId,
+            transactionId: referenceId,
+            correlatorId: referenceId,
+            // [NEEDS MTN CONFIRMATION] paymentMethod per YAML
+            paymentMethod: "mobile_money",
+          }),
+        }
+      );
+      if (!response.ok && response.status !== 202) {
+        const errorBody = await response.text().catch(() => "unknown");
+        console.error(
+          `MTN consultation payment failed — provider: mtn_momo, ` +
+          `http_status: ${response.status}, endpoint: POST /payments, ` +
+          `operation: initiate_consultation_payment, error: ${errorBody.substring(0, 200)}`
+        );
+        throw new Error("Failed to initiate mobile money payment");
+      }
+      await ctx.runMutation(internal.mobileMoney.logTransaction, {
+        userId: userId as any,
+        provider: "mtn_momo",
+        referenceId,
+        externalId: `CONS-${Date.now()}`,
+        amount: consultation.amount,
+        currency: consultation.currency,
+        phoneNumber: cleanPhone,
+        status: "pending",
+        description,
+        purpose: "consultation",
+        consultationId: args.consultationId,
+      });
+      return {
+        referenceId,
+        status: "pending",
+        message: "Payment request sent. Please check your phone to approve the payment.",
+      };
+    } catch (error) {
+      console.error(
+        `MTN consultation error — provider: mtn_momo, ` +
+        `operation: initiate_consultation_payment, ` +
+        `error: ${error instanceof Error ? error.message : String(error)}`
+      );
+      throw error;
+    }
+  },
+});
+
+// ============================================================
+// SECTION 6 — Transaction Persistence
+// ============================================================
+
+/** Internal: look up a transaction by provider reference ID. */
 export const getTransactionByReference = internalQuery({
   args: { referenceId: v.string() },
   handler: async (ctx, args) => {
@@ -484,28 +772,9 @@ export const getTransactionByReference = internalQuery({
   },
 });
 
-export type MobileMoneyStatus = "pending" | "completed" | "failed" | "expired";
-
-/**
- * Pure idempotency rule for a status transition.
- * - Re-applying the same terminal status is a no-op (duplicate webhook).
- * - A completed transaction is never altered (no downgrade/refund via replay).
- */
-export function shouldApplyStatusUpdate(
-  currentStatus: string | undefined,
-  incomingStatus: string
-): boolean {
-  if (currentStatus === incomingStatus) return false;
-  if (currentStatus === "completed") return false;
-  return true;
-}
-
-/**
- * Log a mobile money transaction.
+/** Log a mobile money transaction.
  * INTERNAL ONLY — callable from authenticated actions (which resolve the
- * userId from the session), never directly from the client. This closes the
- * vector where any signed-in user could insert arbitrary transactions.
- */
+ * userId from the session), never directly from the client. */
 export const logTransaction = internalMutation({
   args: {
     userId: v.id("users"),
@@ -543,14 +812,10 @@ export const logTransaction = internalMutation({
   },
 });
 
-/**
- * Update transaction status.
- * INTERNAL ONLY — reachable from signature-verified webhooks and from the
- * authenticated status-check actions after an ownership check. A client can
- * never call this directly, which closes the Pro self-grant bypass.
- * Idempotent: duplicate/terminal updates are ignored and a completed
- * transaction is never modified.
- */
+/** Update transaction status.
+ * INTERNAL ONLY — reachable from webhooks and from authenticated status-check
+ * actions after an ownership check. Idempotent: duplicate/terminal updates are
+ * ignored and a completed transaction is never modified. */
 export const updateTransactionStatus = internalMutation({
   args: {
     referenceId: v.string(),
@@ -560,19 +825,17 @@ export const updateTransactionStatus = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
 
-    // Find the transaction by referenceId
     const transaction = await ctx.db
       .query("mobileMoneyTransactions")
       .withIndex("by_reference", (q) => q.eq("referenceId", args.referenceId))
       .first();
 
     if (!transaction) {
-      console.error("Transaction not found:", args.referenceId);
+      console.error(`Transaction not found — referenceId: ${args.referenceId}`);
       return { updated: false, reason: "not_found" };
     }
 
-    // Idempotency: ignore duplicate terminal updates; never alter a
-    // completed transaction (blocks replay/downgrade attacks).
+    // Idempotency: ignore duplicate terminal updates; never alter completed
     if (!shouldApplyStatusUpdate(transaction.status, args.status)) {
       return { updated: false, reason: "duplicate_or_terminal" };
     }
@@ -589,12 +852,8 @@ export const updateTransactionStatus = internalMutation({
 
     await ctx.db.patch(transaction._id, updates);
 
-    // If payment successful, settle the right side of the ledger:
-    // consultation payments settle the consultation; everything else
-    // activates/renews the Pro subscription. Dispatch happens only on the
-    // FIRST transition to completed (the idempotency guard above), so a
-    // duplicate webhook can never double-settle or double-grant.
     if (args.status === "completed") {
+      // Dispatch to the correct settlement path
       if (transaction.purpose === "consultation" && transaction.consultationId) {
         const confirmedAmount = extractConfirmedAmount(args.providerResponse);
         const effectiveAmount = confirmedAmount ?? transaction.amount;
@@ -607,9 +866,7 @@ export const updateTransactionStatus = internalMutation({
         return { updated: true, status: args.status, grantedPro: false };
       }
 
-      // Price guard: the provider-confirmed amount (when echoed) must cover
-      // the full $5 month. An underpriced payment is recorded as completed
-      // but NEVER grants Pro — a $0.01 poke must not unlock premium.
+      // Subscription settlement with price guard
       const confirmedAmount = extractConfirmedAmount(args.providerResponse);
       const effectiveAmount = confirmedAmount ?? transaction.amount;
       if (!isFullPricedSubscriptionPayment(effectiveAmount)) {
@@ -631,7 +888,6 @@ export const updateTransactionStatus = internalMutation({
       const subscriptionEndDate = new Date(now);
       subscriptionEndDate.setMonth(subscriptionEndDate.getMonth() + 1);
 
-      // Activate subscription directly via db patch
       await ctx.db.patch(transaction.userId, {
         subscriptionTier: "pro",
         subscriptionStartDate: now,
@@ -640,13 +896,10 @@ export const updateTransactionStatus = internalMutation({
         paymentFailedAt: undefined,
         paymentFailureCount: 0,
         trialEndDate: undefined,
-        // Real (provider-confirmed, full-priced) payment — marks the account
-        // as paid so it can never claim a free trial after cancelling.
         hasEverPaid: true,
         updatedAt: now,
       });
 
-      // Log audit
       const { createAuditLog } = await import("./authHelpers");
       await createAuditLog(ctx, {
         userId: transaction.userId,
@@ -666,307 +919,13 @@ export const updateTransactionStatus = internalMutation({
   },
 });
 
-/**
- * Get user's mobile money transactions
- */
-export const getUserTransactions = query({
-  args: {},
-  handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-
-    // Phase 7: indexed by_user lookup (the previous filter walked the whole
-    // mobileMoneyTransactions table per request).
-    const transactions = await ctx.db
-      .query("mobileMoneyTransactions")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .order("desc")
-      .collect();
-
-    return transactions;
-  },
-});
-
-/**
- * Get supported mobile money providers by country
- */
-export const getSupportedProviders = query({
-  args: {
-    countryCode: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const providers = [
-      {
-        id: "mtn_momo",
-        name: "MTN Mobile Money",
-        countries: ["UG", "GH", "ZM", "CM", "CI", "RW", "MZ", "SN"],
-        currencies: ["UGX", "GHS", "ZMW", "XAF", "RWF", "MZN", "XOF"],
-        logo: "mtn",
-        color: "#FFCC00",
-        description: "Pay with MTN MoMo",
-        fees: "Free",
-        processingTime: "Instant",
-      },
-      {
-        id: "airtel_money",
-        name: "Airtel Money",
-        countries: ["KE", "UG", "TZ", "NG", "ZM", "MW", "RW", "IN"],
-        currencies: ["KES", "UGX", "TZS", "NGN", "ZMW", "MWK", "RWF", "INR"],
-        logo: "airtel",
-        color: "#ED1C24",
-        description: "Pay with Airtel Money",
-        fees: "Free",
-        processingTime: "Instant",
-      },
-    ];
-
-    if (args.countryCode) {
-      return providers.filter((p) => p.countries.includes(args.countryCode!));
-    }
-
-    return providers;
-  },
-});
-
-/**
- * Get mobile money stats for a user
- */
-export const getMobileMoneyStats = query({
-  args: {},
-  handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-
-    // Phase 7: indexed by_user lookup instead of a full-table filter.
-    const transactions = await ctx.db
-      .query("mobileMoneyTransactions")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .order("desc")
-      .collect();
-
-    const completed = transactions.filter((t) => t.status === "completed");
-    const pending = transactions.filter((t) => t.status === "pending");
-    const failed = transactions.filter((t) => t.status === "failed");
-
-    const totalPaid = completed.reduce((sum, t) => sum + t.amount, 0);
-
-    return {
-      totalTransactions: transactions.length,
-      completedTransactions: completed.length,
-      pendingTransactions: pending.length,
-      failedTransactions: failed.length,
-      totalPaid: totalPaid,
-      lastPaymentDate: completed.length > 0 ? completed[0].completedAt : null,
-      preferredProvider: completed.length > 0 ? completed[0].provider : null,
-    };
-  },
-});
-
 // ============================================================
-// Consultation Payments (Phase 8)
-//
-// A booked consultation is paid with mobile money. The amount is the
-// server-set consultation price (agronomist service price at booking),
-// the payment can only be initiated by the consultation's own farmer,
-// and the consultation is settled ONLY from the signature-verified
-// webhook path (never by the client).
+// SECTION 7 — Payment Settlement (Consultation)
 // ============================================================
 
-/**
- * Pure: true only when the provider-confirmed amount fully covers the
- * expected consultation price. Missing/unparseable amounts fail closed.
- */
-export function isFullConsultationPayment(
-  confirmedAmount: number | null | undefined,
-  expectedAmount: number
-): boolean {
-  return (
-    typeof confirmedAmount === "number" &&
-    !isNaN(confirmedAmount) &&
-    expectedAmount > 0 &&
-    confirmedAmount >= expectedAmount
-  );
-}
-
-/**
- * Initiate a mobile-money payment for a booked consultation.
- * - Authenticated only; the farmer identity comes from the session.
- * - The consultation must belong to the caller (ownership check).
- * - The amount is the SERVER-SET consultation amount — the client can
- *   never pay a different amount, and no subscription state is touched.
- * - A consultation that is already paid or cancelled cannot be paid.
- */
-export const initiateConsultationPayment = action({
-  args: {
-    consultationId: v.id("consultations"),
-    provider: v.union(v.literal("mtn_momo"), v.literal("airtel_money")),
-    phoneNumber: v.string(),
-    countryCode: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Authentication required");
-
-    const consultation = await ctx.runQuery(internal.marketplace.getConsultationByIdInternal, {
-      consultationId: args.consultationId,
-    });
-    if (!consultation) throw new Error("Consultation not found");
-    if (consultation.farmerId !== userId) {
-      throw new Error("Authorization denied: this consultation does not belong to your account");
-    }
-    if (consultation.paymentStatus === "paid") {
-      throw new Error("This consultation has already been paid");
-    }
-    if (consultation.status === "cancelled" || consultation.status === "completed") {
-      throw new Error("This consultation can no longer be paid");
-    }
-    if (typeof consultation.amount !== "number" || consultation.amount <= 0) {
-      throw new Error("This consultation has no payable amount");
-    }
-
-    const cleanPhone = args.phoneNumber.replace(/\s/g, "").replace(/^\+/, "");
-    if (cleanPhone.length < 10 || cleanPhone.length > 15) {
-      throw new Error("Invalid phone number format");
-    }
-
-    const referenceId = `FBC-${args.consultationId}-${Date.now()}`;
-    const description = `FarmBond consultation: ${consultation.serviceType}`;
-
-    if (args.provider === "airtel_money") {
-      if (!args.countryCode) {
-        throw new Error("Country code is required for Airtel Money");
-      }
-      const transactionId = referenceId;
-      try {
-        const accessToken = await getAirtelAccessToken();
-        const response = await fetch(
-          `${AIRTEL_MONEY_API_URL}/merchant/v1/payments/`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "X-Country": args.countryCode,
-              "X-Currency": consultation.currency,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              reference: transactionId,
-              subscriber: {
-                country: args.countryCode,
-                currency: consultation.currency,
-                msisdn: cleanPhone,
-              },
-              amount: consultation.amount.toString(),
-              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-              transactionStatusUrl: `${APP_URL}/api/airtel/webhook`,
-              description,
-            }),
-          }
-        );
-        if (!response.ok) {
-          throw new Error("Failed to initiate Airtel Money payment");
-        }
-        await ctx.runMutation(internal.mobileMoney.logTransaction, {
-          userId: userId as any,
-          provider: "airtel_money",
-          referenceId: transactionId,
-          externalId: `CONS-${Date.now()}`,
-          amount: consultation.amount,
-          currency: consultation.currency,
-          phoneNumber: cleanPhone,
-          countryCode: args.countryCode,
-          status: "pending",
-          description,
-          purpose: "consultation",
-          consultationId: args.consultationId,
-        });
-        return {
-          transactionId,
-          referenceId: transactionId,
-          status: "pending",
-          message: "Payment request sent. Please check your phone to approve the payment.",
-        };
-      } catch (error) {
-        console.error("Airtel consultation payment error:", error);
-        throw error;
-      }
-    }
-
-    // MTN MoMo
-    try {
-      const accessToken = await getMtnAccessToken();
-      const response = await fetch(
-        `${MTN_MOMO_API_URL}/payments`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            countryCode: args.countryCode || MTN_DEFAULT_COUNTRY,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            amount: {
-              amount: consultation.amount.toFixed(2),
-              units: consultation.currency,
-            },
-            payer: {
-              payerIdType: "MSISDN",
-              payerId: cleanPhone,
-              payerNote: description,
-            },
-            payee: [
-              {
-                payeeIdType: "MSISDN",
-                payeeId: cleanPhone,
-                payeeName: "FarmBond",
-                amount: consultation.amount.toFixed(2),
-                payeeNote: `Payment from FarmBond user for consultation`,
-              },
-            ],
-            callbackURL: `${APP_URL}/api/momo/webhook`,
-            externalTransactionId: referenceId,
-            transactionId: referenceId,
-            correlatorId: referenceId,
-            paymentMethod: "mobile_money",
-          }),
-        }
-      );
-      if (!response.ok && response.status !== 202) {
-        throw new Error("Failed to initiate mobile money payment");
-      }
-      await ctx.runMutation(internal.mobileMoney.logTransaction, {
-        userId: userId as any,
-        provider: "mtn_momo",
-        referenceId,
-        externalId: `CONS-${Date.now()}`,
-        amount: consultation.amount,
-        currency: consultation.currency,
-        phoneNumber: cleanPhone,
-        status: "pending",
-        description,
-        purpose: "consultation",
-        consultationId: args.consultationId,
-      });
-      return {
-        referenceId,
-        status: "pending",
-        message: "Payment request sent. Please check your phone to approve the payment.",
-      };
-    } catch (error) {
-      console.error("MTN consultation payment error:", error);
-      throw error;
-    }
-  },
-});
-
-/**
- * Settle a paid consultation.
- * INTERNAL ONLY — reachable exclusively from the signature-verified
- * mobile-money webhook via updateTransactionStatus. Idempotent (an
- * already-paid consultation is a no-op), amount-guarded (an underpriced
- * payment never marks the consultation paid), and ownership-checked
- * (the transaction owner must be the consultation's farmer).
- */
+/** Settle a paid consultation.
+ * INTERNAL ONLY — reachable from the webhook via updateTransactionStatus.
+ * Idempotent, amount-guarded, ownership-checked. */
 export const settleConsultationPayment = internalMutation({
   args: {
     consultationId: v.id("consultations"),
@@ -1018,5 +977,96 @@ export const settleConsultationPayment = internalMutation({
     });
 
     return { settled: true };
+  },
+});
+
+// ============================================================
+// SECTION 8 — Frontend Queries
+// ============================================================
+
+/** Get user's mobile money transactions */
+export const getUserTransactions = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
+
+    const transactions = await ctx.db
+      .query("mobileMoneyTransactions")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .order("desc")
+      .collect();
+
+    return transactions;
+  },
+});
+
+/** Get supported mobile money providers by country */
+export const getSupportedProviders = query({
+  args: {
+    countryCode: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const providers = [
+      {
+        id: "mtn_momo",
+        name: "MTN Mobile Money",
+        countries: ["UG", "GH", "ZM", "CM", "CI", "RW", "MZ", "SN"],
+        currencies: ["UGX", "GHS", "ZMW", "XAF", "RWF", "MZN", "XOF"],
+        logo: "mtn",
+        color: "#FFCC00",
+        description: "Pay with MTN MoMo",
+        fees: "Free",
+        processingTime: "Instant",
+      },
+      {
+        id: "airtel_money",
+        name: "Airtel Money",
+        countries: ["KE", "UG", "TZ", "NG", "ZM", "MW", "RW", "IN"],
+        currencies: ["KES", "UGX", "TZS", "NGN", "ZMW", "MWK", "RWF", "INR"],
+        logo: "airtel",
+        color: "#ED1C24",
+        description: "Pay with Airtel Money",
+        fees: "Free",
+        processingTime: "Instant",
+      },
+    ];
+
+    if (args.countryCode) {
+      return providers.filter((p) => p.countries.includes(args.countryCode!));
+    }
+
+    return providers;
+  },
+});
+
+/** Get mobile money stats for a user */
+export const getMobileMoneyStats = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+
+    const transactions = await ctx.db
+      .query("mobileMoneyTransactions")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .order("desc")
+      .collect();
+
+    const completed = transactions.filter((t) => t.status === "completed");
+    const pending = transactions.filter((t) => t.status === "pending");
+    const failed = transactions.filter((t) => t.status === "failed");
+
+    const totalPaid = completed.reduce((sum, t) => sum + t.amount, 0);
+
+    return {
+      totalTransactions: transactions.length,
+      completedTransactions: completed.length,
+      pendingTransactions: pending.length,
+      failedTransactions: failed.length,
+      totalPaid: totalPaid,
+      lastPaymentDate: completed.length > 0 ? completed[0].completedAt : null,
+      preferredProvider: completed.length > 0 ? completed[0].provider : null,
+    };
   },
 });
