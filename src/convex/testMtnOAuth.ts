@@ -24,6 +24,13 @@ export const diagnostic = action({
     results.credentialsExist = !!(MTN_MOMO_API_KEY && MTN_MOMO_API_SECRET);
     results.keyLength = MTN_MOMO_API_KEY ? MTN_MOMO_API_KEY.length : 0;
     results.secretLength = MTN_MOMO_API_SECRET ? MTN_MOMO_API_SECRET.length : 0;
+    // First and last 2 chars only — for confirming which key is loaded (never expose full value)
+    results.keyFingerprint = MTN_MOMO_API_KEY
+      ? `${MTN_MOMO_API_KEY.slice(0, 2)}...${MTN_MOMO_API_KEY.slice(-2)}`
+      : "not set";
+    results.secretFingerprint = MTN_MOMO_API_SECRET
+      ? `${MTN_MOMO_API_SECRET.slice(0, 2)}...${MTN_MOMO_API_SECRET.slice(-2)}`
+      : "not set";
 
     if (!MTN_MOMO_API_KEY || !MTN_MOMO_API_SECRET) {
       results.overall = "FAIL — credentials not configured";
