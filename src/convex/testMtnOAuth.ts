@@ -29,7 +29,8 @@ async function tryOAuth(
 
     if (useBasicAuth) {
       // HTTP Basic Auth: base64(client_id:client_secret)
-      const credentials = Buffer.from(`${key}:${secret}`).toString("base64");
+      // Use btoa() — available in Convex runtime (Cloudflare Workers-compatible)
+      const credentials = btoa(`${key}:${secret}`);
       headers["Authorization"] = `Basic ${credentials}`;
       headers["Content-Type"] = "application/x-www-form-urlencoded";
       body = "grant_type=client_credentials";
