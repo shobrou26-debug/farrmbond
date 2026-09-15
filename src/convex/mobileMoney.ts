@@ -22,6 +22,13 @@ const AIRTEL_MONEY_CLIENT_SECRET = process.env.AIRTEL_MONEY_CLIENT_SECRET;
 
 const APP_URL = process.env.APP_URL || "https://farmbond.com";
 
+// Provider callback base — MUST be the Convex HTTP-actions site URL where
+// /momo/webhook and /airtel/webhook are registered (src/convex/http.ts),
+// NOT the frontend APP_URL. Set CONVEX_SITE_URL per deployment; falls back
+// to the confirmed production deployment URL.
+const CONVEX_SITE_URL =
+  process.env.CONVEX_SITE_URL || "https://fiery-hare-105.convex.site";
+
 // ============================================================
 // SECTION 2 — Shared Validation & Helpers
 // ============================================================
@@ -233,7 +240,7 @@ export const initiateMtnPayment = action({
               },
             ],
             // callbackURL is in the body per V1 YAML (NOT the X-Callback-Url header)
-            callbackURL: `${APP_URL}/api/momo/webhook`,
+            callbackURL: `${CONVEX_SITE_URL}/momo/webhook`,
             externalTransactionId: externalId,
             transactionId: referenceId,
             correlatorId: referenceId,
@@ -458,7 +465,7 @@ export const initiateAirtelPayment = action({
             },
             amount: args.amount.toString(),
             dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-            transactionStatusUrl: `${APP_URL}/api/airtel/webhook`,
+            transactionStatusUrl: `${CONVEX_SITE_URL}/airtel/webhook`,
             description: args.description || "FarmBond Pro Subscription",
           }),
         }
@@ -639,7 +646,7 @@ export const initiateConsultationPayment = action({
               },
               amount: consultation.amount.toString(),
               dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-              transactionStatusUrl: `${APP_URL}/api/airtel/webhook`,
+              transactionStatusUrl: `${CONVEX_SITE_URL}/airtel/webhook`,
               description,
             }),
           }
@@ -717,7 +724,7 @@ export const initiateConsultationPayment = action({
                 payeeNote: `Payment from FarmBond user for consultation`,
               },
             ],
-            callbackURL: `${APP_URL}/api/momo/webhook`,
+            callbackURL: `${CONVEX_SITE_URL}/momo/webhook`,
             externalTransactionId: referenceId,
             transactionId: referenceId,
             correlatorId: referenceId,
