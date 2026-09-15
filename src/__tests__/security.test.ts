@@ -106,6 +106,26 @@ describe("verifyWebhookSignature — webhook authenticity", () => {
     const sig = await computeWebhookSignature(payload, "secret");
     expect(await verifyWebhookSignature(payload, `sha256=${sig}`, "secret")).toBe(true);
   });
+
+  test("malformed signature (wrong length) is rejected without throwing", async () => {
+    const payload = '{"status":"SUCCESSFUL"}';
+    const sig = await computeWebhookSignature(payload, "secret");
+    expect(await verifyWebhookSignature(payload, sig.slice(0, 32), "secret")).toBe(false);
+    expect(await verifyWebhookSignature(payload, sig + "0", "secret")).toBe(false);
+  });
+
+  test("malformed signature (non-hex garbage) is rejected", async () => {
+    expect(await verifyWebhookSignature('{"status":"SUCCESSFUL"}', "not-a-signature", "secret")).toBe(false);
+    expect(await verifyWebhookSignature('{"status":"SUCCESSFUL"}', "zzzz", "secret")).toBe(false);
+  });
+
+  test("empty-string signature is rejected", async () => {
+    expect(await verifyWebhookSignature('{"status":"SUCCESSFUL"}', "", "secret")).toBe(false);
+  });
+
+  test("sha256= prefix alone is not a valid signature", async () => {
+    expect(await verifyWebhookSignature('{"status":"SUCCESSFUL"}', "sha256=", "secret")).toBe(false);
+  });
 });
 
 // ============================================================

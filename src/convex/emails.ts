@@ -177,14 +177,22 @@ async function sendEmail(to: string, subject: string, html: string) {
     });
     if (!response.ok) {
       const error = await response.text();
-      console.error("Brevo API error:", error);
+      // Privacy: never log the raw provider error body — it can echo
+      // recipient addresses or account data. Log a classification only.
+      console.error(
+        `Email send failed — provider: brevo, classification: http_${response.status}`
+      );
       return { sent: false, reason: error };
     }
     const result = await response.json();
     console.log("Email sent successfully:", result.messageId);
     return { sent: true, emailId: result.messageId };
   } catch (error) {
-    console.error("Failed to send email:", error);
+    // Privacy: network errors never contain recipient data; keep the
+    // classified prefix so log filters can group failures by cause.
+    console.error(
+      `Email send failed — provider: brevo, classification: network_error (${String(error)})`
+    );
     return { sent: false, reason: String(error) };
   }
 }

@@ -87,13 +87,13 @@ export const mtnMoMoWebhook = httpAction(async (ctx, request) => {
     if (rejected) return rejected;
     const body = JSON.parse(rawBody);
 
-    console.log("MTN MoMo webhook received:", JSON.stringify(body, null, 2));
-
     // Extract reference ID from the webhook payload
     const referenceId = body.externalId || body.referenceId || body.financialTransactionId;
 
     if (!referenceId) {
-      console.error("No reference ID found in MTN MoMo webhook");
+      console.error(
+        "MTN MoMo webhook rejected — provider: mtn_momo, classification: missing_reference_id"
+      );
       return new Response(
         JSON.stringify({ error: "Missing reference ID" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
@@ -110,6 +110,12 @@ export const mtnMoMoWebhook = httpAction(async (ctx, request) => {
     };
 
     const status = statusMap[body.status] || body.status;
+
+    // Privacy: log only operational fields — never the raw provider
+    // payload, which can contain MSISDNs and personal data.
+    console.log(
+      `MTN MoMo webhook received — provider: mtn_momo, referenceId: ${referenceId}, status: ${status}`
+    );
 
     // Update transaction status in database
     await ctx.runMutation(internal.mobileMoney.updateTransactionStatus, {
@@ -142,13 +148,13 @@ export const airtelMoneyWebhook = httpAction(async (ctx, request) => {
     if (rejected) return rejected;
     const body = JSON.parse(rawBody);
 
-    console.log("Airtel Money webhook received:", JSON.stringify(body, null, 2));
-
     // Extract transaction ID from the webhook payload
     const transactionId = body.transactionId || body.reference || body.id;
 
     if (!transactionId) {
-      console.error("No transaction ID found in Airtel Money webhook");
+      console.error(
+        "Airtel webhook rejected — provider: airtel_money, classification: missing_transaction_id"
+      );
       return new Response(
         JSON.stringify({ error: "Missing transaction ID" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
@@ -166,6 +172,12 @@ export const airtelMoneyWebhook = httpAction(async (ctx, request) => {
     };
 
     const status = statusMap[body.status] || body.status;
+
+    // Privacy: log only operational fields — never the raw provider
+    // payload, which can contain MSISDNs and personal data.
+    console.log(
+      `Airtel webhook received — provider: airtel_money, referenceId: ${transactionId}, status: ${status}`
+    );
 
     // Update transaction status in database
     await ctx.runMutation(internal.mobileMoney.updateTransactionStatus, {
@@ -201,8 +213,6 @@ export const mobileMoneyWebhook = httpAction(async (ctx, request) => {
     if (rejected) return rejected;
     const body = JSON.parse(rawBody);
 
-    console.log(`Mobile Money webhook received (provider: ${provider}):`, JSON.stringify(body, null, 2));
-
     // Extract reference ID based on provider
     let referenceId: string | null = null;
     let status: string | null = null;
@@ -232,12 +242,20 @@ export const mobileMoneyWebhook = httpAction(async (ctx, request) => {
     }
 
     if (!referenceId) {
-      console.error("No reference ID found in webhook");
+      console.error(
+        `Mobile Money webhook rejected — provider: ${provider}, classification: missing_reference_id`
+      );
       return new Response(
         JSON.stringify({ error: "Missing reference ID" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
+
+    // Privacy: log only operational fields — never the raw provider
+    // payload, which can contain MSISDNs and personal data.
+    console.log(
+      `Mobile Money webhook received — provider: ${provider}, referenceId: ${referenceId}, status: ${status || "pending"}`
+    );
 
     // Update transaction status in database
     await ctx.runMutation(internal.mobileMoney.updateTransactionStatus, {

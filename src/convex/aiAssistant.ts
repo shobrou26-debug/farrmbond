@@ -30,24 +30,87 @@ export function getAiDailyLimit(isPro: boolean, usageAction: "ai_chat" | "ai_dis
   return isPro ? AI_PRO_DAILY_DETECT_LIMIT : AI_FREE_DAILY_DETECT_LIMIT;
 }
 
+/**
+ * Day boundary for AI quotas: midnight UTC of the day containing `now`.
+ * Convex runs on UTC, so this matches the previous local-midnight behavior
+ * while being deterministic. Shared by the count query and the atomic
+ * reservation so both always scope usage to the same day window.
+ */
+export function getStartOfDayUtc(now: number = Date.now()): number {
+  const d = new Date(now);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+/**
+ * Pure over-limit rule (exported for tests): `used >= limit` means the next
+ * request is over quota. Single source of truth for the boundary so the
+ * pre-check and the atomic reservation can never disagree.
+ */
+export function exceedsAiUsageLimit(used: number, limit: number): boolean {
+  return used >= limit;
+}
+
 export const getAiUsageCount = internalQuery({
   args: { userId: v.id("users"), usageAction: v.string() },
   handler: async (ctx, args) => {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    const startOfDay = getStartOfDayUtc();
     const rows = await ctx.db
       .query("auditLogs")
       .withIndex("by_user_action", (q) => q.eq("userId", args.userId).eq("action", args.usageAction))
-      .filter((q) => q.gte(q.field("createdAt"), startOfDay.getTime()))
+      .filter((q) => q.gte(q.field("createdAt"), startOfDay))
       .collect();
     return rows.length;
   },
 });
 
-export const logAiUsage = internalMutation({
-  args: { userId: v.id("users"), usageAction: v.string(), feature: v.string() },
+/**
+ * Atomic AI usage reservation.
+ *
+ * Re-counts today's usage INSIDE the mutation and rejects the request
+ * before logging when the daily limit is already reached. This closes the
+ * check-then-log race: concurrent requests can no longer each pass a stale
+ * pre-check and all succeed, because the final decision and the usage log
+ * happen in one transaction. When the limit is exceeded nothing is logged,
+ * so rejected requests never advance the count.
+ *
+ * INTERNAL ONLY — the client cannot call this directly, and every AI
+ * provider path routes through it (chat via logChatUsage, image analysis
+ * via detectDisease).
+ */
+export const reserveAiUsage = internalMutation({
+  args: {
+    userId: v.id("users"),
+    usageAction: v.string(),
+    feature: v.string(),
+    limit: v.number(),
+  },
   handler: async (ctx, args) => {
-    await createAuditLog(ctx, { userId: args.userId, action: args.usageAction, resource: "ai_assistant", resourceId: args.userId, changes: { feature: args.feature } });
+    const startOfDay = getStartOfDayUtc();
+    const used = (
+      await ctx.db
+        .query("auditLogs")
+        .withIndex("by_user_action", (q) =>
+          q.eq("userId", args.userId).eq("action", args.usageAction)
+        )
+        .filter((q) => q.gte(q.field("createdAt"), startOfDay))
+        .collect()
+    ).length;
+
+    if (exceedsAiUsageLimit(used, args.limit)) {
+      throw new Error(
+        "Daily AI usage limit reached. Please try again tomorrow or upgrade to Pro."
+      );
+    }
+
+    await createAuditLog(ctx, {
+      userId: args.userId,
+      action: args.usageAction,
+      resource: "ai_assistant",
+      resourceId: args.userId,
+      changes: { feature: args.feature },
+    });
+
+    return { reserved: true, usedToday: used + 1, limit: args.limit };
   },
 });
 
@@ -292,14 +355,19 @@ function buildGroqMessages(
 async function enforceChatQuota(ctx: ActionCtx) {
   const quota = await getAiQuota(ctx, "ai_chat");
   const used = await ctx.runQuery(internal.aiAssistant.getAiUsageCount, { userId: quota.userId, usageAction: "ai_chat" });
-  if (used >= quota.limit) {
+  if (exceedsAiUsageLimit(used, quota.limit)) {
     throw new Error(quota.isPro ? "Daily AI message limit reached. Please try again tomorrow." : `Free plan allows ${AI_FREE_DAILY_CHAT_LIMIT} AI messages per day. Upgrade to Pro for unlimited AI — Settings > Subscription.`);
   }
   return quota;
 }
 
-async function logChatUsage(ctx: ActionCtx, userId: any) {
-  await ctx.runMutation(internal.aiAssistant.logAiUsage, { userId, usageAction: "ai_chat", feature: "chat" });
+/**
+ * Atomically record one chat usage. The limit is re-checked inside the
+ * reservation mutation, so a burst of concurrent requests cannot all pass
+ * the pre-check above and exceed the daily cap together.
+ */
+async function logChatUsage(ctx: ActionCtx, userId: any, limit: number) {
+  await ctx.runMutation(internal.aiAssistant.reserveAiUsage, { userId, usageAction: "ai_chat", feature: "chat", limit });
 }
 
 async function runChatCompletion(systemPrompt: string, message: string, history: Array<{ role: string; parts: Array<{ text: string }> }> | undefined): Promise<string> {
@@ -539,7 +607,7 @@ export const chatWithAI = action({
   handler: async (ctx, args) => {
     const quota = await enforceChatQuota(ctx);
     const text = await runChatCompletion(SYSTEM_PROMPT, args.message, args.history);
-    await logChatUsage(ctx, quota.userId);
+    await logChatUsage(ctx, quota.userId, quota.limit);
     return { response: text };
   },
 });
@@ -551,7 +619,7 @@ export const chatWithFarmContext = action({
     const farmContext = await buildFarmContext(ctx);
     const systemPrompt = `${SYSTEM_PROMPT}\n\n===== THE FARMER'S CURRENT FARMBOND DATA =====\n${farmContext}\n\n===== CRITICAL RULES =====\n1. The data above is REAL. Use it directly when answering.\n2. NEVER invent farm statistics, weather, prices, yields, health scores, or financial figures.\n3. If needed data is missing, say: "I don't have that data in your FarmBond account yet."\n4. Distinguish FarmBond data ("Your data shows...") from general knowledge ("Based on general agricultural practice...").\n5. Disease/health: general guidance only. Never diagnose. Recommend a local expert.\n6. Weather is cached. Market prices are reference benchmarks. Labels in the data indicate this.\n7. Irrigation SCHEDULES show planned runs. OVERDUE flags mean a scheduled run was missed.\n8. Respect the farmer's currency, units, language, and timezone preferences.\n9. Financial advice uses the display currency shown in the Finances line.\n10. Adapt response to the question: concise for simple, structured for complex.`;
     const text = await runChatCompletion(systemPrompt, args.message, args.history);
-    await logChatUsage(ctx, quota.userId);
+    await logChatUsage(ctx, quota.userId, quota.limit);
     return { response: text };
   },
 });
@@ -592,7 +660,7 @@ export const detectDisease = action({
     if (!GEMINI_API_KEY) throw new Error("Image analysis requires Google Gemini. Please add GOOGLE_GEMINI_API_KEY to your environment variables. Get a free key at https://aistudio.google.com/apikey — 1,500 requests/day free.");
     const quota = await getAiQuota(ctx, "ai_disease");
     const used = await ctx.runQuery(internal.aiAssistant.getAiUsageCount, { userId: quota.userId, usageAction: "ai_disease" });
-    if (used >= quota.limit) throw new Error(quota.isPro ? "Daily image analysis limit reached. Please try again tomorrow." : `Free plan allows ${AI_FREE_DAILY_DETECT_LIMIT} image analyses per day. Upgrade to Pro for more — Settings > Subscription.`);
+    if (exceedsAiUsageLimit(used, quota.limit)) throw new Error(quota.isPro ? "Daily image analysis limit reached. Please try again tomorrow." : `Free plan allows ${AI_FREE_DAILY_DETECT_LIMIT} image analyses per day. Upgrade to Pro for more — Settings > Subscription.`);
     const prompt = `You are an expert plant pathologist. Analyze this image of a plant/leaf/crop and identify any diseases, pests, or health issues.\n\nRespond with ONLY a single valid JSON object — no markdown, no code fences, no commentary. Use exactly this schema:\n{\n  "type": "disease" | "pest",\n  "name": "short disease or pest name, or \\"No issue detected\\" when the plant looks healthy",\n  "confidence": 0-100 numeric integer, or null when the image is unclear,\n  "severity": "low" | "medium" | "high" | "critical",\n  "description": "brief plain-text explanation",\n  "symptoms": ["symptom", "..."],\n  "causes": ["cause", "..."],\n  "recommendations": ["action", "..."],\n  "organicTreatments": ["organic treatment", "..."],\n  "chemicalTreatments": ["chemical treatment", "..."],\n  "prevention": ["prevention tip", "..."],\n  "affectedCrops": ["crop", "..."]\n}\n\nRules:\n- severity must be one of the lowercase values "low", "medium", "high", "critical".\n- confidence must be a number between 0 and 100, or null when the image is unclear.\n- If the image is unclear or no disease is identifiable, set name to "No issue detected", severity to "low", and provide general plant health tips in recommendations.\n\n${args.additionalInfo ? `Additional context from farmer: ${args.additionalInfo}` : ""}`;
     try {
       const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
@@ -604,7 +672,9 @@ export const detectDisease = action({
       const data = await response.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!text) throw new Error("No analysis generated");
-      await ctx.runMutation(internal.aiAssistant.logAiUsage, { userId: quota.userId, usageAction: "ai_disease", feature: "disease_detection" });
+      // Atomic reservation: re-checks the daily limit inside the mutation
+      // so a concurrent burst cannot push past the detection quota.
+      await ctx.runMutation(internal.aiAssistant.reserveAiUsage, { userId: quota.userId, usageAction: "ai_disease", feature: "disease_detection", limit: quota.limit });
       return { analysis: text };
     } catch (error) { console.error("Disease detection error:", error); throw error; }
   },
