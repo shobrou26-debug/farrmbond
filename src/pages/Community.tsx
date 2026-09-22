@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { api } from "@/convex/_generated/api";
+import { extractHashtags } from "@/convex/community";
 import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useMotion } from "@/hooks/use-motion";
@@ -36,7 +37,16 @@ import {
   Trash2,
   Flag,
   Loader2,
+  Pencil,
+  X,
 } from "lucide-react";
+
+// ============================================================
+// Report target union — the shared report dialog handles posts AND comments
+// ============================================================
+type ReportTarget =
+  | { kind: "post"; postId: string }
+  | { kind: "comment"; commentId: string };
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -60,7 +70,18 @@ type Post = {
   authorName: string;
   authorRole: string;
   authorImage?: string;
+  imageUrl?: string;
   likedByMe: boolean;
+  createdAt: number;
+};
+
+type Comment = {
+  _id: string;
+  content: string;
+  authorId: string;
+  authorName: string;
+  authorImage?: string;
+  authorRole: string;
   createdAt: number;
 };
 
@@ -107,24 +128,40 @@ export default function Community() {
   const deletePost = useMutation(api.community.deletePost);
   const incrementShareCount = useMutation(api.community.incrementShareCount);
   const reportPost = useMutation(api.community.reportPost);
+  const reportComment = useMutation(api.community.reportComment);
+  const editPost = useMutation(api.community.editPost);
+  const generateUploadUrl = useMutation(api.detectionResults.generateUploadUrl);
+
+  // Skip when no thread is expanded — the backend requires a real post ID.
+  // (Verified: useQuery re-throws server errors, so passing null crashed the page.)
+  const comments = useQuery(
+    api.community.listComments,
+    expandedPost ? { postId: expandedPost as Id<"communityPosts"> } : "skip"
+  );
 
   const { results: posts, isLoading, loadMore, canLoadMore, sentinelRef } =
     usePaginatedQuery<Post>(api.community.listPosts, {
       category: activeCategory === "all" ? undefined : activeCategory,
     });
 
-  const comments = useQuery(api.community.listComments, {
-    postId: expandedPost as any,
-  });
-
   const [commentText, setCommentText] = useState<Record<string, string>>({});
-  const [reportPostId, setReportPostId] = useState<string | null>(null);
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const [reportReason, setReportReason] = useState(REPORT_REASONS[0]);
   const [reportCustom, setReportCustom] = useState("");
   const [reportBusy, setReportBusy] = useState(false);
   const [deleteCommentId, setDeleteCommentId] = useState<string | null>(null);
   const deleteComment = useMutation(api.community.deleteComment);
   const prefersReducedMotion = useMotion();
+
+  // Post editing + image composer state
+  const [editingPost, setEditingPost] = useState<Post | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [editCategory, setEditCategory] = useState("general");
+  const [editBusy, setEditBusy] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [pendingImage, setPendingImage] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
 
   const filteredPosts = useMemo(
     () =>
@@ -146,23 +183,101 @@ export default function Community() {
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([t]) => t);
   }, [posts]);
 
+  // Upload a selected image through Convex File storage (auth'd upload URL)
+  // and return its storage ID, or null on failure.
+  const uploadImage = async (file: File): Promise<Id<"_storage"> | null> => {
+    setImageBusy(true);
+    try {
+      const uploadUrl = await generateUploadUrl({});
+      const res = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      if (!res.ok) throw new Error("Image upload failed");
+      const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
+      return storageId;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Image upload failed");
+      return null;
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image must be under 5MB");
+      return;
+    }
+    setPendingImage(file);
+    setImagePreviewUrl(URL.createObjectURL(file));
+  };
+
+  const clearPendingImage = () => {
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    setPendingImage(null);
+    setImagePreviewUrl(null);
+  };
+
   const handlePost = async () => {
     if (!newTitle.trim() || !newContent.trim()) {
       toast.error("Please add a title and content");
       return;
     }
     try {
+      const images = pendingImage ? await uploadImage(pendingImage) : null;
+      if (pendingImage && !images) return; // upload failed — keep composer content
       await createPost({
         title: newTitle,
         content: newContent,
         category: newCategory,
-        tags: newContent.split(/\s+/).filter((w) => w.startsWith("#")).map((w) => w.slice(1)).slice(0, 5),
+        tags: extractHashtags(newContent),
+        images: images ? [images] : undefined,
       });
       toast.success("Post published");
       setNewTitle("");
       setNewContent("");
+      clearPendingImage();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to post");
+    }
+  };
+
+  const openEdit = (post: Post) => {
+    setEditingPost(post);
+    setEditTitle(post.title);
+    setEditContent(post.content);
+    setEditCategory(post.category);
+  };
+
+  const handleEditSave = async () => {
+    if (!editingPost) return;
+    if (!editTitle.trim() || !editContent.trim()) {
+      toast.error("Title and content are required");
+      return;
+    }
+    setEditBusy(true);
+    try {
+      await editPost({
+        postId: editingPost._id as Id<"communityPosts">,
+        title: editTitle,
+        content: editContent,
+        category: editCategory,
+        tags: extractHashtags(editContent),
+      });
+      toast.success("Post updated");
+      setEditingPost(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update post");
+    } finally {
+      setEditBusy(false);
     }
   };
 
@@ -222,14 +337,14 @@ export default function Community() {
     }
   };
 
-  const openReport = (post: Post) => {
-    setReportPostId(post._id);
+  const openReport = (target: ReportTarget) => {
+    setReportTarget(target);
     setReportReason(REPORT_REASONS[0]);
     setReportCustom("");
   };
 
   const submitReport = async () => {
-    if (!reportPostId) return;
+    if (!reportTarget) return;
     const reason = reportReason === "Other" ? reportCustom.trim() : reportReason;
     if (!reason) {
       toast.error("Please describe the issue");
@@ -237,11 +352,16 @@ export default function Community() {
     }
     setReportBusy(true);
     try {
-      await reportPost({ postId: reportPostId as Id<"communityPosts">, reason });
-      toast.success("Post reported — our moderators will review it");
-      setReportPostId(null);
+      if (reportTarget.kind === "post") {
+        await reportPost({ postId: reportTarget.postId as Id<"communityPosts">, reason });
+        toast.success("Post reported — our moderators will review it");
+      } else {
+        await reportComment({ commentId: reportTarget.commentId as Id<"communityComments">, reason });
+        toast.success("Comment reported — our moderators will review it");
+      }
+      setReportTarget(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to report post");
+      toast.error(err instanceof Error ? err.message : "Failed to report");
     } finally {
       setReportBusy(false);
     }
@@ -361,10 +481,29 @@ export default function Community() {
                           <option value="tips">Tips</option>
                           <option value="questions">Questions</option>
                         </select>
-                        <Button size="sm" className="gradient-primary" disabled={!newTitle.trim() || !newContent.trim()} onClick={handlePost}>
-                          <Send className="w-4 h-4 mr-1" />Post
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <label className="cursor-pointer text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 min-h-[44px] px-2">
+                            <input type="file" accept="image/*" className="hidden" onChange={handleImageSelect} disabled={imageBusy} />
+                            {imageBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sprout className="w-4 h-4" />}
+                            {pendingImage ? "Image attached" : "Add photo"}
+                          </label>
+                          <Button size="sm" className="gradient-primary" disabled={!newTitle.trim() || !newContent.trim() || imageBusy} onClick={handlePost}>
+                            <Send className="w-4 h-4 mr-1" />Post
+                          </Button>
+                        </div>
                       </div>
+                      {pendingImage && imagePreviewUrl && (
+                        <div className="relative inline-block">
+                          <img src={imagePreviewUrl} alt="Attachment preview" className="h-20 rounded-lg border border-border/50 object-cover" />
+                          <button
+                            onClick={clearPendingImage}
+                            className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-background border border-border flex items-center justify-center hover:bg-muted"
+                            aria-label="Remove image"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -402,13 +541,21 @@ export default function Community() {
                           <p className="text-xs text-muted-foreground">{timeAgo(post.createdAt)}</p>
                         </div>
                         {post.authorId === user?._id && (
-                          <Button variant="ghost" size="icon" className="min-h-[44px] min-w-[44px] text-muted-foreground hover:text-red-500" onClick={() => handleDeletePost(post)} aria-label="Delete this post">
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <>
+                            <Button variant="ghost" size="icon" className="min-h-[44px] min-w-[44px] text-muted-foreground hover:text-primary" onClick={() => openEdit(post)} aria-label="Edit this post">
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="min-h-[44px] min-w-[44px] text-muted-foreground hover:text-red-500" onClick={() => handleDeletePost(post)} aria-label="Delete this post">
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </>
                         )}
                       </div>
                       <h3 className="text-base font-semibold mb-2">{post.title}</h3>
                       <p className="text-sm text-muted-foreground leading-relaxed mb-3">{post.content}</p>
+                      {post.imageUrl && (
+                        <img src={post.imageUrl} alt={post.title} className="w-full max-h-80 object-cover rounded-xl mb-3 border border-border/50" loading="lazy" />
+                      )}
                       {post.tags && post.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mb-4">
                           {post.tags.map((tag) => (
@@ -447,7 +594,7 @@ export default function Community() {
                             size="sm"
                             className="min-h-[44px] text-muted-foreground hover:text-amber-600 ml-auto"
                             aria-label="Report this post"
-                            onClick={() => openReport(post)}
+                            onClick={() => openReport({ kind: "post", postId: post._id })}
                           >
                             <Flag className="w-4 h-4 mr-1" />Report
                           </Button>
@@ -469,13 +616,22 @@ export default function Community() {
                                 <div className="flex-1 rounded-xl bg-muted/40 p-3">
                                   <div className="flex items-center gap-2">
                                     <p className="text-xs font-medium">{comment.authorName}</p>
-                                    {comment.authorId === user?._id && (
+                                    <span className="flex-1" />
+                                    {comment.authorId === user?._id ? (
                                       <button
                                         onClick={() => handleDeleteComment(comment._id)}
                                         className="text-xs text-muted-foreground hover:text-red-500 min-h-[44px] min-w-[44px] flex items-center justify-center -m-2"
                                         aria-label="Delete this comment"
                                       >
                                         <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() => openReport({ kind: "comment", commentId: comment._id })}
+                                        className="text-xs text-muted-foreground hover:text-amber-600 min-h-[44px] min-w-[44px] flex items-center justify-center -m-2"
+                                        aria-label="Report this comment"
+                                      >
+                                        <Flag className="w-3 h-3" />
                                       </button>
                                     )}
                                   </div>
@@ -508,8 +664,8 @@ export default function Community() {
           </motion.div>
         </div>
 
-        {/* Report post dialog */}
-        <Dialog open={reportPostId !== null} onOpenChange={(open) => !open && setReportPostId(null)}>
+        {/* Report dialog (posts and comments) */}
+        <Dialog open={reportTarget !== null} onOpenChange={(open) => !open && setReportTarget(null)}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Report this post</DialogTitle>
@@ -551,7 +707,7 @@ export default function Community() {
               )}
             </div>
             <DialogFooter className="gap-2 sm:gap-0">
-              <Button variant="outline" onClick={() => setReportPostId(null)} disabled={reportBusy}>
+              <Button variant="outline" onClick={() => setReportTarget(null)} disabled={reportBusy}>
                 Cancel
               </Button>
               <Button
@@ -561,6 +717,45 @@ export default function Community() {
               >
                 {reportBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flag className="w-4 h-4 mr-1" />}
                 {reportBusy ? "Submitting..." : "Submit report"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit post dialog */}
+        <Dialog open={editingPost !== null} onOpenChange={(open) => !open && setEditingPost(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit post</DialogTitle>
+              <DialogDescription>Update your post — edits are visible to everyone.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <Input placeholder="Post title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+              <Textarea
+                placeholder="Share with the farming community..."
+                className="min-h-[120px] resize-none"
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+              />
+              <select
+                value={editCategory}
+                onChange={(e) => setEditCategory(e.target.value)}
+                className="text-sm rounded-lg border border-border bg-background px-3 py-1.5"
+              >
+                <option value="general">General</option>
+                <option value="crop_health">Crop Health</option>
+                <option value="market">Market</option>
+                <option value="tips">Tips</option>
+                <option value="questions">Questions</option>
+              </select>
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setEditingPost(null)} disabled={editBusy}>
+                Cancel
+              </Button>
+              <Button className="gradient-primary" onClick={handleEditSave} disabled={editBusy || !editTitle.trim() || !editContent.trim()}>
+                {editBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {editBusy ? "Saving..." : "Save changes"}
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -671,10 +671,12 @@ const schema = defineSchema(
       .index("by_parent", ["parentCommentId"]),
 
     // ============================================================
-    // COMMUNITY REPORTS (Phase 4D — moderation)
+    // COMMUNITY REPORTS (Phase 4D — moderation; posts AND comments)
+    // A report targets exactly one of postId / commentId.
     // ============================================================
     communityReports: defineTable({
-      postId: v.id("communityPosts"),
+      postId: v.optional(v.id("communityPosts")),
+      commentId: v.optional(v.id("communityComments")),
       userId: v.id("users"),
       reason: v.string(),
       status: v.string(), // "open" | "resolved"
@@ -683,6 +685,7 @@ const schema = defineSchema(
       createdAt: v.number(),
     })
       .index("by_post", ["postId"])
+      .index("by_comment", ["commentId"])
       .index("by_user", ["userId"])
       .index("by_status", ["status"])
       .index("by_post_status", ["postId", "status"]),

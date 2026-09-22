@@ -17,7 +17,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sprout, CheckCircle2, XCircle, Eye, EyeOff, Trash2, Plus, Pencil, Loader2 } from "lucide-react";
+import { Sprout, CheckCircle2, XCircle, Eye, EyeOff, Trash2, Plus, Pencil, Loader2, MessageSquare } from "lucide-react";
 
 // ============================================================
 // 1. Agronomist Applications
@@ -365,6 +365,80 @@ function CommunityModerationSection() {
 }
 
 // ============================================================
+// 3b. Comment Moderation
+// ============================================================
+
+function CommentModerationSection() {
+  const reported = useQuery(api.community.listReportedComments);
+  const moderate = useMutation(api.community.moderateComment);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const handle = async (commentId: string, action: "hide" | "restore") => {
+    setBusy(`${action}-${commentId}`);
+    try {
+      await moderate({ commentId: commentId as Id<"communityComments">, action });
+      toast.success(action === "hide" ? "Comment hidden from the community" : "Comment restored");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Action failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const isLoading = reported === undefined;
+
+  return (
+    <Card className="border-border/50">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Comment Moderation</CardTitle>
+        <CardDescription>Review reported comments — hide or restore</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading reports...</p>
+        ) : reported.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">No reported comments.</p>
+        ) : (
+          reported.map((c) => (
+            <div key={c.commentId} className="p-3 rounded-xl border border-border/50 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium line-clamp-1 flex items-center gap-1.5">
+                  <MessageSquare className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  {c.contentPreview}
+                </p>
+                <Badge className={c.isApproved ? "bg-green-500/10 text-green-600 shrink-0" : "bg-red-500/10 text-red-600 shrink-0"}>
+                  {c.isApproved ? "Visible" : "Hidden"}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                On post: "{c.postTitle}" • {c.reportCount} report{c.reportCount !== 1 ? "s" : ""}
+                {c.openReports > 0 ? ` • ${c.openReports} open` : ""} • {new Date(c.lastReportedAt).toLocaleDateString()}
+              </p>
+              {c.reasons.length > 0 && (
+                <p className="text-xs text-muted-foreground line-clamp-2">"{c.reasons[0]}"</p>
+              )}
+              <div className="flex gap-2">
+                {c.isApproved ? (
+                  <Button size="sm" variant="outline" className="text-red-600" disabled={busy !== null}
+                    onClick={() => handle(c.commentId as string, "hide")}>
+                    <EyeOff className="w-3.5 h-3.5 mr-1" /> Hide Comment
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="outline" className="text-green-600" disabled={busy !== null}
+                    onClick={() => handle(c.commentId as string, "restore")}>
+                    <Eye className="w-3.5 h-3.5 mr-1" /> Restore Comment
+                  </Button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================
 // 4. Farming Events
 // ============================================================
 
@@ -603,6 +677,7 @@ export function ContentManagement() {
         <AgronomistApplicationsSection />
         <KnowledgeSection />
         <CommunityModerationSection />
+        <CommentModerationSection />
         <EventsSection />
       </div>
     </div>
