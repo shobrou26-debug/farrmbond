@@ -39,6 +39,7 @@ import type * as marketplace from "../marketplace.js";
 import type * as messaging from "../messaging.js";
 import type * as mobileMoney from "../mobileMoney.js";
 import type * as mobileMoneyWebhook from "../mobileMoneyWebhook.js";
+import type * as notificationPreferences from "../notificationPreferences.js";
 import type * as satellite from "../satellite.js";
 import type * as seedData from "../seedData.js";
 import type * as smartNotifications from "../smartNotifications.js";
@@ -94,6 +95,7 @@ declare const fullApi: ApiFromModules<{
   messaging: typeof messaging;
   mobileMoney: typeof mobileMoney;
   mobileMoneyWebhook: typeof mobileMoneyWebhook;
+  notificationPreferences: typeof notificationPreferences;
   satellite: typeof satellite;
   seedData: typeof seedData;
   smartNotifications: typeof smartNotifications;

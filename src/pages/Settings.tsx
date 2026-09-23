@@ -25,6 +25,11 @@ import { useTheme, THEMES } from "@/hooks/use-theme";
 import { useUnits } from "@/hooks/use-units";
 import { useTimezone, TIMEZONE_GROUPS } from "@/hooks/use-timezone";
 import { useCurrency, CURRENCY_GROUPS } from "@/hooks/use-currency";
+import {
+  resolveNotificationPreferences,
+  type NotificationPreferenceKey,
+  type NotificationPreferences,
+} from "@/lib/notificationPreferences";
 import { toast } from "sonner";
 import {
   User,
@@ -188,33 +193,56 @@ function ProfileTab() {
 // ============================================================
 
 function NotificationsTab() {
-  const [notifications, setNotifications] = useState({
-    weatherAlerts: true,
-    cropReminders: true,
-    marketPrices: false,
-    communityUpdates: true,
-    aiInsights: true,
-    systemUpdates: true,
-    emailDigest: true,
-    pushEnabled: false,
-  });
+  const saved = useQuery(api.notificationPreferences.getMine);
+  const updatePrefs = useMutation(api.notificationPreferences.updateMine);
 
-  const toggleNotification = (key: keyof typeof notifications) => {
-    setNotifications((prev) => ({ ...prev, [key]: !prev[key] }));
+  // `saved` undefined = query loading; null = no saved row (defaults).
+  // Local state stays null until the server value arrives, then hydrates
+  // exactly once — reactive updates never clobber in-flight edits.
+  const [notifications, setNotifications] = useState<NotificationPreferences | null>(null);
+  const [saveError, setSaveError] = useState(false);
+
+  useEffect(() => {
+    if (saved !== undefined && notifications === null) {
+      setNotifications(resolveNotificationPreferences(saved ?? undefined));
+    }
+  }, [saved, notifications]);
+
+  const toggleNotification = (key: NotificationPreferenceKey) => {
+    if (!notifications) return;
+    const previous = notifications;
+    const next = { ...previous, [key]: !previous[key] };
+    setNotifications(next);
+    setSaveError(false);
+    updatePrefs(next).catch(() => {
+      // Honest failure: revert the optimistic toggle and tell the user.
+      setNotifications(previous);
+      setSaveError(true);
+      toast.error("Could not save notification preferences. Please try again.");
+    });
   };
+
+  const prefsLoaded = notifications !== null;
 
   return (
     <div className="space-y-6">
       <Card className="border-border/50">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Push Notifications</CardTitle>
-          <CardDescription>Manage what notifications you receive</CardDescription>
+          <CardDescription>
+            {saveError
+              ? "Save failed — changes were reverted"
+              : prefsLoaded
+                ? "Changes save automatically to your account"
+                : "Loading your preferences…"}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {[
             { key: "pushEnabled" as const, label: "Enable Push Notifications", desc: "Receive notifications on your device", icon: Smartphone },
             { key: "weatherAlerts" as const, label: "Weather Alerts", desc: "Severe weather warnings for your farm locations", icon: Bell },
             { key: "cropReminders" as const, label: "Crop Reminders", desc: "Planting, fertilizing, and harvest reminders", icon: Bell },
+            { key: "livestockAlerts" as const, label: "Livestock Alerts", desc: "Vaccination due dates and livestock health alerts", icon: Bell },
             { key: "marketPrices" as const, label: "Market Price Updates", desc: "Daily commodity price summaries", icon: Bell },
             { key: "communityUpdates" as const, label: "Community Updates", desc: "New posts and replies in your discussions", icon: Bell },
             { key: "aiInsights" as const, label: "AI Insights", desc: "New recommendations from your AI assistant", icon: Bell },
@@ -230,7 +258,11 @@ function NotificationsTab() {
                     <p className="text-xs text-muted-foreground">{item.desc}</p>
                   </div>
                 </div>
-                <Switch checked={notifications[item.key]} onCheckedChange={() => toggleNotification(item.key)} />
+                <Switch
+                  checked={notifications ? notifications[item.key] : false}
+                  disabled={!prefsLoaded}
+                  onCheckedChange={() => toggleNotification(item.key)}
+                />
               </div>
             );
           })}
@@ -251,7 +283,11 @@ function NotificationsTab() {
                 <p className="text-xs text-muted-foreground">Summary of your farm activity and insights</p>
               </div>
             </div>
-            <Switch checked={notifications.emailDigest} onCheckedChange={() => toggleNotification("emailDigest")} />
+            <Switch
+              checked={notifications ? notifications.emailDigest : false}
+              disabled={!prefsLoaded}
+              onCheckedChange={() => toggleNotification("emailDigest")}
+            />
           </div>
         </CardContent>
       </Card>

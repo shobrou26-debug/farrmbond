@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { requireAuth } from "./authHelpers";
+import { isNotificationCategoryEnabled } from "./notificationPreferences";
 import type { Id } from "./_generated/dataModel";
 
 // ============================================================
@@ -83,6 +84,9 @@ export async function generateWeatherNotificationsCore(
   input: { userId: Id<"users">; farmId: Id<"farms"> }
 ): Promise<{ created: number }> {
   const { userId, farmId } = input;
+  if (!(await isNotificationCategoryEnabled(ctx, userId, "weatherAlerts"))) {
+    return { created: 0 };
+  }
   const farm = await ctx.db.get(farmId);
   if (!farm || farm.userId !== userId) return { created: 0 };
 
@@ -448,6 +452,9 @@ export async function generateMarketNotificationsCore(
   input: { userId: Id<"users"> }
 ): Promise<{ created: number }> {
   const { userId } = input;
+  if (!(await isNotificationCategoryEnabled(ctx, userId, "marketPrices"))) {
+    return { created: 0 };
+  }
   const now = Date.now();
   let created = 0;
 

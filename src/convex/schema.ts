@@ -749,6 +749,29 @@ const schema = defineSchema(
       .index("by_user", ["userId"]),
 
     // ============================================================
+    // NOTIFICATION PREFERENCES TABLE
+    // Per-user notification category preferences (Settings → Notifications).
+    // One row per user; missing row = server-side defaults.
+    // ============================================================
+    notificationPreferences: defineTable({
+      userId: v.id("users"),
+
+      // Category toggles (match the Settings UI exactly)
+      weatherAlerts: v.boolean(),
+      cropReminders: v.boolean(),
+      livestockAlerts: v.boolean(),
+      marketPrices: v.boolean(),
+      communityUpdates: v.boolean(),
+      aiInsights: v.boolean(),
+      systemUpdates: v.boolean(),
+      emailDigest: v.boolean(),
+      pushEnabled: v.boolean(),
+
+      updatedAt: v.number(),
+    })
+      .index("by_user", ["userId"]),
+
+    // ============================================================
     // SUPPORT TICKETS TABLE
     // ============================================================
     supportTickets: defineTable({
