@@ -8,6 +8,7 @@ import {
   validateString,
   sanitizeInput,
 } from "./authHelpers";
+import { isNotificationCategoryEnabled } from "./notificationPreferences";
 
 // ============================================================
 // Calendar Queries
@@ -277,6 +278,12 @@ export const sendCalendarReminders = internalMutation({
 
     for (const [, group] of eventsByUser) {
       const userId = group.userId as import("./_generated/dataModel").Id<"users">;
+
+      // Respect the user's Settings → Notifications "Crop Reminders" choice
+      // (calendar reminders fall under the crop-reminder category).
+      if (!(await isNotificationCategoryEnabled(ctx, userId, "cropReminders"))) {
+        continue;
+      }
 
       for (const event of group.events) {
         const daysBefore = event.reminderDaysBefore!;

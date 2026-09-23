@@ -21,6 +21,7 @@ import {
   hasRole,
 } from "./authHelpers";
 import { ROLES, type Role, type SubscriptionTier } from "./schema";
+import { isNotificationCategoryEnabled } from "./notificationPreferences";
 
 // Vaccine type intervals (days between vaccinations)
 const VACCINE_INTERVALS: Record<string, number> = {
@@ -586,6 +587,11 @@ export const sendVaccinationReminders = internalMutation({
         const user = await ctx.db.get(animal.userId);
         if (!user || !user.email) return;
 
+        // Respect the owner's Settings → Notifications choice.
+        if (!(await isNotificationCategoryEnabled(ctx, animal.userId, "livestockAlerts"))) {
+          return;
+        }
+
         // Get farm info
         const farm = await ctx.db.get(animal.farmId);
         const daysUntilDue = Math.ceil(
@@ -1136,6 +1142,13 @@ export const sendLowCoverageAlerts = internalMutation({
       pageUsers,
       async (ctx, user) => {
         if (!user.email) { skipped++; return; }
+
+        // Respect the user's Settings → Notifications choice.
+        if (!(await isNotificationCategoryEnabled(ctx, user._id, "livestockAlerts"))) {
+          skipped++;
+          return;
+        }
+
         const livestock = await ctx.db
           .query("livestock")
           .withIndex("by_user", (q) => q.eq("userId", user._id))

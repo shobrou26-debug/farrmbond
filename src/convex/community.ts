@@ -9,6 +9,7 @@ import {
   validateString,
   sanitizeInput,
 } from "./authHelpers";
+import { isNotificationCategoryEnabled } from "./notificationPreferences";
 
 // ============================================================
 // Community Module — posts, comments, likes
@@ -254,8 +255,13 @@ export const likePost = mutation({
     });
     await ctx.db.patch(args.postId, { likes: post.likes + 1 });
 
-    // Notify the post author (never self; skip missing/deleted authors).
-    if (post.userId && post.userId !== userId) {
+    // Notify the post author (never self; skip missing/deleted authors;
+    // respect the author's Settings → Notifications choice).
+    if (
+      post.userId &&
+      post.userId !== userId &&
+      (await isNotificationCategoryEnabled(ctx, post.userId, "communityUpdates"))
+    ) {
       const actor = await ctx.db.get(userId);
       await ctx.db.insert("notifications", {
         userId: post.userId,
@@ -340,8 +346,13 @@ export const addComment = mutation({
 
     await ctx.db.patch(args.postId, { comments: post.comments + 1 });
 
-    // Notify the post author about the new comment (never self).
-    if (post.userId && post.userId !== userId) {
+    // Notify the post author about the new comment (never self;
+    // respect the author's Settings → Notifications choice).
+    if (
+      post.userId &&
+      post.userId !== userId &&
+      (await isNotificationCategoryEnabled(ctx, post.userId, "communityUpdates"))
+    ) {
       const actor = await ctx.db.get(userId);
       await ctx.db.insert("notifications", {
         userId: post.userId,

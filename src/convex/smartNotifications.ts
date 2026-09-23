@@ -241,6 +241,10 @@ export async function generateLivestockNotificationsCore(
   input: { userId: Id<"users">; farmId: Id<"farms"> }
 ): Promise<{ created: number }> {
   const { userId, farmId } = input;
+  // Respect the user's Settings → Notifications choice for this category.
+  if (!(await isNotificationCategoryEnabled(ctx, userId, "livestockAlerts"))) {
+    return { created: 0 };
+  }
   const farm = await ctx.db.get(farmId);
   if (!farm || farm.userId !== userId) return { created: 0 };
 
@@ -344,6 +348,10 @@ export async function generateCropNotificationsCore(
   input: { userId: Id<"users">; farmId: Id<"farms"> }
 ): Promise<{ created: number }> {
   const { userId, farmId } = input;
+  // Respect the user's Settings → Notifications choice for this category.
+  if (!(await isNotificationCategoryEnabled(ctx, userId, "cropReminders"))) {
+    return { created: 0 };
+  }
   const farm = await ctx.db.get(farmId);
   if (!farm || farm.userId !== userId) return { created: 0 };
 

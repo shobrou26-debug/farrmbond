@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -95,16 +95,49 @@ const subscriptionConfig: Record<string, { label: string; color: string }> = {
 
 function ProfileTab() {
   const { user } = useAuth();
-  const [name, setName] = useState(user?.name || "");
-  const [email, setEmail] = useState(user?.email || "");
-  const [phone, setPhone] = useState(user?.phone || "");
-  const [location, setLocation] = useState(user?.location || "");
-  const [bio, setBio] = useState(user?.bio || "");
-  const [saved, setSaved] = useState(false);
+  // Hydrate from the server value exactly once (same pattern as
+  // NotificationsTab): never clobber in-flight edits with reactive updates.
+  const [name, setName] = useState<string | null>(null);
+  const [phone, setPhone] = useState<string | null>(null);
+  const [location, setLocation] = useState<string | null>(null);
+  const [bio, setBio] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [savedTick, setSavedTick] = useState(false);
+  const hydrated = name !== null;
 
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  useEffect(() => {
+    if (user && !hydrated) {
+      setName(user.name ?? "");
+      setPhone(user.phone ?? "");
+      setLocation(user.location ?? "");
+      setBio(user.bio ?? "");
+    }
+  }, [user, hydrated]);
+
+  const updateProfile = useMutation(api.users.updateProfile);
+
+  const handleSave = async () => {
+    if (!hydrated) return;
+    if (!name.trim()) {
+      toast.error("Name is required.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateProfile({
+        name: name.trim(),
+        phone: (phone ?? "").trim() || undefined,
+        location: (location ?? "").trim() || undefined,
+        bio: (bio ?? "").trim() || undefined,
+      });
+      setSavedTick(true);
+      toast.success("Profile updated.");
+      setTimeout(() => setSavedTick(false), 2000);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save profile. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -123,11 +156,11 @@ function ProfileTab() {
               </AvatarFallback>
             </Avatar>
             <div className="space-y-2">
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" disabled title="Profile photo upload coming soon">
                 <Camera className="w-4 h-4 mr-2" />
                 Upload Photo
               </Button>
-              <p className="text-xs text-muted-foreground">JPG, PNG or GIF. Max 2MB.</p>
+              <p className="text-xs text-muted-foreground">Photo upload is not available yet.</p>
             </div>
           </div>
         </CardContent>
@@ -139,42 +172,54 @@ function ProfileTab() {
           <CardDescription>Update your personal details</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {hydrated ? (
+            <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Full Name</label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter your name" />
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter your name" disabled={saving} />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Email</label>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter your email" type="email" />
+              <Input value={user?.email ?? ""} disabled title="Email is your sign-in identity and cannot be changed here" />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Phone</label>
-              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+254 700 000000" />
+              <Input value={phone ?? ""} onChange={(e) => setPhone(e.target.value)} placeholder="+254 700 000000" disabled={saving} />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Location</label>
-              <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Nairobi, Kenya" />
+              <Input value={location ?? ""} onChange={(e) => setLocation(e.target.value)} placeholder="Nairobi, Kenya" disabled={saving} />
             </div>
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium">Bio</label>
             <textarea
-              value={bio}
+              value={bio ?? ""}
               onChange={(e) => setBio(e.target.value)}
               placeholder="Tell us about yourself and your farming experience..."
               className="w-full h-24 px-3 py-2 text-sm bg-muted/50 rounded-xl border-0 focus:ring-2 focus:ring-primary/20 focus:bg-muted transition-all resize-none placeholder:text-muted-foreground/60"
+              disabled={saving}
             />
           </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">Loading your profile…</p>
+          )}
         </CardContent>
       </Card>
 
       <div className="flex justify-end">
-        <Button onClick={handleSave} className="gradient-primary">
-          {saved ? (
+        <Button onClick={handleSave} className="gradient-primary" disabled={!hydrated || saving}>
+          {savedTick ? (
             <>
               <CheckCircle2 className="w-4 h-4 mr-2" />
               Saved!
+            </>
+          ) : saving ? (
+            <>
+              <Save className="w-4 h-4 mr-2 animate-pulse" />
+              Saving…
             </>
           ) : (
             <>
@@ -300,39 +345,37 @@ function NotificationsTab() {
 // ============================================================
 
 function SecurityTab() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   return (
     <div className="space-y-6">
       <Card className="border-border/50">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Password</CardTitle>
-          <CardDescription>Manage your account password</CardDescription>
+          <CardTitle className="text-base">Sign-In Method</CardTitle>
+          <CardDescription>
+            You sign in with a verification code sent to your email — there is no
+            password to manage. Keep your email secure; it is the key to your account.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Current Password</label>
-            <Input type="password" placeholder="Enter current password" />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">New Password</label>
-              <Input type="password" placeholder="Enter new password" />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Confirm New Password</label>
-              <Input type="password" placeholder="Confirm new password" />
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <Mail className="w-4 h-4 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium">Email verification codes</p>
+              <p className="text-xs text-muted-foreground">
+                Passwordless sign-in via {user?.email ?? "your email"}
+              </p>
             </div>
           </div>
-          <Button variant="outline" size="sm">
-            <Lock className="w-4 h-4 mr-2" />
-            Update Password
-          </Button>
         </CardContent>
       </Card>
 
       <Card className="border-border/50">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Two-Factor Authentication</CardTitle>
-          <CardDescription>Add an extra layer of security to your account</CardDescription>
+          <CardDescription>
+            Extra protection for your account — coming soon.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-between">
@@ -340,10 +383,10 @@ function SecurityTab() {
               <Key className="w-4 h-4 text-muted-foreground" />
               <div>
                 <p className="text-sm font-medium">2FA via Authenticator App</p>
-                <p className="text-xs text-muted-foreground">Use an authenticator app to generate one-time codes</p>
+                <p className="text-xs text-muted-foreground">Not available yet</p>
               </div>
             </div>
-            <Button variant="outline" size="sm">Enable</Button>
+            <Badge variant="outline" className="text-muted-foreground">Coming soon</Badge>
           </div>
         </CardContent>
       </Card>
@@ -351,28 +394,22 @@ function SecurityTab() {
       <Card className="border-border/50">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Active Sessions</CardTitle>
-          <CardDescription>Manage devices where you're signed in</CardDescription>
+          <CardDescription>
+            Session management is not available yet. To sign out everywhere, use
+            sign out on each device — or contact support if you suspect unauthorized access.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {[
-            { device: "Chrome on Windows", location: "Nairobi, Kenya", time: "Current session", active: true },
-            { device: "Safari on iPhone", location: "Nairobi, Kenya", time: "2 hours ago", active: false },
-          ].map((session, i) => (
-            <div key={i} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
-              <div className="flex items-center gap-3">
-                <Smartphone className="w-4 h-4 text-muted-foreground" />
-                <div>
-                  <p className="text-sm font-medium">{session.device}</p>
-                  <p className="text-xs text-muted-foreground">{session.location} • {session.time}</p>
-                </div>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Smartphone className="w-4 h-4 text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium">This device</p>
+                <p className="text-xs text-muted-foreground">Currently signed in</p>
               </div>
-              {session.active ? (
-                <Badge className="bg-green-500/10 text-green-600">Active</Badge>
-              ) : (
-                <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-600">Revoke</Button>
-              )}
             </div>
-          ))}
+            <Badge className="bg-green-500/10 text-green-600">Active</Badge>
+          </div>
         </CardContent>
       </Card>
 
@@ -385,11 +422,18 @@ function SecurityTab() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium">Delete Account</p>
-              <p className="text-xs text-muted-foreground">Permanently delete your account and all data</p>
+              <p className="text-xs text-muted-foreground">
+                Permanently delete your account and all data — handled by our team
+              </p>
             </div>
-            <Button variant="outline" size="sm" className="text-red-500 border-red-500/20 hover:bg-red-500/10">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-red-500 border-red-500/20 hover:bg-red-500/10"
+              onClick={() => navigate("/support")}
+            >
               <Trash2 className="w-4 h-4 mr-2" />
-              Delete Account
+              Request via Support
             </Button>
           </div>
         </CardContent>

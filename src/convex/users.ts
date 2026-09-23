@@ -92,6 +92,32 @@ export const updatePreferences = mutation({
   },
 });
 
+/**
+ * Update the current user's editable profile fields (Settings → Profile).
+ * Email is intentionally NOT editable here — it is the auth identity.
+ * Ownership is implicit: the row patched is the authenticated user's own.
+ */
+export const updateProfile = mutation({
+  args: {
+    name: v.string(),
+    phone: v.optional(v.string()),
+    location: v.optional(v.string()),
+    bio: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    await ctx.db.patch(userId, {
+      name: args.name,
+      ...(args.phone !== undefined ? { phone: args.phone } : {}),
+      ...(args.location !== undefined ? { location: args.location } : {}),
+      ...(args.bio !== undefined ? { bio: args.bio } : {}),
+    });
+    return { success: true };
+  },
+});
+
 /** Get current user preferences */
 export const getPreferences = query({
   args: {},

@@ -7,6 +7,7 @@ import {
   validateString,
   sanitizeInput,
 } from "./authHelpers";
+import { isNotificationCategoryEnabled } from "./notificationPreferences";
 
 // ============================================================
 // Farming Events Module — public events, trainings, expos
@@ -94,17 +95,20 @@ export const registerForEvent = mutation({
     });
     await ctx.db.patch(args.eventId, { attendees: event.attendees + 1 });
 
-    // Create an in-app notification
-    await ctx.db.insert("notifications", {
-      userId,
-      title: "Event registered",
-      message: `You are registered for "${event.title}" on ${new Date(
-        event.startDate
-      ).toLocaleDateString()}.`,
-      type: "system",
-      isRead: false,
-      createdAt: Date.now(),
-    });
+    // Create an in-app notification (respecting the user's
+    // Settings → Notifications choice for system updates).
+    if (await isNotificationCategoryEnabled(ctx, userId, "systemUpdates")) {
+      await ctx.db.insert("notifications", {
+        userId,
+        title: "Event registered",
+        message: `You are registered for "${event.title}" on ${new Date(
+          event.startDate
+        ).toLocaleDateString()}.`,
+        type: "system",
+        isRead: false,
+        createdAt: Date.now(),
+      });
+    }
 
     await createAuditLog(ctx, {
       userId,

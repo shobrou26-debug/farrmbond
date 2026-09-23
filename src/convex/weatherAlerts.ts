@@ -9,6 +9,7 @@ import {
   pageWeatherAlertConfigs,
   type CronBatchResult,
 } from "./cronBatch";
+import { isNotificationCategoryEnabled } from "./notificationPreferences";
 
 // ============================================================
 // Allowed values
@@ -687,6 +688,11 @@ export const generateWeatherAlerts = mutation({
   handler: async (ctx) => {
     const { userId } = await requireAuth(ctx);
 
+    // Respect the user's Settings → Notifications "Weather Alerts" choice.
+    if (!(await isNotificationCategoryEnabled(ctx, userId, "weatherAlerts"))) {
+      return { created: 0 };
+    }
+
     const configDoc = await ctx.db
       .query("weatherAlertConfigs")
       .withIndex("by_user", (q) => q.eq("userId", userId))
@@ -850,6 +856,11 @@ export const generateWeatherAlertsForAllUsers = internalMutation({
       pageWeatherAlertConfigs,
       async (ctx, configDoc) => {
         if (!configDoc.enabled) return;
+
+        // Respect the user's Settings → Notifications "Weather Alerts" choice.
+        if (!(await isNotificationCategoryEnabled(ctx, configDoc.userId, "weatherAlerts"))) {
+          return;
+        }
 
         const latRounded = Math.round(configDoc.location.latitude * 100) / 100;
         const lonRounded = Math.round(configDoc.location.longitude * 100) / 100;
