@@ -151,7 +151,7 @@ describe("Weather action hardening", () => {
   });
 
   test("the cron registry calls the prefetch job through internal.weather", () => {
-    const cronSrc = readConvex("cron.ts");
+    const cronSrc = readConvex("crons.ts");
     expect(cronSrc).toContain("internal.weather.prefetchAllFarmWeather");
     expect(occurrences(cronSrc, "api.weather.prefetchAllFarmWeather")).toBe(0);
   });

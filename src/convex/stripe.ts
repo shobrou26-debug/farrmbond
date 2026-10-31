@@ -2,6 +2,7 @@ import { action, query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
+import { createAuditLog } from "./authHelpers";
 
 // ============================================================
 // Stripe Integration
@@ -427,7 +428,6 @@ export const activateSubscription = internalMutation({
       updatedAt: now,
     });
 
-    const { createAuditLog } = await import("./authHelpers");
     await createAuditLog(ctx, {
       userId: args.userId,
       action: "subscription_activated",
@@ -489,7 +489,6 @@ export const handlePaymentFailure = internalMutation({
       updatedAt: Date.now(),
     });
 
-    const { createAuditLog } = await import("./authHelpers");
     await createAuditLog(ctx, {
       userId: args.userId,
       action: "payment_failed",
@@ -585,7 +584,6 @@ export const cancelSubscriptionMutation = internalMutation({
       updatedAt: Date.now(),
     });
 
-    const { createAuditLog } = await import("./authHelpers");
     await createAuditLog(ctx, {
       userId: args.userId,
       action: "subscription_cancelled",

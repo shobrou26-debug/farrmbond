@@ -1,5 +1,5 @@
 import { query, mutation, internalMutation } from "./_generated/server";
-import { requireAuth, createAuditLog } from "./authHelpers";
+import { requireAuth, requireAdmin, createAuditLog } from "./authHelpers";
 import { internal } from "./_generated/api";
 import {
   CRON_BATCH_SIZE,
@@ -66,7 +66,6 @@ export const getSubscriptionStatus = query({
 export const getSubscriptionStats = query({
   args: {},
   handler: async (ctx) => {
-    const { requireAdmin } = await import("./authHelpers");
     await requireAdmin(ctx);
 
     const now = Date.now();

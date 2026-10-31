@@ -2,6 +2,7 @@ import { action, query, internalMutation, internalQuery } from "./_generated/ser
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
+import { createAuditLog } from "./authHelpers";
 
 // ============================================================
 // SECTION 1 — Environment Configuration
@@ -885,7 +886,6 @@ export const updateTransactionStatus = internalMutation({
       const confirmedAmount = extractConfirmedAmount(args.providerResponse);
       const effectiveAmount = confirmedAmount ?? transaction.amount;
       if (!isFullPricedSubscriptionPayment(effectiveAmount)) {
-        const { createAuditLog } = await import("./authHelpers");
         await createAuditLog(ctx, {
           userId: transaction.userId,
           action: "underpriced_payment_rejected",
@@ -915,7 +915,6 @@ export const updateTransactionStatus = internalMutation({
         updatedAt: now,
       });
 
-      const { createAuditLog } = await import("./authHelpers");
       await createAuditLog(ctx, {
         userId: transaction.userId,
         action: "mobile_payment_completed",
@@ -958,7 +957,6 @@ export const settleConsultationPayment = internalMutation({
       return { settled: false, reason: "already_paid" };
     }
     if (!isFullConsultationPayment(args.confirmedAmount, args.expectedAmount)) {
-      const { createAuditLog } = await import("./authHelpers");
       await createAuditLog(ctx, {
         userId: args.userId,
         action: "underpriced_consultation_payment_rejected",
@@ -979,7 +977,6 @@ export const settleConsultationPayment = internalMutation({
       updatedAt: now,
     });
 
-    const { createAuditLog } = await import("./authHelpers");
     await createAuditLog(ctx, {
       userId: args.userId,
       action: "consultation_payment_completed",
