@@ -1,6 +1,6 @@
 import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
-import { requireAuth, createAuditLog } from "./authHelpers";
+import { requireAuth, requireAdmin, createAuditLog } from "./authHelpers";
 import { internal } from "./_generated/api";
 import {
   CRON_BATCH_SIZE,
@@ -305,7 +305,6 @@ export const sendTrialExpiryWarnings = internalMutation({
 export const getTrialStats = query({
   args: {},
   handler: async (ctx) => {
-    const { requireAdmin } = await import("./authHelpers");
     await requireAdmin(ctx);
 
     const now = Date.now();
