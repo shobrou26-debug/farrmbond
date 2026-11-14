@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    cache:
+      key: ${{ runner.os }}-${{ hashFiles('package.json', 'bun.lockb') }}
+      restore-keys: |
+        ${{ runner.os }}-
+      paths:
+        - .bun/installation/
+        - node_modules/
+        - src/__tests__/
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run all tests
+        run: bun test --run
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npx vite build
+
+      - name: Schema integrity tests
+        run: bun test --run src/__tests__/schemaIntegrity.test.ts

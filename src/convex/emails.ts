@@ -157,6 +157,28 @@ export const sendInvoiceEmail = action({
 });
 
 /**
+ * Send the weekly digest email (transport only).
+ * INTERNAL ONLY — scheduled by the batched weeklyDigest cron, which
+ * owns selection, gating, and dedup. Content comes pre-rendered from
+ * the pure renderer in src/lib/emailDigest.ts.
+ */
+export const sendWeeklyDigest = internalAction({
+  args: {
+    userId: v.id("users"),
+    email: v.string(),
+    name: v.string(),
+    subject: v.string(),
+    html: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!BREVO_API_KEY) {
+      return { sent: false, reason: "Brevo API key not configured" };
+    }
+    return sendEmail(args.email, args.subject, args.html);
+  },
+});
+
+/**
  * Helper function to send email via Brevo (Sendinblue)
  */
 async function sendEmail(to: string, subject: string, html: string) {

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { PAID_CHECKOUT_ENABLED, CHECKOUT_UNAVAILABLE_NOTICE } from "@/lib/checkout";
 
 const statusConfig: Record<string, { label: string; color: string; icon: typeof CheckCircle2 }> = {
   pending: { label: "Pending", color: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400", icon: Clock },
@@ -95,6 +96,10 @@ export default function MyConsultations() {
   }, [pollIntervalId]);
 
   const handlePayClick = useCallback((consultation: any) => {
+    if (!PAID_CHECKOUT_ENABLED) {
+      toast.error(CHECKOUT_UNAVAILABLE_NOTICE);
+      return;
+    }
     setPayingConsultationId(consultation._id);
     setPayingAmount(consultation.amount);
     setShowPayModal(true);
@@ -106,6 +111,10 @@ export default function MyConsultations() {
   }, []);
 
   const handleInitiatePayment = async () => {
+    if (!PAID_CHECKOUT_ENABLED) {
+      toast.error(CHECKOUT_UNAVAILABLE_NOTICE);
+      return;
+    }
     if (!payingConsultationId || !phoneInput) return;
     setIsPaying(true);
     try {
@@ -233,10 +242,13 @@ export default function MyConsultations() {
                         <span className="font-medium">KES {consultation.amount.toLocaleString()}</span>
                       </div>
                       <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border">
-                        {needsPayment && !hasPendingPayment && (
+                        {needsPayment && !hasPendingPayment && PAID_CHECKOUT_ENABLED && (
                           <Button size="sm" className="gradient-primary" onClick={() => handlePayClick(consultation)}>
                             <Smartphone className="w-3 h-3 mr-1" /> Pay Now
                           </Button>
+                        )}
+                        {needsPayment && !hasPendingPayment && !PAID_CHECKOUT_ENABLED && (
+                          <span className="text-xs text-muted-foreground">Paid consultations are temporarily unavailable for checkout.</span>
                         )}
                         {hasPendingPayment && (
                           <Badge variant="outline" className="text-xs">
@@ -263,7 +275,7 @@ export default function MyConsultations() {
       </div>
 
       {/* Payment Modal */}
-      {showPayModal && (
+      {PAID_CHECKOUT_ENABLED && showPayModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
           onClick={(e) => { if (e.target === e.currentTarget) handlePaymentDone(); }}>
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}

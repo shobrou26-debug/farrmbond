@@ -1,4 +1,5 @@
 import { mutation, internalMutation } from "./_generated/server";
+import { requireAuth } from "./authHelpers";
 import {
   generateWeatherNotificationsCore,
   generateLivestockNotificationsCore,
@@ -141,7 +142,6 @@ export const runAllNotificationsForAllFarms = internalMutation({
 export const listUserNotifications = mutation({
   args: {},
   handler: async (ctx) => {
-    const { requireAuth } = await import("./authHelpers");
     const { userId } = await requireAuth(ctx);
 
     return await ctx.db

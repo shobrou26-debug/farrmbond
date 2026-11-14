@@ -1,6 +1,17 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { query, mutation, internalQuery, QueryCtx } from "./_generated/server";
+import {
+  query,
+  mutation,
+  internalQuery,
+  QueryCtx,
+} from "./_generated/server";
 import { v } from "convex/values";
+import { requireAuth, createAuditLog } from "./authHelpers";
+import {
+  isValidProfilePhotoType,
+  isWithinProfilePhotoSize,
+  shouldDeleteReplacedPhoto,
+} from "../lib/profilePhoto";
 
 /**
  * Get the current signed in user. Returns null if the user is not signed in.
@@ -113,6 +124,130 @@ export const updateProfile = mutation({
       ...(args.phone !== undefined ? { phone: args.phone } : {}),
       ...(args.location !== undefined ? { location: args.location } : {}),
       ...(args.bio !== undefined ? { bio: args.bio } : {}),
+    });
+    return { success: true };
+  },
+});
+
+// ============================================================
+// Profile Photo (Convex file storage)
+//
+// The photo file lives in Convex storage; the user row keeps a
+// display URL in `image` plus the owning `imageStorageId`. Storing
+// the URL keeps every existing avatar consumer (`user.image`)
+// working without change; storing the id enables replacing the
+// blob (no orphaned files) and honest deletion.
+// The server re-validates type/size from the stored blob's own
+// metadata — never from client input.
+// ============================================================
+
+/** Auth-gated upload URL for the current user's profile photo. */
+export const generateProfilePhotoUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireAuth(ctx);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/**
+ * Attach an uploaded storage blob as the current user's profile
+ * photo. The blob's metadata is verified (real image type, within
+ * size limit) before it is accepted; the previous photo blob is
+ * deleted when replaced (unless still referenced elsewhere).
+ */
+export const setProfilePhoto = mutation({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    const { userId, user } = await requireAuth(ctx);
+
+    // Validate the stored blob itself — never trust client metadata.
+    const metadata = await ctx.db.system.get(args.storageId);
+    if (!metadata || !isValidProfilePhotoType(metadata.contentType ?? null)) {
+      throw new Error("Unsupported image type. Use JPEG, PNG, or WebP.");
+    }
+    if (!isWithinProfilePhotoSize(metadata.size)) {
+      throw new Error("Image is too large or empty. Maximum size is 5 MB.");
+    }
+
+    const storageUrl = await ctx.storage.getUrl(args.storageId);
+    if (!storageUrl) {
+      throw new Error("Uploaded image could not be resolved. Try again.");
+    }
+
+    const previousStorageId = user.imageStorageId;
+
+    await ctx.db.patch(userId, {
+      image: storageUrl,
+      imageStorageId: args.storageId,
+    });
+
+    // Delete the replaced blob so storage doesn't accumulate orphans.
+    if (
+      previousStorageId &&
+      shouldDeleteReplacedPhoto({
+        previousStorageId,
+        newStorageId: args.storageId,
+        referencedElsewhere:
+          (
+            await ctx.db
+              .query("users")
+              .withIndex("by_image_storage", (q) =>
+                q.eq("imageStorageId", previousStorageId)
+              )
+              .first()
+          ) !== null,
+      })
+    ) {
+      await ctx.storage.delete(previousStorageId);
+    }
+
+    await createAuditLog(ctx, {
+      userId,
+      action: "profile_photo_set",
+      resource: "users",
+      resourceId: userId,
+    });
+    return { success: true };
+  },
+});
+
+/**
+ * Remove the current user's profile photo: clears the display URL
+ * and storage reference and deletes the blob (unless referenced
+ * elsewhere).
+ */
+export const removeProfilePhoto = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { userId, user } = await requireAuth(ctx);
+    const previousStorageId = user.imageStorageId;
+
+    await ctx.db.patch(userId, {
+      image: undefined,
+      imageStorageId: undefined,
+    });
+
+    if (previousStorageId) {
+      const referencedElsewhere =
+        (
+          await ctx.db
+            .query("users")
+            .withIndex("by_image_storage", (q) =>
+              q.eq("imageStorageId", previousStorageId)
+            )
+            .first()
+        ) !== null;
+      if (!referencedElsewhere) {
+        await ctx.storage.delete(previousStorageId);
+      }
+    }
+
+    await createAuditLog(ctx, {
+      userId,
+      action: "profile_photo_removed",
+      resource: "users",
+      resourceId: userId,
     });
     return { success: true };
   },

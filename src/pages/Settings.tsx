@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link, useNavigate } from "react-router";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme, THEMES } from "@/hooks/use-theme";
+import { PAID_CHECKOUT_ENABLED, CHECKOUT_UNAVAILABLE_NOTICE } from "@/lib/checkout";
 import { useUnits } from "@/hooks/use-units";
 import { useTimezone, TIMEZONE_GROUPS } from "@/hooks/use-timezone";
 import { useCurrency, CURRENCY_GROUPS } from "@/hooks/use-currency";
@@ -30,6 +32,10 @@ import {
   type NotificationPreferenceKey,
   type NotificationPreferences,
 } from "@/lib/notificationPreferences";
+import {
+  isValidProfilePhotoType,
+  isWithinProfilePhotoSize,
+} from "@/lib/profilePhoto";
 import { toast } from "sonner";
 import {
   User,
@@ -115,6 +121,57 @@ function ProfileTab() {
   }, [user, hydrated]);
 
   const updateProfile = useMutation(api.users.updateProfile);
+  const generateUploadUrl = useMutation(api.users.generateProfilePhotoUploadUrl);
+  const setPhoto = useMutation(api.users.setProfilePhoto);
+  const removePhoto = useMutation(api.users.removeProfilePhoto);
+
+  // Profile photo upload state (Convex file storage — same flow as
+  // disease-detection images: POST the file to a storage URL, then
+  // hand the storage id to a server mutation that validates and attaches).
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoRemoving, setPhotoRemoving] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  const uploadProfilePhoto = async (file: File) => {
+    if (!isValidProfilePhotoType(file.type)) {
+      toast.error("Unsupported image type. Use JPEG, PNG, or WebP.");
+      return;
+    }
+    if (!isWithinProfilePhotoSize(file.size)) {
+      toast.error("Image is too large. Maximum size is 5 MB.");
+      return;
+    }
+    setPhotoUploading(true);
+    try {
+      const uploadUrl = await generateUploadUrl({});
+      const res = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+      const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
+      await setPhoto({ storageId });
+      toast.success("Profile photo updated.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not upload photo. Please try again.");
+    } finally {
+      setPhotoUploading(false);
+      if (photoInputRef.current) photoInputRef.current.value = "";
+    }
+  };
+
+  const handleRemoveProfilePhoto = async () => {
+    setPhotoRemoving(true);
+    try {
+      await removePhoto({});
+      toast.success("Profile photo removed.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not remove photo. Please try again.");
+    } finally {
+      setPhotoRemoving(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!hydrated) return;
@@ -156,11 +213,49 @@ function ProfileTab() {
               </AvatarFallback>
             </Avatar>
             <div className="space-y-2">
-              <Button variant="outline" size="sm" disabled title="Profile photo upload coming soon">
-                <Camera className="w-4 h-4 mr-2" />
-                Upload Photo
-              </Button>
-              <p className="text-xs text-muted-foreground">Photo upload is not available yet.</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void uploadProfilePhoto(file);
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={photoUploading || photoRemoving}
+                  onClick={() => photoInputRef.current?.click()}
+                >
+                  {photoUploading ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Camera className="w-4 h-4 mr-2" />
+                  )}
+                  {photoUploading ? "Uploading…" : "Upload Photo"}
+                </Button>
+                {user?.image && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={photoUploading || photoRemoving}
+                    onClick={() => void handleRemoveProfilePhoto()}
+                  >
+                    {photoRemoving ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4 mr-2" />
+                    )}
+                    Remove
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                JPEG, PNG, or WebP • up to 5 MB
+              </p>
             </div>
           </div>
         </CardContent>
@@ -463,6 +558,8 @@ function SubscriptionTab() {
   const initiateAirtelPayment = useAction(api.mobileMoney.initiateAirtelPayment);
   const checkMtnPaymentStatus = useAction(api.mobileMoney.checkMtnPaymentStatus);
   const checkAirtelPaymentStatus = useAction(api.mobileMoney.checkAirtelPaymentStatus);
+  const initiatePawapayDeposit = useAction(api.pawapay.initiatePawapayDeposit);
+  const checkPawapayDepositStatus = useAction(api.pawapay.checkPawapayDepositStatus);
   const userTxns = useQuery(api.mobileMoney.getUserTransactions);
   const [isStartingTrial, setIsStartingTrial] = useState(false);
   const [isCreatingCheckout, setIsCreatingCheckout] = useState(false);
@@ -474,10 +571,13 @@ function SubscriptionTab() {
   const [isInitiatingMobilePayment, setIsInitiatingMobilePayment] = useState(false);
   const [selectedMobileProvider, setSelectedMobileProvider] = useState<string | null>(null);
   const [activePayment, setActivePayment] = useState<{
-    provider: "mtn_momo" | "airtel_money";
+    provider: "mtn_momo" | "airtel_money" | "pawapay";
     referenceId: string;
     status: "pending" | "completed" | "failed" | "timeout";
   } | null>(null);
+  const [pawaPayProvider, setPawaPayProvider] = useState<"MTN_MOMO_ZMB" | "AIRTEL_OAPI_ZMB">(
+    "MTN_MOMO_ZMB"
+  );
 
   // Poll the provider until the mobile-money payment reaches a terminal state.
   // Client-side only: the actual grant of Pro happens server-side, inside the
@@ -489,18 +589,25 @@ function SubscriptionTab() {
       attempts += 1;
       try {
         const result =
-          activePayment.provider === "mtn_momo"
+          activePayment.provider === "pawapay"
+            ? await checkPawapayDepositStatus({ referenceId: activePayment.referenceId })
+            : activePayment.provider === "mtn_momo"
             ? await checkMtnPaymentStatus({ referenceId: activePayment.referenceId })
             : await checkAirtelPaymentStatus({
                 transactionId: activePayment.referenceId,
                 countryCode: mobileMoneyCountry,
               });
         const status = String((result as any)?.status || "").toUpperCase();
-        if (status === "SUCCESSFUL" || status === "SUCCESS") {
+        if (status === "SUCCESSFUL" || status === "SUCCESS" || status === "COMPLETED") {
           clearInterval(interval);
           setActivePayment((p) => (p ? { ...p, status: "completed" } : p));
           toast.success("Payment completed — your Pro plan is active!");
-        } else if (status === "FAILED" || status === "EXPIRED" || status === "CANCELLED") {
+        } else if (
+          status === "FAILED" ||
+          status === "EXPIRED" ||
+          status === "CANCELLED" ||
+          status === "NOT_FOUND"
+        ) {
           clearInterval(interval);
           setActivePayment((p) => (p ? { ...p, status: "failed" } : p));
           toast.error("Payment failed or expired. Please try again.");
@@ -555,6 +662,36 @@ function SubscriptionTab() {
       console.error("Failed to start trial:", err);
     } finally {
       setIsStartingTrial(false);
+    }
+  };
+
+  // pawaPay sandbox deposit — server sets the amount (ZMW 115 test price).
+  const handlePawaPay = async () => {
+    if (!PAID_CHECKOUT_ENABLED) {
+      toast.error(CHECKOUT_UNAVAILABLE_NOTICE);
+      return;
+    }
+    if (!mobileMoneyPhone) {
+      toast.error("Please enter your mobile money number");
+      return;
+    }
+    setIsInitiatingMobilePayment(true);
+    try {
+      const result = await initiatePawapayDeposit({
+        phoneNumber: mobileMoneyPhone,
+        provider: pawaPayProvider,
+      });
+      if (result.status === "failed") {
+        toast.error(result.message);
+      } else {
+        setActivePayment({ provider: "pawapay", referenceId: result.depositId, status: "pending" });
+        toast.success(result.message);
+      }
+    } catch (err) {
+      console.error("Failed to initiate pawaPay deposit:", err);
+      toast.error("Failed to initiate pawaPay deposit. Please try again.");
+    } finally {
+      setIsInitiatingMobilePayment(false);
     }
   };
 
@@ -862,6 +999,12 @@ function SubscriptionTab() {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
+          {!PAID_CHECKOUT_ENABLED && (
+            <div role="status" data-testid="checkout-unavailable" className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+              <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">Paid subscriptions temporarily unavailable</p>
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">{CHECKOUT_UNAVAILABLE_NOTICE}</p>
+            </div>
+          )}
           <p className="text-sm text-muted-foreground">Unlock the full power of FarmBond with Pro features:</p>
           <ul className="space-y-2">
             {[
@@ -894,7 +1037,7 @@ function SubscriptionTab() {
                 )}
               </Button>
             )}
-            {tier === "free" && !canUseTrial && (
+            {tier === "free" && !canUseTrial && PAID_CHECKOUT_ENABLED && (
               <>
                 {/* Card Payment Button */}
                 <Button
@@ -949,7 +1092,7 @@ function SubscriptionTab() {
                 )}
               </>
             )}
-            {tier === "pro" && (
+            {tier === "pro" && PAID_CHECKOUT_ENABLED && (
               <Button
                 className="w-full"
                 variant="outline"                onClick={async () => {
@@ -981,7 +1124,7 @@ function SubscriptionTab() {
       </Card>
 
       {/* Payment Failed Warning */}
-      {isPaid && hasPaymentFailed && (
+      {isPaid && hasPaymentFailed && PAID_CHECKOUT_ENABLED && (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -1045,7 +1188,7 @@ function SubscriptionTab() {
       )}
 
       {/* Payment Method Status */}
-      {isPaid && (
+      {isPaid && PAID_CHECKOUT_ENABLED && (
         <Card className={`border ${paymentMethodVerified ? "border-green-200 dark:border-green-800" : "border-amber-200 dark:border-amber-800"}`}>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -1151,7 +1294,7 @@ function SubscriptionTab() {
 
       {/* Mobile Money Payment Form */}
       <AnimatePresence>
-        {showMobileMoney && (
+        {PAID_CHECKOUT_ENABLED && showMobileMoney && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
@@ -1256,6 +1399,10 @@ function SubscriptionTab() {
                 <Button
                   className="w-full gradient-primary"
                   onClick={async () => {
+                    if (!PAID_CHECKOUT_ENABLED) {
+                      toast.error(CHECKOUT_UNAVAILABLE_NOTICE);
+                      return;
+                    }
                     if (!selectedMobileProvider) {
                       toast.error("Please select a payment provider");
                       return;
@@ -1328,6 +1475,84 @@ function SubscriptionTab() {
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Shield className="w-3.5 h-3.5" />
                   <span>You will receive a prompt on your phone to confirm the payment</span>
+                </div>
+
+                {/* pawaPay Sandbox Test */}
+                <div className="p-4 rounded-xl border border-dashed border-amber-400/60 bg-amber-50/50 dark:bg-amber-950/20 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600">
+                      pawaPay Sandbox Test
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      ZMW 115 test amount — no real money moves
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Pay with pawaPay (sandbox) using an official pawaPay test number — e.g. MTN
+                    260763456789 or Airtel 260973456789 (both simulate a successful deposit).
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setPawaPayProvider("MTN_MOMO_ZMB")}
+                      className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all ${
+                        pawaPayProvider === "MTN_MOMO_ZMB"
+                          ? "border-primary bg-primary/5"
+                          : "border-border/50 hover:border-border"
+                      }`}
+                    >
+                      <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-amber-500 text-white font-bold text-[10px]">
+                        MTN
+                      </div>
+                      <div className="text-left">
+                        <p className="text-sm font-medium">MTN MoMo</p>
+                        <p className="text-[10px] text-muted-foreground">MTN_MOMO_ZMB</p>
+                      </div>
+                      {pawaPayProvider === "MTN_MOMO_ZMB" && (
+                        <CheckCircle2 className="w-4 h-4 text-primary ml-auto" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setPawaPayProvider("AIRTEL_OAPI_ZMB")}
+                      className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all ${
+                        pawaPayProvider === "AIRTEL_OAPI_ZMB"
+                          ? "border-primary bg-primary/5"
+                          : "border-border/50 hover:border-border"
+                      }`}
+                    >
+                      <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-red-600 text-white font-bold text-[10px]">
+                        AIR
+                      </div>
+                      <div className="text-left">
+                        <p className="text-sm font-medium">Airtel Money</p>
+                        <p className="text-[10px] text-muted-foreground">AIRTEL_OAPI_ZMB</p>
+                      </div>
+                      {pawaPayProvider === "AIRTEL_OAPI_ZMB" && (
+                        <CheckCircle2 className="w-4 h-4 text-primary ml-auto" />
+                      )}
+                    </button>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="w-full border-amber-400/60 text-amber-700 dark:text-amber-400 hover:bg-amber-100/50"
+                    onClick={handlePawaPay}
+                    disabled={
+                      isInitiatingMobilePayment ||
+                      !mobileMoneyPhone ||
+                      activePayment?.status === "pending"
+                    }
+                  >
+                    {isInitiatingMobilePayment ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Submitting Deposit...
+                      </>
+                    ) : (
+                      <>
+                        <PhoneIcon className="w-4 h-4 mr-2" />
+                        Pay ZMW 115 with pawaPay (Sandbox)
+                      </>
+                    )}
+                  </Button>
                 </div>
 
                 {/* Live payment status (polled from the provider) */}

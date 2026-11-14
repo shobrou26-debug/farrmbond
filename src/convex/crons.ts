@@ -157,6 +157,20 @@ crons.interval(
 );
 
 /**
+ * Send the weekly digest email weekly.
+ * Batched over users; gated by the emailDigest notification preference
+ * and the by_user_action 7-day dedup, so each user gets at most one
+ * digest per week even across retried chains. Empty digests are
+ * skipped, never sent (data honesty).
+ */
+crons.interval(
+  "weekly_digest",
+  { hours: 168 },  // Once per week
+  internal.weeklyDigest.sendWeeklyDigests,
+  { cursor: null }
+);
+
+/**
  * Send calendar event reminders daily.
  * Checks upcoming events with reminderDaysBefore and creates
  * notifications for the authenticated user.
@@ -166,6 +180,18 @@ crons.interval(
   { hours: 24 },
   internal.farmCalendar.sendCalendarReminders,
   {}
+);
+
+/**
+ * Reconcile pending pawaPay sandbox deposits every 15 minutes.
+ * Independently re-checks stuck pending rows via GET /v2/deposits/{id}
+ * (no callback required) and resolves them idempotently; NOT_FOUND is
+ * only marked failed after a 10-minute grace period.
+ */
+crons.interval(
+  "pawapay_reconciliation",
+  { minutes: 15 },
+  internal.pawapay.reconcilePendingDeposits
 );
 
 export default crons;

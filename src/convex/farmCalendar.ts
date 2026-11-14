@@ -277,7 +277,7 @@ export const sendCalendarReminders = internalMutation({
     let skipped = 0;
 
     for (const [, group] of eventsByUser) {
-      const userId = group.userId as import("./_generated/dataModel").Id<"users">;
+      const userId = group.userId as Id<"users">;
 
       // Respect the user's Settings → Notifications "Crop Reminders" choice
       // (calendar reminders fall under the crop-reminder category).

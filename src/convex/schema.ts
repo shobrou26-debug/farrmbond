@@ -127,6 +127,10 @@ const schema = defineSchema(
     users: defineTable({
       name: v.optional(v.string()),
       image: v.optional(v.string()),
+      // Profile photo blob owner (Convex storage). `image` holds the
+      // display URL so existing avatar consumers keep working; this id
+      // enables replacing/deleting the underlying file.
+      imageStorageId: v.optional(v.id("_storage")),
       email: v.optional(v.string()),
       emailVerificationTime: v.optional(v.number()),
       isAnonymous: v.optional(v.boolean()),
@@ -190,7 +194,10 @@ const schema = defineSchema(
       // Phase 7: the Stripe webhook resolves users by Stripe customer ID on
       // every payment event. An indexed lookup replaces the previous
       // full-table filter, so webhook traffic stays O(1) at 200k+ users.
-      .index("by_stripe_customer", ["stripeCustomerId"]),
+      .index("by_stripe_customer", ["stripeCustomerId"])
+      // Profile photo replacement: confirm a storage blob is no longer
+      // referenced before deleting it (orphan prevention at scale).
+      .index("by_image_storage", ["imageStorageId"]),
 
     // ============================================================
     // FARMS TABLE
@@ -1194,6 +1201,10 @@ const schema = defineSchema(
       currency: v.string(),
       phoneNumber: v.string(),
       countryCode: v.optional(v.string()),
+      // pawaPay network identifier ("MTN_MOMO_ZMB" / "AIRTEL_OAPI_ZMB") —
+      // optional, set only for provider = "pawapay" rows; verified against
+      // the pawaPay status/callback data before any Pro grant.
+      pawaPayProvider: v.optional(v.string()),
       
       // Status
       status: v.string(), // "pending", "completed", "failed", "expired"

@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { api } from "@/convex/_generated/api";
-import { extractHashtags } from "@/convex/community";
+import { extractHashtags } from "@/convex/communityShared";
 import { usePaginatedQuery } from "@/hooks/use-paginated-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useMotion } from "@/hooks/use-motion";
