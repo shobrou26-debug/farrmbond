@@ -18,6 +18,7 @@ import type * as auth from "../auth.js";
 import type * as auth_emailOtp from "../auth/emailOtp.js";
 import type * as authHelpers from "../authHelpers.js";
 import type * as community from "../community.js";
+import type * as communityShared from "../communityShared.js";
 import type * as cronBatch from "../cronBatch.js";
 import type * as crons from "../crons.js";
 import type * as crops from "../crops.js";
@@ -77,6 +78,7 @@ declare const fullApi: ApiFromModules<{
   "auth/emailOtp": typeof auth_emailOtp;
   authHelpers: typeof authHelpers;
   community: typeof community;
+  communityShared: typeof communityShared;
   cronBatch: typeof cronBatch;
   crons: typeof crons;
   crops: typeof crops;
